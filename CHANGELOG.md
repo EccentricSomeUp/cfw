@@ -23,6 +23,8 @@ semantic versioning once a stable release policy is adopted.
   comparison plus prefix/suffix checks
 - Logging facade with level filtering, bounded formatted messages, pluggable
   sinks, approximate rate limiting, and dropped-message accounting
+- Bump-allocator memory regions (`cfw_arena_t`) with aligned allocation,
+  oversized-request handling, zeroed allocation, and bulk reset
 - CMake build, presets, sanitizer configuration, install rules, and CMake
   package config
 - Custom unit-test harness with debug, release, and sanitizer verification

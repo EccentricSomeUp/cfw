@@ -3,6 +3,7 @@
 #ifndef CFW_H
 #define CFW_H
 
+#include <cfw/arena.h>
 #include <cfw/buffer.h>
 #include <cfw/checked_arithmetic.h>
 #include <cfw/log.h>
