@@ -8,7 +8,7 @@
 ## Context
 
 `cfw` is intended to be a from-scratch C web server framework prioritizing
-security, stability, and extensibility. The project will develop slowly and
+security, stability, and performance. The project will develop slowly and
 require regular audits and a custom test suite.
 
 ## Decisions

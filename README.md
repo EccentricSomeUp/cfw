@@ -14,7 +14,7 @@ socket, routing, or server functionality is implemented yet.
 
 1. Security
 2. Stability
-3. Extensibility
+3. Performance
 
 These priorities are ordered intentionally. Features that weaken memory safety,
 input validation, predictable failure behavior, or auditability require an

@@ -3,7 +3,7 @@
 # Security process
 
 Security is the highest-priority project requirement, followed by stability and
-then extensibility. Security work is continuous rather than a release-time
+then performance. Security work is continuous rather than a release-time
 checklist.
 
 ## Security principles
