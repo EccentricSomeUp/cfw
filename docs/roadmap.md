@@ -14,12 +14,12 @@ security review, and audit evidence before proceeding.
 
 ## Phase 1: Core primitives
 
-- Status codes and error propagation conventions
-- Version and ABI policy enforcement
-- Allocation policy and checked arithmetic helpers
-- Buffer, string, span, and memory-region abstractions
-- Time, duration, and timeout primitives
-- Logging facade with rate limiting and redaction rules
+- [x] Status codes and error propagation conventions
+- [x] Version and ABI policy enforcement
+- [x] Allocation policy and checked arithmetic helpers
+- [x] Buffer, string, span, and memory-region abstractions
+- [x] Time, duration, and timeout primitives
+- [x] Logging facade with rate limiting and redaction rules
 
 Exit criteria: memory-safe core utilities with unit, sanitizer, and misuse
 tests.

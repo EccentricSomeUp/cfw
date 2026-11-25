@@ -25,6 +25,8 @@ semantic versioning once a stable release policy is adopted.
   sinks, approximate rate limiting, and dropped-message accounting
 - Bump-allocator memory regions (`cfw_arena_t`) with aligned allocation,
   oversized-request handling, zeroed allocation, and bulk reset
+- Platform capability detection: OS/architecture/endianness enums,
+  pointer width, diagnostic names, and OS page-size query
 - CMake build, presets, sanitizer configuration, install rules, and CMake
   package config
 - Custom unit-test harness with debug, release, and sanitizer verification
