@@ -31,6 +31,7 @@ set(CFW_SOURCES
     src/cfw/arena.c
     src/cfw/buffer.c
     src/cfw/checked_arithmetic.c
+    src/cfw/fd.c
     src/cfw/log.c
     src/cfw/platform.c
     src/cfw/span.c
