@@ -3,6 +3,7 @@
 #ifndef CFW_H
 #define CFW_H
 
+#include <cfw/buffer.h>
 #include <cfw/checked_arithmetic.h>
 #include <cfw/span.h>
 #include <cfw/status.h>

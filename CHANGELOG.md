@@ -17,6 +17,7 @@ semantic versioning once a stable release policy is adopted.
   subtraction, and multiplication
 - `CFW_ERROR_OVERFLOW` status for representability failures
 - Immutable byte-span primitive with bounds-checked subspan extraction
+- Owning byte-buffer primitive with checked growth and span views
 - CMake build, presets, sanitizer configuration, install rules, and CMake
   package config
 - Custom unit-test harness with debug, release, and sanitizer verification
