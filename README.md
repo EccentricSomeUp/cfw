@@ -6,9 +6,9 @@
 C11 with no third-party runtime dependencies.
 
 The project is currently at repository-bootstrap stage. Only foundational
-version/status APIs, checked arithmetic helpers, build configuration, and test
-infrastructure exist; no HTTP, socket, routing, or server functionality is
-implemented yet.
+version/status APIs, checked arithmetic helpers, byte-span primitives, build
+configuration, and test infrastructure exist; no HTTP, socket, routing, or
+server functionality is implemented yet.
 
 ## Priorities
 

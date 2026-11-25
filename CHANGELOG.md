@@ -16,6 +16,7 @@ semantic versioning once a stable release policy is adopted.
 - Checked arithmetic helpers for `u32`, `u64`, and `size_t` addition,
   subtraction, and multiplication
 - `CFW_ERROR_OVERFLOW` status for representability failures
+- Immutable byte-span primitive with bounds-checked subspan extraction
 - CMake build, presets, sanitizer configuration, install rules, and CMake
   package config
 - Custom unit-test harness with debug, release, and sanitizer verification
