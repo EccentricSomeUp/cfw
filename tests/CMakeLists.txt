@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 add_executable(cfw_unit_tests
+    unit/test_checked_arithmetic.c
     unit/test_main.c
     unit/test_status.c
     unit/test_version.c

@@ -5,9 +5,9 @@
 ## Current state
 
 `cfw` is pre-implementation. The repository currently contains only build,
-packaging, API conventions, status/version primitives, and test infrastructure.
-The architecture below describes the intended direction, not implemented
-behavior.
+packaging, API conventions, version/status primitives, checked arithmetic
+helpers, and test infrastructure. The architecture below describes the intended
+direction, not implemented behavior.
 
 ## Architectural goals
 

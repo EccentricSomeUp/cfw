@@ -28,6 +28,7 @@ configure_file(
 )
 
 set(CFW_SOURCES
+    src/cfw/checked_arithmetic.c
     src/cfw/status.c
     src/cfw/version.c
 )
