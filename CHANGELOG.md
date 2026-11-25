@@ -13,11 +13,12 @@ semantic versioning once a stable release policy is adopted.
 - Repository bootstrap for `cfw`, a C11 dependency-free web framework
 - Public API conventions with the `cfw_` prefix
 - Version and status primitives
-- Checked arithmetic helpers for `u32`, `u64`, and `size_t` addition,
+- Checked arithmetic helpers for `u32`, `u64`, `i64`, and `size_t` addition,
   subtraction, and multiplication
 - `CFW_ERROR_OVERFLOW` status for representability failures
 - Immutable byte-span primitive with bounds-checked subspan extraction
 - Owning byte-buffer primitive with checked growth and span views
+- Monotonic duration, timepoint, and deadline primitives for timeout handling
 - CMake build, presets, sanitizer configuration, install rules, and CMake
   package config
 - Custom unit-test harness with debug, release, and sanitizer verification

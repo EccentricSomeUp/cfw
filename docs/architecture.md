@@ -6,7 +6,8 @@
 
 `cfw` is pre-implementation. The repository currently contains only build,
 packaging, API conventions, version/status primitives, checked arithmetic
-helpers, byte-span and owning-buffer primitives, and test infrastructure. The
+helpers, byte-span and owning-buffer primitives, monotonic time/duration/
+deadline primitives, and test infrastructure. The
 architecture below describes the intended direction, not implemented behavior.
 
 ## Architectural goals

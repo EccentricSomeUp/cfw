@@ -90,6 +90,63 @@ cfw_status_t cfw_checked_mul_u64(uint64_t a, uint64_t b, uint64_t *result)
     return CFW_OK;
 }
 
+cfw_status_t cfw_checked_add_i64(int64_t a, int64_t b, int64_t *result)
+{
+    if (result == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if ((b > 0 && a > INT64_MAX - b) || (b < 0 && a < INT64_MIN - b)) {
+        return CFW_ERROR_OVERFLOW;
+    }
+
+    *result = a + b;
+    return CFW_OK;
+}
+
+cfw_status_t cfw_checked_sub_i64(int64_t a, int64_t b, int64_t *result)
+{
+    if (result == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if ((b < 0 && a > INT64_MAX + b) || (b > 0 && a < INT64_MIN + b)) {
+        return CFW_ERROR_OVERFLOW;
+    }
+
+    *result = a - b;
+    return CFW_OK;
+}
+
+cfw_status_t cfw_checked_mul_i64(int64_t a, int64_t b, int64_t *result)
+{
+    if (result == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (a == 0 || b == 0) {
+        *result = 0;
+        return CFW_OK;
+    }
+    if (a > 0) {
+        if (b > 0) {
+            if (a > INT64_MAX / b) {
+                return CFW_ERROR_OVERFLOW;
+            }
+        } else if (b < INT64_MIN / a) {
+            return CFW_ERROR_OVERFLOW;
+        }
+    } else {
+        if (b > 0) {
+            if (a < INT64_MIN / b) {
+                return CFW_ERROR_OVERFLOW;
+            }
+        } else if (a < INT64_MAX / b) {
+            return CFW_ERROR_OVERFLOW;
+        }
+    }
+
+    *result = a * b;
+    return CFW_OK;
+}
+
 cfw_status_t cfw_checked_add_size(size_t a, size_t b, size_t *result)
 {
     if (result == NULL) {

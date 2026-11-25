@@ -6,6 +6,7 @@ add_executable(cfw_unit_tests
     unit/test_main.c
     unit/test_span.c
     unit/test_status.c
+    unit/test_time.c
     unit/test_version.c
 )
 
