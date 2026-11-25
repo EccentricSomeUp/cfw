@@ -74,7 +74,6 @@ src/cfw/private/   Internal headers and implementation details
 tests/             Custom test suites and test harness
 cmake/             CMake modules and package configuration
 docs/              Architecture, process, security, and decision records
-scripts/           Repository automation
 ```
 
 Public API functions and types use the `cfw_` prefix. Internal symbols must not
