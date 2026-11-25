@@ -35,6 +35,17 @@
                 "CFW_ENABLE_WERROR": "ON",
                 "CFW_ENABLE_SANITIZERS": "ON"
             }
+        },
+        {
+            "name": "shared",
+            "displayName": "Shared library",
+            "binaryDir": "${sourceDir}/build/shared",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CFW_BUILD_SHARED": "ON",
+                "CFW_ENABLE_WERROR": "ON",
+                "CFW_ENABLE_SANITIZERS": "OFF"
+            }
         }
     ],
     "buildPresets": [
@@ -49,6 +60,10 @@
         {
             "name": "sanitizers",
             "configurePreset": "sanitizers"
+        },
+        {
+            "name": "shared",
+            "configurePreset": "shared"
         }
     ],
     "testPresets": [
@@ -69,6 +84,13 @@
         {
             "name": "sanitizers",
             "configurePreset": "sanitizers",
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "shared",
+            "configurePreset": "shared",
             "output": {
                 "outputOnFailure": true
             }
