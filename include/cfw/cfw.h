@@ -7,6 +7,7 @@
 #include <cfw/checked_arithmetic.h>
 #include <cfw/span.h>
 #include <cfw/status.h>
+#include <cfw/strview.h>
 #include <cfw/time.h>
 #include <cfw/version.h>
 

@@ -9,6 +9,7 @@ extern const cfw_test_case cfw_test_buffer_cases[];
 extern const cfw_test_case cfw_test_checked_arithmetic_cases[];
 extern const cfw_test_case cfw_test_span_cases[];
 extern const cfw_test_case cfw_test_status_cases[];
+extern const cfw_test_case cfw_test_strview_cases[];
 extern const cfw_test_case cfw_test_time_cases[];
 extern const cfw_test_case cfw_test_version_cases[];
 
@@ -22,6 +23,7 @@ static const cfw_test_suite cfw_test_suites[] = {
     {"checked_arithmetic", cfw_test_checked_arithmetic_cases},
     {"span", cfw_test_span_cases},
     {"status", cfw_test_status_cases},
+    {"strview", cfw_test_strview_cases},
     {"time", cfw_test_time_cases},
     {"version", cfw_test_version_cases},
 };

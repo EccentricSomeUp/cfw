@@ -19,6 +19,8 @@ semantic versioning once a stable release policy is adopted.
 - Immutable byte-span primitive with bounds-checked subspan extraction
 - Owning byte-buffer primitive with checked growth and span views
 - Monotonic duration, timepoint, and deadline primitives for timeout handling
+- Non-owning string-view primitive with byte-exact and ASCII case-insensitive
+  comparison plus prefix/suffix checks
 - CMake build, presets, sanitizer configuration, install rules, and CMake
   package config
 - Custom unit-test harness with debug, release, and sanitizer verification

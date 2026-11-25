@@ -32,6 +32,7 @@ set(CFW_SOURCES
     src/cfw/checked_arithmetic.c
     src/cfw/span.c
     src/cfw/status.c
+    src/cfw/strview.c
     src/cfw/time.c
     src/cfw/version.c
 )
