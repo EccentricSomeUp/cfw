@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
+# Build output
+/build/
+/out/
+/cmake-build-*/
+
+# C/C++ artifacts
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.pdb
+*.ilk
+*.gcda
+*.gcno
+*.gcov
+
+# Test and coverage output
+/coverage/
+*.info
+*.profraw
+*.profdata
+
+# Editor and operating system files
+.*.swp
+*~
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
