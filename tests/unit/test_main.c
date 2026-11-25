@@ -7,6 +7,7 @@
 
 extern const cfw_test_case cfw_test_buffer_cases[];
 extern const cfw_test_case cfw_test_checked_arithmetic_cases[];
+extern const cfw_test_case cfw_test_log_cases[];
 extern const cfw_test_case cfw_test_span_cases[];
 extern const cfw_test_case cfw_test_status_cases[];
 extern const cfw_test_case cfw_test_strview_cases[];
@@ -21,6 +22,7 @@ typedef struct cfw_test_suite {
 static const cfw_test_suite cfw_test_suites[] = {
     {"buffer", cfw_test_buffer_cases},
     {"checked_arithmetic", cfw_test_checked_arithmetic_cases},
+    {"log", cfw_test_log_cases},
     {"span", cfw_test_span_cases},
     {"status", cfw_test_status_cases},
     {"strview", cfw_test_strview_cases},
