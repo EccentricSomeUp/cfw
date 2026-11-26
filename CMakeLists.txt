@@ -55,6 +55,7 @@ set(CFW_SOURCES
     src/cfw/static.c
     src/cfw/status.c
     src/cfw/strview.c
+    src/cfw/sync.c
     src/cfw/time.c
     src/cfw/uri.c
     src/cfw/version.c
@@ -90,6 +91,9 @@ cfw_apply_sanitizer_flags(cfw)
 
 if(WIN32)
     target_link_libraries(cfw PRIVATE bcrypt)
+else()
+    find_package(Threads REQUIRED)
+    target_link_libraries(cfw PUBLIC Threads::Threads)
 endif()
 
 if(CFW_BUILD_SHARED)

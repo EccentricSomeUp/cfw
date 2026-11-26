@@ -9,6 +9,22 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ## [Unreleased]
 
+### Added
+
+- Synchronization primitives (ADR 0050): new `cfw/sync.h` module with
+  `cfw_mutex_t` (`cfw_mutex_init`/`destroy`/`lock`/`try_lock`/`unlock`)
+  and `cfw_cond_t` (`cfw_cond_init`/`destroy`/`wait`/`signal`/
+  `broadcast`), backed by pthreads on POSIX and
+  SRWLOCK/CONDITION_VARIABLE on Windows. Fixed inline storage — no
+  allocation — non-recursive mutex semantics,
+  `CFW_ERROR_WOULDBLOCK` from contended try-locks, and
+  `cfw_cond_wait` with an optional monotonic `cfw_timepoint_t`
+  deadline returning `CFW_ERROR_TIMEOUT`. Enables safe sharing of
+  state between a server's event-loop thread and application-owned
+  threads; thread creation itself remains deferred. `libcfw` now
+  links the platform thread library (`Threads::Threads`, resolved
+  automatically by `find_package(cfw)`).
+
 ## [0.2.0] - 2026-11-26
 
 ### Added

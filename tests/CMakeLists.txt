@@ -31,6 +31,7 @@ add_executable(cfw_unit_tests
     unit/test_static.c
     unit/test_status.c
     unit/test_strview.c
+    unit/test_sync.c
     unit/test_uri.c
     unit/test_ws.c
     unit/test_time.c

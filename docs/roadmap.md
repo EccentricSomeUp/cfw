@@ -30,8 +30,9 @@ tests.
 - [x] Socket, poll/epoll/kqueue/IOCP abstraction design (epoll + poll
   implemented internally; kqueue/IOCP designed, pending backends)
 - [x] File descriptor/handle ownership rules
-- [ ] Threading, mutex, and condition-variable primitives if required
-  (deferred until Phase 5 server lifecycle)
+- [x] Threading, mutex, and condition-variable primitives — met for
+  mutex/condvar (`cfw/sync.h`, ADR 0050); thread spawn deferred until a
+  concrete consumer exists
 - [x] Clock, random source, and filesystem boundaries
 
 Exit criteria: documented platform matrix and portable internal APIs.

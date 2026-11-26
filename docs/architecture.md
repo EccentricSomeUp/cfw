@@ -89,6 +89,9 @@ abstraction exists.
   signatures (implemented; see `cfw/codec.h`, ADR 0047)
 - `signed`: HMAC-authenticated token envelopes for signed cookies,
   CSRF, and reset tokens (implemented; see `cfw/signed.h`, ADR 0048)
+- `sync`: portable mutex and condition-variable primitives with
+  monotonic deadlines for application-owned concurrency (implemented;
+  see `cfw/sync.h`, ADR 0050)
 - `log`: structured, rate-limited, non-blocking-friendly logging
 
 ## Security invariants
