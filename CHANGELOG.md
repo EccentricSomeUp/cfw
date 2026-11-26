@@ -11,6 +11,14 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ### Added
 
+- `SO_REUSEPORT` multi-instance serving (ADR 0056): new `reuse_port`
+  option on `cfw_server_options_t` lets multiple `cfw_server_t`
+  instances — typically one per `cfw_thread_t` worker — share a
+  listen address with kernel-level connection distribution. Support
+  is compile-probed (`CFW_HAVE_SO_REUSEPORT`); init fails loudly with
+  `CFW_ERROR_UNAVAILABLE` on platforms without it. This delivers the
+  deferred Phase 2/5 scaling path now that `cfw/thread.h` and
+  `cfw/sync.h` exist.
 - Per-request completion audit hook (ADR 0055): new optional
   `request_done`/`request_done_user` fields on `cfw_server_options_t`
   deliver a `cfw_request_record_t` exactly once per parsed request

@@ -63,6 +63,7 @@ macro(cfw_detect_platform)
             MSG_NOSIGNAL
             MSG_DONTWAIT
             SO_NOSIGPIPE
+            SO_REUSEPORT
             O_NOFOLLOW
             O_CLOEXEC
             OPENAT
@@ -189,6 +190,8 @@ int main(void)
                             CFW_CHECK_HAVE_MSG_DONTWAIT)
         check_symbol_exists(SO_NOSIGPIPE "sys/socket.h"
                             CFW_CHECK_HAVE_SO_NOSIGPIPE)
+        check_symbol_exists(SO_REUSEPORT "sys/socket.h"
+                            CFW_CHECK_HAVE_SO_REUSEPORT)
         check_symbol_exists(O_NOFOLLOW "fcntl.h"
                             CFW_CHECK_HAVE_O_NOFOLLOW)
         check_symbol_exists(O_CLOEXEC "fcntl.h"
@@ -250,6 +253,7 @@ int main(void)
             MSG_NOSIGNAL
             MSG_DONTWAIT
             SO_NOSIGPIPE
+            SO_REUSEPORT
             O_NOFOLLOW
             O_CLOEXEC
             OPENAT

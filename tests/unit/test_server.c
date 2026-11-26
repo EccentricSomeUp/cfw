@@ -3172,6 +3172,223 @@ static int test_server_request_audit_abort(void)
     return 0;
 }
 
+/* ---------------- SO_REUSEPORT multi-instance (ADR 0056) ---------------- */
+
+typedef struct {
+    cfw_arena_t *arena;
+    cfw_router_t router;
+    cfw_dispatch_t dispatch;
+    cfw_server_t server;
+} cfw_test_rp_server;
+
+static int cfw_test_rp_init(cfw_test_rp_server *s, uint16_t port,
+                            int reuse_port)
+{
+    cfw_server_options_t options;
+    cfw_dispatch_options_t doptions;
+    cfw_strview_t pattern;
+
+    memset(s, 0, sizeof(*s));
+    s->arena = cfw_arena_create(32768);
+    CFW_TEST_ASSERT_TRUE(s->arena != NULL);
+    CFW_TEST_ASSERT_EQ(cfw_router_init(&s->router, s->arena), CFW_OK);
+
+    memset(&doptions, 0, sizeof(doptions));
+    doptions.router = &s->router;
+    doptions.handler = cfw_test_ok_handler;
+    doptions.max_middleware = 4;
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_init(&s->dispatch, s->arena,
+                                         &doptions),
+                       CFW_OK);
+    cfw_strview_from_cstr(&pattern, "/hello");
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(&s->dispatch,
+                                              CFW_HTTP_METHOD_GET,
+                                              &pattern, cfw_test_ok_handler,
+                                              NULL),
+                       CFW_OK);
+
+    memset(&options, 0, sizeof(options));
+    options.host = "127.0.0.1";
+    options.port = port;
+    options.backlog = 16;
+    options.dispatch = &s->dispatch;
+    options.http.max_head_size = 8192;
+    options.http.max_body_size = 65536;
+    options.http.max_pending_size = 65536;
+    options.max_out_size = 65536;
+    options.max_connections = 8;
+    options.max_headers = 32;
+    options.max_params = 16;
+    options.reuse_port = reuse_port;
+    return cfw_server_init(&s->server, &options) == CFW_OK ? 0 : 1;
+}
+
+static void cfw_test_rp_teardown(cfw_test_rp_server *s)
+{
+    cfw_server_free(&s->server);
+    cfw_arena_destroy(s->arena);
+}
+
+/* Steps both servers once per attempt until `marker` arrives. */
+static int cfw_test_rp_recv(cfw_test_rp_server *a, cfw_test_rp_server *b,
+                            cfw_fd_t *client, char *buffer,
+                            size_t capacity, const char *marker)
+{
+    cfw_duration_t slice;
+    int attempts;
+    size_t used = 0;
+    size_t mlen = strlen(marker);
+
+    cfw_duration_from_millis(50, &slice);
+    for (attempts = 0; attempts < 200; attempts++) {
+        cfw_timepoint_t deadline;
+        ssize_t n;
+        cfw_deadline_from_now(&deadline, slice);
+        CFW_TEST_ASSERT_EQ(cfw_server_step(&a->server, &deadline),
+                           CFW_OK);
+        cfw_deadline_from_now(&deadline, slice);
+        CFW_TEST_ASSERT_EQ(cfw_server_step(&b->server, &deadline),
+                           CFW_OK);
+        n = recv((int)cfw_fd_get(client), buffer + used,
+                 capacity - used - 1, MSG_DONTWAIT);
+        if (n > 0) {
+            used += (size_t)n;
+            buffer[used] = '\0';
+            if (used >= mlen &&
+                memmem(buffer, used, marker, mlen) != NULL) {
+                return 1;
+            }
+        } else if (n == 0) {
+            return 0;
+        }
+    }
+    return 0;
+}
+
+#if CFW_HAVE_SO_REUSEPORT
+
+static int test_server_reuse_port(void)
+{
+    cfw_test_rp_server a;
+    cfw_test_rp_server b;
+    cfw_test_rp_server c;
+    cfw_fd_t client;
+    char response[8192];
+    uint16_t port;
+
+    CFW_TEST_ASSERT_EQ(cfw_test_rp_init(&a, 0, 1), 0);
+    port = cfw_server_port(&a.server);
+    CFW_TEST_ASSERT_TRUE(port != 0);
+
+    /* A second reuse-port instance binds the same port. */
+    CFW_TEST_ASSERT_EQ(cfw_test_rp_init(&b, port, 1), 0);
+
+    /* A plain bind must fail while reuse-port sockets hold the port. */
+    memset(&c, 0, sizeof(c));
+    {
+        cfw_arena_t *arena = cfw_arena_create(32768);
+        cfw_router_t router;
+        cfw_dispatch_t dispatch;
+        cfw_server_options_t options;
+        cfw_dispatch_options_t doptions;
+        cfw_status_t st;
+
+        CFW_TEST_ASSERT_TRUE(arena != NULL);
+        CFW_TEST_ASSERT_EQ(cfw_router_init(&router, arena), CFW_OK);
+        memset(&doptions, 0, sizeof(doptions));
+        doptions.router = &router;
+        doptions.handler = cfw_test_ok_handler;
+        doptions.max_middleware = 4;
+        CFW_TEST_ASSERT_EQ(cfw_dispatch_init(&dispatch, arena,
+                                             &doptions),
+                           CFW_OK);
+        memset(&options, 0, sizeof(options));
+        options.host = "127.0.0.1";
+        options.port = port;
+        options.dispatch = &dispatch;
+        options.http.max_head_size = 8192;
+        options.http.max_body_size = 65536;
+        options.http.max_pending_size = 65536;
+        options.max_out_size = 65536;
+        options.max_connections = 8;
+        options.max_headers = 32;
+        options.max_params = 16;
+        options.reuse_port = 0;
+        st = cfw_server_init(&c.server, &options);
+        CFW_TEST_ASSERT_TRUE(st != CFW_OK);
+        /* Nothing to free: init failed before taking ownership. */
+        cfw_arena_destroy(arena);
+    }
+
+    /* The shared port serves requests through either instance. */
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client, port), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /hello HTTP/1.1\r\n"
+                                     "Host: t\r\n\r\n"),
+                       0);
+    memset(response, 0, sizeof(response));
+    CFW_TEST_ASSERT_TRUE(cfw_test_rp_recv(&a, &b, &client, response,
+                                          sizeof(response), "srv-ok"));
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, strlen(response),
+                                           "200 OK"));
+
+    cfw_fd_close(&client);
+    cfw_test_rp_teardown(&a);
+    cfw_test_rp_teardown(&b);
+    return 0;
+}
+
+#else /* !CFW_HAVE_SO_REUSEPORT */
+
+static int test_server_reuse_port(void)
+{
+    cfw_test_rp_server a;
+    cfw_server_options_t options;
+    cfw_dispatch_options_t doptions;
+    cfw_arena_t *arena;
+    cfw_router_t router;
+    cfw_dispatch_t dispatch;
+    cfw_strview_t pattern;
+    cfw_status_t st;
+
+    /* Without platform support the option must fail loudly rather
+     * than silently degrade to a plain bind. */
+    memset(&a, 0, sizeof(a));
+    arena = cfw_arena_create(32768);
+    CFW_TEST_ASSERT_TRUE(arena != NULL);
+    CFW_TEST_ASSERT_EQ(cfw_router_init(&router, arena), CFW_OK);
+    memset(&doptions, 0, sizeof(doptions));
+    doptions.router = &router;
+    doptions.handler = cfw_test_ok_handler;
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_init(&dispatch, arena, &doptions),
+                       CFW_OK);
+    cfw_strview_from_cstr(&pattern, "/hello");
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(&dispatch,
+                                              CFW_HTTP_METHOD_GET,
+                                              &pattern, cfw_test_ok_handler,
+                                              NULL),
+                       CFW_OK);
+    memset(&options, 0, sizeof(options));
+    options.host = "127.0.0.1";
+    options.port = 0;
+    options.dispatch = &dispatch;
+    options.http.max_head_size = 8192;
+    options.http.max_body_size = 65536;
+    options.http.max_pending_size = 65536;
+    options.max_out_size = 65536;
+    options.max_connections = 8;
+    options.max_headers = 32;
+    options.max_params = 16;
+    options.reuse_port = 1;
+    st = cfw_server_init(&a.server, &options);
+    CFW_TEST_ASSERT_EQ(st, CFW_ERROR_UNAVAILABLE);
+    cfw_arena_destroy(arena);
+    return 0;
+}
+
+#endif /* CFW_HAVE_SO_REUSEPORT */
+
 const cfw_test_case cfw_test_server_cases[] = {
     {"server_upload_content_length", test_server_upload_content_length},
     {"server_upload_chunked", test_server_upload_chunked},
@@ -3215,6 +3432,7 @@ const cfw_test_case cfw_test_server_cases[] = {
     {"server_request_audit_errors", test_server_request_audit_errors},
     {"server_request_audit_upgrade", test_server_request_audit_upgrade},
     {"server_request_audit_abort", test_server_request_audit_abort},
+    {"server_reuse_port", test_server_reuse_port},
     {NULL, NULL},
 };
 

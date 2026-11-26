@@ -220,6 +220,17 @@ typedef struct cfw_server_options {
      * upgrades (101 is sent as an ordinary response). */
     cfw_upgrade_fn upgrade;
     void *upgrade_user;
+    /* Nonzero binds/listens with SO_REUSEPORT (ADR 0056), allowing
+     * multiple cfw_server_t instances — typically one per thread — to
+     * share the same address/port with kernel-level connection
+     * distribution. Every instance sharing a port must set this; the
+     * first bind without it makes later reuse-port binds fail, and a
+     * plain bind fails while reuse-port sockets hold the port.
+     * Requires platform support; init fails with
+     * CFW_ERROR_UNAVAILABLE where SO_REUSEPORT does not exist and
+     * CFW_ERROR_IO if the kernel rejects the option. POSIX only —
+     * Windows servers are unavailable regardless. */
+    int reuse_port;
     /* Optional per-request completion hook (ADR 0055); may be NULL.
      * Invoked once per parsed request head with the final status,
      * byte counts, duration, and peer address. See

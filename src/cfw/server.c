@@ -1554,6 +1554,21 @@ cfw_status_t cfw_server_init(cfw_server_t *server,
     if (st != CFW_OK) {
         goto fail;
     }
+    /* SO_REUSEPORT (ADR 0056) must be set before bind; every instance
+     * sharing the port must opt in or the bind fails. */
+    if (options->reuse_port) {
+#if CFW_HAVE_SO_REUSEPORT
+        int one = 1;
+        if (setsockopt((int)cfw_fd_get(&server->listener), SOL_SOCKET,
+                       SO_REUSEPORT, &one, sizeof(one)) != 0) {
+            st = CFW_ERROR_IO;
+            goto fail;
+        }
+#else
+        st = CFW_ERROR_UNAVAILABLE;
+        goto fail;
+#endif
+    }
     if (options->host != NULL) {
         st = cfw_addr_resolve(&addr, options->host, options->port,
                               options->ipv6 ? AF_INET6 : AF_INET);
