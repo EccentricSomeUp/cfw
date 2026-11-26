@@ -54,6 +54,14 @@ typedef struct cfw_dispatch_middleware {
     void *user;
 } cfw_dispatch_middleware_t;
 
+/* Per-route handler binding installed by cfw_dispatch_add_route. When a
+ * matched route carries a binding (match.ex), it overrides the dispatch
+ * default handler. */
+typedef struct cfw_route_binding {
+    cfw_handler_fn handler;
+    void *user;
+} cfw_route_binding_t;
+
 /* Fills `res` for a failed dispatch. `status_hint` is the framework's
  * suggested status (400/404/500); implementations may override it. */
 typedef void (*cfw_dispatch_error_fn)(cfw_request_t *req,
@@ -123,6 +131,7 @@ struct cfw_dispatch {
     void *handler_user;
     cfw_dispatch_error_fn error_handler;
     void *error_user;
+    cfw_arena_t *arena;
 };
 
 /* Initializes dispatch. `arena` (a cfw_arena_t*) must outlive the
@@ -137,6 +146,16 @@ CFW_API cfw_status_t cfw_dispatch_init(cfw_dispatch_t *dispatch,
  * when the chain is full (max_middleware) or fn is NULL. */
 CFW_API cfw_status_t cfw_dispatch_use(cfw_dispatch_t *dispatch,
                                       cfw_middleware_fn fn, void *user);
+
+/* Convenience registration binding a per-route handler. Equivalent to
+ * cfw_router_add_ex with the binding as the route's extension pointer;
+ * `user` is stored both as route user data and inside the binding for
+ * the handler. The binding is allocated from the dispatch arena. */
+CFW_API cfw_status_t cfw_dispatch_add_route(cfw_dispatch_t *dispatch,
+                                            cfw_http_method_t method,
+                                            const cfw_strview_t *pattern,
+                                            cfw_handler_fn handler,
+                                            void *user);
 
 /* Runs one request through routing, middleware, and the handler.
  *

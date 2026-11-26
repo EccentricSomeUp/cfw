@@ -48,7 +48,7 @@ abstraction exists.
 - `http1`: HTTP/1.1 server message reader and connection binding
   (implemented; see `cfw/http.h`, `cfw/http1.h`, `cfw/http1_conn.h`)
 - `router`: route matching and parameters (implemented; see `cfw/route.h`)
-- `dispatch`: middleware chain, terminal handler, error mapping, and
+- `dispatch`: middleware chain, per-route handlers, error mapping, and
   response-head serialization (implemented; see `cfw/dispatch.h`)
 - `server`: lifecycle, configuration, connection management
 - `tls`: optional boundary for a future dependency decision; no TLS dependency

@@ -68,6 +68,8 @@ semantic versioning once a stable release policy is adopted.
 - Request dispatch pipeline: ordered onion-model middleware with
   short-circuit cancellation, terminal handler, configurable error
   mapping (400/404/500), and automatic Content-Length response heads
+- Per-route handlers via `cfw_dispatch_add_route` and the router's opaque
+  route extension pointer (`cfw_router_add_ex`, ADR 0028)
 - CMake build, presets, sanitizer configuration, install rules, and CMake
   package config
 - Custom unit-test harness with debug, release, and sanitizer verification

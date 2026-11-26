@@ -55,7 +55,7 @@ bounded resource behavior (head/body/pending caps) — met.
 - Path parameter extraction — met
 - Middleware ordering and cancellation — met (ADR 0027)
 - Error handling and response pipeline — met (ADR 0027)
-- Extensibility hooks for applications and plugins
+- Extensibility hooks for applications and plugins — met (ADR 0028)
 
 Exit criteria: API stability review and integration tests.
 

@@ -38,7 +38,29 @@ cfw_status_t cfw_dispatch_init(cfw_dispatch_t *dispatch, cfw_arena_t *arena,
     dispatch->handler_user = options->handler_user;
     dispatch->error_handler = options->error_handler;
     dispatch->error_user = options->error_user;
+    dispatch->arena = arena;
     return CFW_OK;
+}
+
+cfw_status_t cfw_dispatch_add_route(cfw_dispatch_t *dispatch,
+                                    cfw_http_method_t method,
+                                    const cfw_strview_t *pattern,
+                                    cfw_handler_fn handler, void *user)
+{
+    cfw_route_binding_t *binding = NULL;
+
+    if (dispatch == NULL || dispatch->router == NULL || pattern == NULL ||
+        handler == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (cfw_arena_alloc(dispatch->arena, sizeof(*binding),
+                        (void **)&binding) != CFW_OK) {
+        return CFW_ERROR_NOMEM;
+    }
+    binding->handler = handler;
+    binding->user = user;
+    return cfw_router_add_ex(dispatch->router, method, pattern, user,
+                             binding, NULL);
 }
 
 cfw_status_t cfw_dispatch_use(cfw_dispatch_t *dispatch,
@@ -110,6 +132,14 @@ static cfw_status_t cfw_dispatch_chain_next(cfw_dispatch_frame_t *frame)
         return dispatch->middleware[index].fn(
             frame->req, frame->res, cfw_dispatch_chain_next, frame,
             dispatch->middleware[index].user);
+    }
+    {
+        const cfw_route_binding_t *binding =
+            (const cfw_route_binding_t *)frame->req->match.ex;
+        if (binding != NULL) {
+            return binding->handler(frame->req, frame->res,
+                                    binding->user);
+        }
     }
     return dispatch->handler(frame->req, frame->res,
                              dispatch->handler_user);

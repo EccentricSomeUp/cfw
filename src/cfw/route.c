@@ -16,6 +16,7 @@ typedef struct cfw_route_segment {
 struct cfw_route {
     cfw_http_method_t method;
     void *user;
+    void *ex;
     cfw_route_segment_t *segments;
     size_t segment_count;
     size_t param_count;
@@ -138,9 +139,10 @@ static size_t cfw_route_scan_pattern(const cfw_strview_t *pattern,
     return count;
 }
 
-cfw_status_t cfw_router_add(cfw_router_t *router, cfw_http_method_t method,
-                            const cfw_strview_t *pattern, void *user,
-                            const cfw_route_t **out_route)
+cfw_status_t cfw_router_add_ex(cfw_router_t *router,
+                               cfw_http_method_t method,
+                               const cfw_strview_t *pattern, void *user,
+                               void *ex, const cfw_route_t **out_route)
 {
     cfw_route_t *route;
     cfw_route_t *tail;
@@ -248,6 +250,7 @@ cfw_status_t cfw_router_add(cfw_router_t *router, cfw_http_method_t method,
 
     route->method = method;
     route->user = user;
+    route->ex = ex;
     route->segments = segments;
     route->segment_count = segment_count;
     route->param_count = param_count;
@@ -290,6 +293,7 @@ cfw_status_t cfw_router_match(const cfw_router_t *router,
 
     match->route = NULL;
     match->user = NULL;
+    match->ex = NULL;
     match->param_count = 0;
     match->params_written = 0;
 
@@ -356,6 +360,7 @@ cfw_status_t cfw_router_match(const cfw_router_t *router,
 
         match->route = route;
         match->user = route->user;
+        match->ex = route->ex;
         match->param_count = route->param_count;
         match->params_written =
             route->param_count < param_capacity ? route->param_count
@@ -384,4 +389,12 @@ cfw_status_t cfw_route_match_param(const cfw_route_param_t *params,
         }
     }
     return CFW_ERROR_INVALID_ARGUMENT;
+}
+
+cfw_status_t cfw_router_add(cfw_router_t *router, cfw_http_method_t method,
+                            const cfw_strview_t *pattern, void *user,
+                            const cfw_route_t **out_route)
+{
+    return cfw_router_add_ex(router, method, pattern, user, NULL,
+                             out_route);
 }

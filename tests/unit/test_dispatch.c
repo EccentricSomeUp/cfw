@@ -512,6 +512,82 @@ static int test_dispatch_validation(void)
     return 0;
 }
 
+
+static cfw_status_t cfw_test_route_handler(cfw_request_t *req,
+                                           cfw_response_t *res, void *user)
+{
+    cfw_strview_t body;
+    (void)req;
+    res->status = CFW_HTTP_STATUS_ACCEPTED;
+    cfw_strview_from_cstr(&body, (const char *)user);
+    res->body.data = (const uint8_t *)body.data;
+    res->body.size = body.size;
+    return CFW_OK;
+}
+
+static int test_dispatch_route_handlers(void)
+{
+    cfw_arena_t *arena = cfw_arena_create(8192);
+    cfw_router_t router;
+    cfw_dispatch_t dispatch;
+    cfw_dispatch_options_t options;
+    cfw_test_handler_state global = {0, CFW_HTTP_STATUS_OK, "global"};
+    cfw_http_header_t res_headers[8];
+    cfw_route_param_t params[8];
+    cfw_response_t res;
+    static const char head_bound[] = "GET /bound HTTP/1.1\r\n\r\n";
+    static const char head_plain[] = "GET /plain HTTP/1.1\r\n\r\n";
+
+    CFW_TEST_ASSERT_TRUE(arena != NULL);
+    CFW_TEST_ASSERT_EQ(cfw_router_init(&router, arena), CFW_OK);
+    memset(&options, 0, sizeof(options));
+    options.router = &router;
+    options.handler = cfw_test_handler;
+    options.handler_user = &global;
+    options.max_middleware = 2;
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_init(&dispatch, arena, &options), CFW_OK);
+
+    /* Bound route uses its own handler. */
+    {
+        cfw_strview_t pattern = cfw_test_sv("/bound");
+        CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(
+                               &dispatch, CFW_HTTP_METHOD_GET, &pattern,
+                               cfw_test_route_handler,
+                               (void *)"bound-body"),
+                           CFW_OK);
+    }
+    /* Plain route falls back to the global handler. */
+    CFW_TEST_ASSERT_EQ(cfw_test_router_add(&router, CFW_HTTP_METHOD_GET,
+                                           "/plain", NULL),
+                       0);
+
+    CFW_TEST_ASSERT_EQ(cfw_test_dispatch_run(&dispatch, head_bound, NULL,
+                                             res_headers, 8, params, 8, &res),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(res.status, CFW_HTTP_STATUS_ACCEPTED);
+    CFW_TEST_ASSERT_EQ(res.body.size, 10);
+    CFW_TEST_ASSERT_EQ(memcmp(res.body.data, "bound-body", 10), 0);
+    CFW_TEST_ASSERT_EQ(global.calls, 0);
+
+    CFW_TEST_ASSERT_EQ(cfw_test_dispatch_run(&dispatch, head_plain, NULL,
+                                             res_headers, 8, params, 8, &res),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(res.status, CFW_HTTP_STATUS_OK);
+    CFW_TEST_ASSERT_EQ(global.calls, 1);
+
+    /* Validation: NULL handler rejected. */
+    {
+        cfw_strview_t pattern = cfw_test_sv("/nope");
+        CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(
+                               &dispatch, CFW_HTTP_METHOD_GET, &pattern,
+                               NULL, NULL),
+                           CFW_ERROR_INVALID_ARGUMENT);
+    }
+
+    cfw_arena_destroy(arena);
+    return 0;
+}
+
 const cfw_test_case cfw_test_dispatch_cases[] = {
     {"dispatch_basic", test_dispatch_basic},
     {"dispatch_middleware_order_cancel", test_dispatch_middleware_order_cancel},
@@ -519,5 +595,6 @@ const cfw_test_case cfw_test_dispatch_cases[] = {
     {"dispatch_params_and_headers", test_dispatch_params_and_headers},
     {"dispatch_response_format", test_dispatch_response_format},
     {"dispatch_validation", test_dispatch_validation},
+    {"dispatch_route_handlers", test_dispatch_route_handlers},
     {NULL, NULL},
 };

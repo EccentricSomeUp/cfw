@@ -44,6 +44,10 @@ typedef struct cfw_route_match {
     const cfw_route_t *route;
     /* Application data supplied at registration. */
     void *user;
+    /* Opaque extension pointer supplied at registration (NULL for
+     * routes added via cfw_router_add); interpretation is up to the
+     * layer above the router (e.g. dispatch route bindings). */
+    void *ex;
     /* Number of parameter entries written to the caller's params array. */
     size_t params_written;
     /* Total parameters declared by the matched route; may exceed
@@ -62,6 +66,15 @@ CFW_API cfw_status_t cfw_router_add(cfw_router_t *router,
                                     cfw_http_method_t method,
                                     const cfw_strview_t *pattern, void *user,
                                     const cfw_route_t **out_route);
+
+/* Extended registration carrying an opaque extension pointer copied
+ * verbatim into match->ex. cfw_router_add is equivalent to passing
+ * ex=NULL. */
+CFW_API cfw_status_t cfw_router_add_ex(cfw_router_t *router,
+                                       cfw_http_method_t method,
+                                       const cfw_strview_t *pattern,
+                                       void *user, void *ex,
+                                       const cfw_route_t **out_route);
 
 /* Finds the first route matching (method, path). Always returns CFW_OK
  * for valid arguments; inspect match->route for the result (NULL = 404).
