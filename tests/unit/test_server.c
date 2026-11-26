@@ -791,6 +791,8 @@ typedef struct {
     const char *const *parts;
     size_t count;
     size_t pos;
+    int fail;
+    int empty;
 } cfw_test_stream_state;
 
 static const char *const cfw_test_stream_parts[] = {
@@ -801,6 +803,15 @@ static cfw_status_t cfw_test_stream_fn(void *user, cfw_span_t *chunk,
                                        int *eof)
 {
     cfw_test_stream_state *st = user;
+    if (st->fail) {
+        return CFW_ERROR_IO;
+    }
+    if (st->empty) {
+        chunk->data = NULL;
+        chunk->size = 0;
+        *eof = 0;
+        return CFW_OK;
+    }
     if (st->pos >= st->count) {
         *eof = 1;
         return CFW_OK;
@@ -1226,6 +1237,118 @@ static int test_server_streaming_conn_close(void)
     return 0;
 }
 
+/* Steps the server until the connection count reaches zero or the
+ * attempt budget is exhausted. Returns the final connection count. */
+static size_t cfw_test_reap_server(cfw_server_t *server)
+{
+    int attempts;
+    for (attempts = 0;
+         attempts < 200 && cfw_server_connection_count(server) != 0;
+         attempts++) {
+        cfw_timepoint_t deadline;
+        cfw_duration_t slice;
+        cfw_duration_from_millis(20, &slice);
+        cfw_deadline_from_now(&deadline, slice);
+        if (cfw_server_step(server, &deadline) != CFW_OK) {
+            break;
+        }
+    }
+    return cfw_server_connection_count(server);
+}
+
+/* Drains whatever the client received into buffer; returns byte count. */
+static size_t cfw_test_drain_client(cfw_fd_t *client, char *buffer,
+                                    size_t capacity)
+{
+    size_t used = 0;
+    for (;;) {
+        ssize_t n = recv((int)cfw_fd_get(client), buffer + used,
+                         capacity - used - 1, MSG_DONTWAIT);
+        if (n <= 0 || used + 1 >= capacity) {
+            break;
+        }
+        used += (size_t)n;
+    }
+    buffer[used] = '\0';
+    return used;
+}
+
+static int test_server_stream_fn_error(void)
+{
+    cfw_test_server ts;
+    cfw_fd_t client;
+    cfw_test_stream_state st;
+    char response[8192];
+    size_t used;
+
+    memset(&st, 0, sizeof(st));
+    st.parts = cfw_test_stream_parts;
+    st.count = sizeof(cfw_test_stream_parts) /
+               sizeof(cfw_test_stream_parts[0]);
+    st.fail = 1;
+    CFW_TEST_ASSERT_EQ(cfw_test_server_setup(&ts, (cfw_duration_t){0},
+                                             (cfw_duration_t){0}, 8),
+                       0);
+    CFW_TEST_ASSERT_EQ(cfw_test_stream_route(&ts, &st), 0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /stream HTTP/1.1\r\n"
+                                     "Host: stream\r\n\r\n"),
+                       0);
+
+    /* The stream callback fails on first pump: the connection must be
+     * reaped without a terminal chunk. */
+    CFW_TEST_ASSERT_EQ(cfw_test_reap_server(&ts.server), 0);
+
+    used = cfw_test_drain_client(&client, response, sizeof(response));
+    CFW_TEST_ASSERT_TRUE(!cfw_test_contains(response, used, "0\r\n\r\n"));
+
+    cfw_fd_close(&client);
+    cfw_test_server_teardown(&ts);
+    return 0;
+}
+
+static int test_server_stream_empty_chunk(void)
+{
+    cfw_test_server ts;
+    cfw_fd_t client;
+    cfw_test_stream_state st;
+    char response[8192];
+    size_t used;
+
+    memset(&st, 0, sizeof(st));
+    st.parts = cfw_test_stream_parts;
+    st.count = sizeof(cfw_test_stream_parts) /
+               sizeof(cfw_test_stream_parts[0]);
+    st.empty = 1;
+    CFW_TEST_ASSERT_EQ(cfw_test_server_setup(&ts, (cfw_duration_t){0},
+                                             (cfw_duration_t){0}, 8),
+                       0);
+    CFW_TEST_ASSERT_EQ(cfw_test_stream_route(&ts, &st), 0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /stream HTTP/1.1\r\n"
+                                     "Host: stream\r\n\r\n"),
+                       0);
+
+    /* A non-EOF empty chunk violates the stream contract: reap the
+     * connection rather than spin or emit a malformed frame. */
+    CFW_TEST_ASSERT_EQ(cfw_test_reap_server(&ts.server), 0);
+
+    used = cfw_test_drain_client(&client, response, sizeof(response));
+    CFW_TEST_ASSERT_TRUE(!cfw_test_contains(response, used, "0\r\n\r\n"));
+
+    cfw_fd_close(&client);
+    cfw_test_server_teardown(&ts);
+    return 0;
+}
+
 /* ---- upload hooks (ADR 0033) ---- */
 
 typedef struct {
@@ -1606,6 +1729,8 @@ const cfw_test_case cfw_test_server_cases[] = {
     {"server_upload_write_error", test_server_upload_write_error},
     {"server_upload_begin_error", test_server_upload_begin_error},
     {"server_streaming_conn_close", test_server_streaming_conn_close},
+    {"server_stream_fn_error", test_server_stream_fn_error},
+    {"server_stream_empty_chunk", test_server_stream_empty_chunk},
     {"server_method_fallbacks", test_server_method_fallbacks},
     {"server_expect_rejected", test_server_expect_rejected},
     {"server_host_required", test_server_host_required},
