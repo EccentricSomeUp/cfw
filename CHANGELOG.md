@@ -146,6 +146,8 @@ semantic versioning once a stable release policy is adopted.
   `http_fuzz_corpus` test
 - GitHub Actions CI running all presets on Ubuntu and macOS (the macOS
   leg covers the `poll()` backend)
+- `examples/minimal_server.c`: compilable quickstart server built by
+  default (`CFW_BUILD_EXAMPLES`), keeping the README example honest
 
 ### Fixed
 

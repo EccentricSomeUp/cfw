@@ -16,6 +16,7 @@ include(cmake/cfw_compile_options.cmake)
 set(CFW_ABI_VERSION 1 CACHE STRING "Stable public ABI version")
 
 option(CFW_BUILD_TESTING "Build the cfw test suite" ON)
+option(CFW_BUILD_EXAMPLES "Build the cfw example programs" ON)
 option(CFW_BUILD_SHARED "Build cfw as a shared library" OFF)
 option(CFW_ENABLE_WERROR "Treat compiler warnings as errors" ON)
 option(CFW_ENABLE_SANITIZERS "Enable address and undefined behavior sanitizers" OFF)
@@ -129,6 +130,13 @@ install(FILES
     "${CMAKE_CURRENT_BINARY_DIR}/cfwConfigVersion.cmake"
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/cfw
 )
+
+if(CFW_BUILD_EXAMPLES)
+    add_executable(cfw_example_minimal_server examples/minimal_server.c)
+    target_link_libraries(cfw_example_minimal_server PRIVATE cfw)
+    cfw_apply_strict_flags(cfw_example_minimal_server)
+    cfw_apply_hardening_flags(cfw_example_minimal_server)
+endif()
 
 if(CFW_BUILD_TESTING)
     add_subdirectory(tests)

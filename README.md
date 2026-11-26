@@ -74,6 +74,9 @@ the selected generator.
 
 ## Minimal server
 
+`examples/minimal_server.c` is a complete, compilable version of this
+quickstart (built by default; disable with `-DCFW_BUILD_EXAMPLES=OFF`).
+
 ```c
 #include <cfw/cfw.h>
 #include <string.h>
@@ -110,7 +113,7 @@ int main(void)
                            hello, NULL);
 
     memset(&sopt, 0, sizeof(sopt));
-    sopt.host = "0.0.0.0";
+    sopt.host = "127.0.0.1";
     sopt.port = 8080;
     sopt.dispatch = &dispatch;
     sopt.http.max_head_size = 8192;
@@ -139,6 +142,7 @@ include/cfw/       Public C API headers
 src/cfw/           Library implementation
 src/cfw/private/   Internal headers and implementation details
 tests/             Custom test suites and test harness
+examples/          Compilable example programs
 cmake/             CMake modules and package configuration
 docs/              Architecture, process, security, and decision records
 ```
