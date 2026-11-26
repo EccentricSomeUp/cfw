@@ -368,10 +368,12 @@ cfw_status_t cfw_router_match(const cfw_router_t *router,
         return CFW_OK; /* no match */
     }
 
-    /* Pass 1: exact method (UNKNOWN route methods match anything). */
+    /* Pass 1: exact method. A route registered with
+     * CFW_HTTP_METHOD_UNKNOWN is an explicit wildcard and matches any
+     * request method; a request whose method failed to parse
+     * (UNKNOWN) therefore only matches wildcard routes. */
     for (route = router->head; route != NULL; route = route->next) {
         if (route->method != CFW_HTTP_METHOD_UNKNOWN &&
-            method != CFW_HTTP_METHOD_UNKNOWN &&
             route->method != method) {
             continue;
         }
