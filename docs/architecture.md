@@ -52,7 +52,8 @@ abstraction exists.
   response-head serialization, and pull-style streaming bodies
   (implemented; see `cfw/dispatch.h`, ADR 0031)
 - `server`: listener, event loop, connection limits/timeouts,
-  graceful stop (implemented; see `cfw/server.h`)
+  graceful stop, streaming request-body upload hooks (ADR 0033), and
+  peer-address exposure (ADR 0032) (implemented; see `cfw/server.h`)
 - `tls`: out of scope for the core library (ADR 0030); a future optional
   module would sit below `http1_conn`/`server` behind its own dependency ADR
 - `log`: structured, rate-limited, non-blocking-friendly logging

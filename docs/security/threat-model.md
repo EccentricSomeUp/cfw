@@ -47,6 +47,9 @@ business-logic rules.
 ## Assumptions
 
 - The application is responsible for authentication and authorization policy.
+- Applications using upload hooks (ADR 0033) own the storage backend and any
+  additional limits for streamed request bodies; the framework still enforces
+  `max_body_size` on total body bytes but no longer bounds their memory.
 - The application must validate business-level inputs even when the framework
   validates protocol syntax.
 - Operators are responsible for secure deployment, TLS termination choices,

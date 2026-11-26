@@ -11,8 +11,10 @@ strict HTTP/1.1 parser with smuggling-resistant framing, a route table
 with path parameters, an onion-model middleware dispatch pipeline, and a
 single-threaded `cfw_server_t` event-loop server with connection limits,
 timeouts, graceful stop/drain, automatic Date headers, RFC 9112 Host
-enforcement, `Expect: 100-continue`, and pull-style streaming response
-bodies (chunked or close-delimited). TLS is out of scope (ADR 0030).
+enforcement, `Expect: 100-continue`, pull-style streaming response
+bodies (chunked or close-delimited), streaming request-body uploads via
+server hooks, and peer-address exposure to handlers. TLS is out of
+scope (ADR 0030).
 
 ## Priorities
 
