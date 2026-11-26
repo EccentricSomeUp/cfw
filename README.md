@@ -26,8 +26,9 @@ Set-Cookie serialization (ADR 0045), plus security primitives for
 application tokens: SHA-256/HMAC-SHA256 and constant-time comparison
 (ADR 0046), canonical base64/hex codecs (ADR 0047), and HMAC-signed
 token envelopes for cookies/CSRF/reset tokens (ADR 0048), and portable
-mutex/condition-variable primitives for application-owned concurrency
-(`cfw/sync.h`, ADR 0050). TLS is out
+mutex/condition-variable primitives and thread spawn/join/detach for
+application-owned concurrency (`cfw/sync.h`, `cfw/thread.h`, ADRs
+0050/0051). TLS is out
 of scope (ADR 0030).
 
 ## Priorities

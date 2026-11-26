@@ -33,6 +33,7 @@ extern const cfw_test_case cfw_test_static_cases[];
 extern const cfw_test_case cfw_test_status_cases[];
 extern const cfw_test_case cfw_test_strview_cases[];
 extern const cfw_test_case cfw_test_sync_cases[];
+extern const cfw_test_case cfw_test_thread_cases[];
 extern const cfw_test_case cfw_test_time_cases[];
 extern const cfw_test_case cfw_test_uri_cases[];
 extern const cfw_test_case cfw_test_version_cases[];
@@ -72,6 +73,7 @@ static const cfw_test_suite cfw_test_suites[] = {
     {"status", cfw_test_status_cases},
     {"strview", cfw_test_strview_cases},
     {"sync", cfw_test_sync_cases},
+    {"thread", cfw_test_thread_cases},
     {"time", cfw_test_time_cases},
     {"uri", cfw_test_uri_cases},
     {"version", cfw_test_version_cases},

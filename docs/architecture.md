@@ -92,6 +92,9 @@ abstraction exists.
 - `sync`: portable mutex and condition-variable primitives with
   monotonic deadlines for application-owned concurrency (implemented;
   see `cfw/sync.h`, ADR 0050)
+- `thread`: portable thread spawn/join/detach primitive for
+  application-owned workers; the server stays single-threaded
+  (implemented; see `cfw/thread.h`, ADR 0051)
 - `log`: structured, rate-limited, non-blocking-friendly logging
 
 ## Security invariants

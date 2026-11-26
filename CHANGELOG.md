@@ -24,6 +24,13 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   threads; thread creation itself remains deferred. `libcfw` now
   links the platform thread library (`Threads::Threads`, resolved
   automatically by `find_package(cfw)`).
+- Thread spawn primitive (ADR 0051): new `cfw/thread.h` module with
+  `cfw_thread_create`/`cfw_thread_join`/`cfw_thread_detach` —
+  joinable thread creation with `int` exit statuses, fixed inline
+  handle storage, pthreads on POSIX and `CreateThread` on Windows.
+  Scoped to spawn/join/detach only; stack sizes, cancellation, TLS,
+  and pools remain deferred. Completes the application-concurrency
+  story begun by the sync primitives (ADR 0050).
 
 ## [0.2.0] - 2026-11-26
 

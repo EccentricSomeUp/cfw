@@ -36,7 +36,7 @@ not yet implemented; "planned" means no contract exists yet.
 | Polling/event loop | `epoll` | `poll` fallback | `poll` fallback | stub | `cfw_pollset_*` internal (implemented, ADR 0014) |
 | Sockets | `socket`/`accept4` | `socket`/`accept` | `socket`/`accept` | stub | `cfw_net_*` internal (implemented on POSIX; numeric IPs plus init-time getaddrinfo for listen hosts) |
 | HTTP/1.1 + server | yes | yes (POSIX) | yes (POSIX) | stub: `UNAVAILABLE` | `cfw_http1*`, `cfw_server` (implemented; Windows pending IOCP) |
-| Threads/mutexes | `pthread` | `pthread` | `pthread` | `SRWLOCK`+`CONDITION_VARIABLE` | `cfw_mutex_*`/`cfw_cond_*` (implemented, ADR 0050); thread spawn deferred |
+| Threads/mutexes | `pthread` | `pthread` | `pthread` | `CreateThread`+`SRWLOCK`/`CONDITION_VARIABLE` | `cfw_thread_*`, `cfw_mutex_*`/`cfw_cond_*` (implemented, ADRs 0050/0051) |
 
 ## Portability rules
 
