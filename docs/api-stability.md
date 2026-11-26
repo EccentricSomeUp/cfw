@@ -32,6 +32,20 @@ version and a migration note in `CHANGELOG.md`.
 - Windows stubs return `CFW_ERROR_UNAVAILABLE`; this is contractual,
   not a bug.
 
+## Deprecation and migration policy
+
+- A public API is deprecated by marking it `CFW_DEPRECATED` (defined in
+  `cfw/export.h`) and noting the replacement in its header comment and in
+  `CHANGELOG.md`.
+- Deprecated APIs remain functional for at least one minor release after
+  the deprecation lands, and are never removed in a patch release.
+- Removal happens only in a major version, and the changelog entry must
+  include a migration note describing the replacement and any required
+  code changes.
+- Behavior changes that break documented semantics follow the same rule
+  as signature changes: a new name or a major version, never silent
+  reinterpretation.
+
 ## Rules for contributors
 
 1. New public types should be opaque (heap-allocated via `_init`/
@@ -41,3 +55,5 @@ version and a migration note in `CHANGELOG.md`.
    and error behavior in its header comment.
 4. ABI-affecting changes (struct layout, calling convention, symbol
    removal) require an ADR.
+5. Deprecations use `CFW_DEPRECATED`, document the replacement, and are
+   recorded in `CHANGELOG.md` per the policy above.

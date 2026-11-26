@@ -19,4 +19,12 @@
     #define CFW_API
 #endif
 
+#if defined(__GNUC__) || defined(__clang__)
+    #define CFW_DEPRECATED __attribute__((deprecated))
+#elif defined(_MSC_VER)
+    #define CFW_DEPRECATED __declspec(deprecated)
+#else
+    #define CFW_DEPRECATED
+#endif
+
 #endif /* CFW_EXPORT_H */
