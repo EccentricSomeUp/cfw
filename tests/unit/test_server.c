@@ -1085,6 +1085,164 @@ static int test_server_streaming_http10(void)
     return 0;
 }
 
+/* File-backed streaming: serves a real file through cfw_file_stream_read
+ * and verifies the chunked body reassembles to the file contents. */
+typedef struct {
+    cfw_file_stream_t stream;
+    unsigned char buf[32];
+} cfw_test_file_state;
+
+static cfw_status_t cfw_test_file_handler(cfw_request_t *req,
+                                          cfw_response_t *res, void *user)
+{
+    cfw_test_file_state *st = user;
+    (void)req;
+    res->status = CFW_HTTP_STATUS_OK;
+    res->stream = cfw_file_stream_read;
+    res->stream_user = &st->stream;
+    return CFW_OK;
+}
+
+/* Decodes a chunked body starting after the header terminator.
+ * Returns CFW_OK and sets *out_len, or CFW_ERROR_IO on malformed input. */
+static cfw_status_t cfw_test_dechunk(const char *wire, size_t used,
+                                     char *out, size_t capacity,
+                                     size_t *out_len)
+{
+    const char *p = strstr(wire, "\r\n\r\n");
+    size_t pos;
+    size_t len = 0;
+
+    if (p == NULL) {
+        return CFW_ERROR_IO;
+    }
+    p += 4;
+    pos = (size_t)(p - wire);
+    for (;;) {
+        unsigned long clen = 0;
+        size_t digits = 0;
+        while (pos < used && wire[pos] != '\r') {
+            char c = wire[pos];
+            unsigned int v;
+            if (c >= '0' && c <= '9') {
+                v = (unsigned int)(c - '0');
+            } else if (c >= 'a' && c <= 'f') {
+                v = (unsigned int)(c - 'a' + 10);
+            } else if (c >= 'A' && c <= 'F') {
+                v = (unsigned int)(c - 'A' + 10);
+            } else {
+                return CFW_ERROR_IO;
+            }
+            if (clen > 0xFFFFFFFUL) {
+                return CFW_ERROR_IO;
+            }
+            clen = clen * 16 + v;
+            pos++;
+            digits++;
+        }
+        if (digits == 0 || pos + 2 > used ||
+            wire[pos] != '\r' || wire[pos + 1] != '\n') {
+            return CFW_ERROR_IO;
+        }
+        pos += 2;
+        if (clen == 0) {
+            /* Trailer section must be empty: expect final CRLF. */
+            if (pos + 2 <= used && wire[pos] == '\r' &&
+                wire[pos + 1] == '\n') {
+                *out_len = len;
+                return CFW_OK;
+            }
+            return CFW_ERROR_IO;
+        }
+        if (clen > used - pos || len + clen > capacity) {
+            return CFW_ERROR_IO;
+        }
+        memcpy(out + len, wire + pos, clen);
+        len += clen;
+        pos += clen;
+        if (pos + 2 > used || wire[pos] != '\r' ||
+            wire[pos + 1] != '\n') {
+            return CFW_ERROR_IO;
+        }
+        pos += 2;
+    }
+}
+
+static int test_server_file_stream_response(void)
+{
+    cfw_test_server ts;
+    cfw_fd_t client;
+    cfw_test_file_state st;
+    const char *path = "cfw_test_srv_file.bin";
+    static const char payload[] =
+        "cfw-file-stream-integration-payload-0123456789";
+    FILE *file;
+    char response[8192];
+    char body[512];
+    size_t used = 0;
+    size_t body_len = 0;
+    ssize_t n;
+    cfw_strview_t pattern;
+
+    file = fopen(path, "wb");
+    CFW_TEST_ASSERT(file != NULL);
+    CFW_TEST_ASSERT_EQ(fwrite(payload, 1, sizeof(payload) - 1, file),
+                       sizeof(payload) - 1);
+    CFW_TEST_ASSERT_EQ(fclose(file), 0);
+
+    memset(&st, 0, sizeof(st));
+    CFW_TEST_ASSERT_EQ(cfw_test_server_setup(&ts, (cfw_duration_t){0},
+                                             (cfw_duration_t){0}, 8),
+                       0);
+    cfw_strview_from_cstr(&pattern, "/file");
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(&ts.dispatch,
+                                              CFW_HTTP_METHOD_GET,
+                                              &pattern,
+                                              cfw_test_file_handler,
+                                              &st),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_file_stream_init(&st.stream, path, st.buf,
+                                            sizeof(st.buf)),
+                       CFW_OK);
+
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /file HTTP/1.1\r\n"
+                                     "Host: file\r\n\r\n"),
+                       0);
+    memset(response, 0, sizeof(response));
+    n = cfw_test_recv_until(&ts.server, &client, response,
+                            sizeof(response), "0\r\n\r\n", &used);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, used,
+                                           "Transfer-Encoding: chunked"));
+    CFW_TEST_ASSERT_EQ(cfw_test_dechunk(response, used, body,
+                                        sizeof(body), &body_len),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(body_len, sizeof(payload) - 1);
+    CFW_TEST_ASSERT_EQ(memcmp(body, payload, body_len), 0);
+
+    /* Keep-alive survives the streamed response. */
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /hello HTTP/1.1\r\n"
+                                     "Host: file\r\n\r\n"),
+                       0);
+    used = 0;
+    memset(response, 0, sizeof(response));
+    n = cfw_test_recv_until(&ts.server, &client, response,
+                            sizeof(response), "srv-ok", &used);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+
+    cfw_file_stream_close(&st.stream);
+    cfw_fd_close(&client);
+    cfw_test_server_teardown(&ts);
+    CFW_TEST_ASSERT_EQ(remove(path), 0);
+    return 0;
+}
+
 
 static int test_server_host_required(void)
 {
@@ -2378,6 +2536,7 @@ const cfw_test_case cfw_test_server_cases[] = {
     {"server_error_logging", test_server_error_logging},
     {"server_streaming_response", test_server_streaming_response},
     {"server_streaming_http10", test_server_streaming_http10},
+    {"server_file_stream_response", test_server_file_stream_response},
     {"server_request_response", test_server_request_response},
     {"server_large_response_head", test_server_large_response_head},
     {"server_post_body", test_server_post_body},

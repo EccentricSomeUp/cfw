@@ -36,6 +36,13 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   with `CFW_ERROR_WOULDBLOCK` backpressure. Cleartext `ws://` only;
   `wss://` remains deferred with TLS (ADR 0030). Includes a runnable
   echo example (`examples/ws_echo.c`, `cfw_example_ws_echo`).
+- File-read primitives and response-stream adapter in `cfw/fs.h`:
+  `cfw_file_t` owning read-only handle (`cfw_file_open`,
+  `cfw_file_read`, `cfw_file_close`) plus `cfw_file_stream_t`, a
+  pull-style body source assignable to `cfw_response_t.stream` for
+  streaming files without buffering them whole. This is the foundation
+  for a future static-file module; path validation and traversal
+  protection remain the caller's responsibility.
 
 ## [0.1.0] - 2026-11-26
 
