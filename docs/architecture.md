@@ -48,8 +48,9 @@ abstraction exists.
 - `http1`: HTTP/1.1 server message reader and connection binding
   (implemented; see `cfw/http.h`, `cfw/http1.h`, `cfw/http1_conn.h`)
 - `router`: route matching and parameters (implemented; see `cfw/route.h`)
-- `dispatch`: middleware chain, per-route handlers, error mapping, and
-  response-head serialization (implemented; see `cfw/dispatch.h`)
+- `dispatch`: middleware chain, per-route handlers, error mapping,
+  response-head serialization, and pull-style streaming bodies
+  (implemented; see `cfw/dispatch.h`, ADR 0031)
 - `server`: listener, event loop, connection limits/timeouts,
   graceful stop (implemented; see `cfw/server.h`)
 - `tls`: out of scope for the core library (ADR 0030); a future optional

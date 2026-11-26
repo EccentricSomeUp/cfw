@@ -64,6 +64,14 @@ typedef struct cfw_route_binding {
     void *user;
 } cfw_route_binding_t;
 
+/* Pull-style streaming body source. Each call fills *chunk with the
+ * next body span (borrowed; valid until the next call) and sets *eof
+ * when the stream ends. Return CFW_OK to continue or CFW_ERROR_* to
+ * abort the response (the connection is then closed). */
+typedef cfw_status_t (*cfw_response_stream_fn)(void *user,
+                                               cfw_span_t *chunk,
+                                               int *eof);
+
 /* Fills `res` for a failed dispatch. `status_hint` is the framework's
  * suggested status (400/404/500); implementations may override it. */
 typedef void (*cfw_dispatch_error_fn)(cfw_request_t *req,
@@ -106,6 +114,13 @@ typedef struct cfw_response {
     /* Single body span queued by the caller after head serialization.
      * Suppressed automatically for HEAD/1xx/204/304 responses. */
     cfw_span_t body;
+    /* Optional streaming body source. When set (and the method/status
+     * permit a body), the server pulls chunks after the response head
+     * is queued, framing them as chunked transfer-encoding for
+     * HTTP/1.1 or close-delimited for older versions. `body` is ignored
+     * when stream is set. */
+    cfw_response_stream_fn stream;
+    void *stream_user;
     /* Application data for the terminal handler/error handler. */
     void *user;
 } cfw_response_t;

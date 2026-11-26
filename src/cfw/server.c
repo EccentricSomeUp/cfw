@@ -81,12 +81,23 @@ struct cfw_server_conn {
     cfw_buffer_t body;
     cfw_buffer_t head_scratch;
     cfw_http_request_head_t head;
+    cfw_response_stream_fn stream_fn;
+    void *stream_user;
+    cfw_span_t stream_chunk;
+    size_t stream_pos;
+    int stream_eof;
+    int stream_done;
+    int stream_chunked;
+    int stream_hold_close;
     int have_head;
     int dead;
     cfw_timepoint_t deadline;
     int deadline_set;
     cfw_server_conn_t *next;
 };
+
+static void cfw_server_stream_pump(cfw_server_t *server,
+                                   cfw_server_conn_t *conn);
 
 static void cfw_server_conn_deadline(cfw_server_conn_t *conn,
                                      cfw_duration_t timeout)
@@ -273,6 +284,47 @@ static void cfw_server_handle_done(cfw_server_t *server,
         cfw_response_header_add(&res, &hn, &hv);
     }
 
+    /* Streaming body: suppress the single-span body and frame via
+     * chunked TE (HTTP/1.1) or close-delimited (older). While the
+     * stream is active the connection must not auto-close on buffer
+     * drain, so close_after_write is saved and cleared; it is restored
+     * (or forced for close-delimited) when the stream ends. */
+    if (res.stream != NULL &&
+        cfw_http_response_has_body(conn->head.request_line.method,
+                                   res.status)) {
+        conn->stream_fn = res.stream;
+        conn->stream_user = res.stream_user;
+        conn->stream_chunk = (cfw_span_t){0};
+        conn->stream_pos = 0;
+        conn->stream_eof = 0;
+        conn->stream_done = 0;
+        conn->stream_hold_close = conn->http.close_after_write;
+        conn->http.close_after_write = 0;
+        memset(&res.body, 0, sizeof(res.body));
+        conn->stream_chunked = 0;
+        if (conn->head.request_line.version.major > 1 ||
+            (conn->head.request_line.version.major == 1 &&
+             conn->head.request_line.version.minor >= 1)) {
+            cfw_strview_t hn, hv;
+            cfw_strview_from_cstr(&hn, "Transfer-Encoding");
+            cfw_strview_from_cstr(&hv, "chunked");
+            if (cfw_response_header_add(&res, &hn, &hv) == CFW_OK) {
+                conn->stream_chunked = 1;
+            }
+        }
+        if (!conn->stream_chunked &&
+            conn->stream_hold_close == 0) {
+            /* Close-delimited fallback on a keep-alive request: tell
+             * the client the connection will close. */
+            cfw_strview_t hn, hv;
+            cfw_strview_from_cstr(&hn, "Connection");
+            cfw_strview_from_cstr(&hv, "close");
+            cfw_response_header_add(&res, &hn, &hv);
+        }
+    } else {
+        conn->stream_fn = NULL;
+    }
+
     memset(&req_view, 0, sizeof(req_view));
     req_view.method = conn->head.request_line.method;
     req_view.version = conn->head.request_line.version;
@@ -309,6 +361,9 @@ static void cfw_server_handle_done(cfw_server_t *server,
     }
 
     cfw_buffer_clear(&conn->body);
+    if (conn->stream_fn != NULL) {
+        cfw_server_stream_pump(server, conn);
+    }
 
     /* Always re-arm: the request deadline must not fire while the
      * response drains. keep_alive_timeout doubles as the drain deadline
@@ -361,6 +416,135 @@ static void cfw_server_expect_continue(cfw_server_t *server,
     }
 }
 
+
+#define CFW_SERVER_STREAM_PIECE 16384u
+
+/* Emits the next piece of the active stream. Chunked responses frame
+ * each piece as its own chunk (legal per RFC 9112); HTTP/1.0 responses
+ * are close-delimited raw bytes. Returns when the output queue is full
+ * (backpressure), the stream ends, or the connection dies. */
+static void cfw_server_stream_pump(cfw_server_t *server,
+                                   cfw_server_conn_t *conn)
+{
+    (void)server;
+
+    while (conn->stream_fn != NULL && !conn->dead) {
+        cfw_span_t piece;
+        size_t free_bytes;
+        size_t overhead;
+        size_t n;
+
+        /* Fetch the next chunk when the current one is exhausted. */
+        if (conn->stream_pos >= conn->stream_chunk.size) {
+            int eof = 0;
+            cfw_span_t next;
+            memset(&next, 0, sizeof(next));
+            if (conn->stream_fn(conn->stream_user, &next, &eof) != CFW_OK) {
+                conn->dead = 1;
+                return;
+            }
+            if (eof) {
+                conn->stream_eof = 1;
+            } else {
+                if (next.size == 0 || next.data == NULL) {
+                    /* Contract violation: non-empty progress required. */
+                    conn->dead = 1;
+                    return;
+                }
+                conn->stream_chunk = next;
+                conn->stream_pos = 0;
+            }
+        }
+
+        if (conn->stream_eof) {
+            /* Terminal chunk for chunked; close-delimited needs none. */
+            if (conn->stream_chunked) {
+                static const char terminal[] = "0\r\n\r\n";
+                if (cfw_http1_conn_queue(&conn->http, terminal,
+                                         sizeof(terminal) - 1) != CFW_OK) {
+                    return; /* retry on next pump */
+                }
+                conn->http.close_after_write = conn->stream_hold_close;
+            } else {
+                conn->http.close_after_write = 1;
+            }
+            conn->stream_fn = NULL;
+            conn->stream_done = 1;
+            cfw_server_conn_deadline(conn,
+                                     server->options.keep_alive_timeout);
+            return;
+        }
+
+        /* Bound the piece by queue free space and the piece cap. */
+        free_bytes = conn->http.max_out_size -
+                     cfw_http1_conn_pending_out(&conn->http);
+        overhead = conn->stream_chunked ? 24u : 0u;
+        if (free_bytes <= overhead) {
+            if (cfw_http1_conn_flush(&conn->http) == CFW_ERROR_IO) {
+                conn->dead = 1;
+                return;
+            }
+            free_bytes = conn->http.max_out_size -
+                         cfw_http1_conn_pending_out(&conn->http);
+            if (free_bytes <= overhead) {
+                return; /* still full: wait for POLL_OUT */
+            }
+        }
+        n = conn->stream_chunk.size - conn->stream_pos;
+        if (n > CFW_SERVER_STREAM_PIECE) {
+            n = CFW_SERVER_STREAM_PIECE;
+        }
+        if (n > free_bytes - overhead) {
+            n = free_bytes - overhead;
+        }
+        if (n == 0) {
+            return;
+        }
+
+        piece.data = conn->stream_chunk.data + conn->stream_pos;
+        piece.size = n;
+        if (conn->stream_chunked) {
+            char frame[40];
+            size_t fn = 0;
+            int i;
+            static const char hexd[] = "0123456789abcdef";
+            uint64_t v = n;
+            char tmp[16];
+            size_t tn = 0;
+            do {
+                tmp[tn++] = hexd[v & 15];
+                v >>= 4;
+            } while (v != 0);
+            for (i = (int)tn - 1; i >= 0; i--) {
+                frame[fn++] = tmp[i];
+            }
+            frame[fn++] = '\r';
+            frame[fn++] = '\n';
+            /* Piece size was bounded by free space minus overhead, so
+             * all three queues fit; any failure means the fd is gone. */
+            if (cfw_http1_conn_queue(&conn->http, frame, fn) != CFW_OK ||
+                cfw_http1_conn_queue(&conn->http, piece.data, piece.size) !=
+                    CFW_OK ||
+                cfw_http1_conn_queue(&conn->http, "\r\n", 2) != CFW_OK) {
+                conn->dead = 1;
+                return;
+            }
+        } else {
+            if (cfw_http1_conn_queue(&conn->http, piece.data, piece.size) !=
+                CFW_OK) {
+                conn->dead = 1;
+                return;
+            }
+        }
+        conn->stream_pos += n;
+
+        if (cfw_http1_conn_flush(&conn->http) == CFW_ERROR_IO) {
+            conn->dead = 1;
+            return;
+        }
+    }
+}
+
 static void cfw_server_service_read(cfw_server_t *server,
                                     cfw_server_conn_t *conn)
 {
@@ -400,7 +584,7 @@ static void cfw_server_service_read(cfw_server_t *server,
             cfw_server_send_error(server, conn, event.error_kind);
             break;
         }
-        if (conn->dead) {
+        if (conn->dead || conn->stream_fn != NULL) {
             break;
         }
     }
@@ -412,7 +596,8 @@ static void cfw_server_service_conn(cfw_server_t *server,
     if (conn == NULL || conn->dead) {
         return;
     }
-    if (events & (CFW_POLL_IN | CFW_POLL_ERR | CFW_POLL_HUP)) {
+    if (conn->stream_fn == NULL &&
+        (events & (CFW_POLL_IN | CFW_POLL_ERR | CFW_POLL_HUP))) {
         if (!conn->http.input_closed) {
             cfw_server_service_read(server, conn);
         }
@@ -421,6 +606,9 @@ static void cfw_server_service_conn(cfw_server_t *server,
         if (cfw_http1_conn_flush(&conn->http) == CFW_ERROR_IO) {
             conn->dead = 1;
         }
+    }
+    if (!conn->dead && conn->stream_fn != NULL) {
+        cfw_server_stream_pump(server, conn);
     }
     cfw_server_update_conn_interest(server, conn);
 }

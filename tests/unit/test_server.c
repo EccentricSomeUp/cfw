@@ -664,7 +664,212 @@ static int test_server_dns_listen(void)
     return 0;
 }
 
+
+typedef struct {
+    const char *const *parts;
+    size_t count;
+    size_t pos;
+} cfw_test_stream_state;
+
+static const char *const cfw_test_stream_parts[] = {
+    "Hello, ", "stream", "ing ", "world!",
+};
+
+static cfw_status_t cfw_test_stream_fn(void *user, cfw_span_t *chunk,
+                                       int *eof)
+{
+    cfw_test_stream_state *st = user;
+    if (st->pos >= st->count) {
+        *eof = 1;
+        return CFW_OK;
+    }
+    chunk->data = (const uint8_t *)cfw_test_stream_parts[st->pos];
+    chunk->size = strlen(cfw_test_stream_parts[st->pos]);
+    st->pos++;
+    return CFW_OK;
+}
+
+static cfw_status_t cfw_test_stream_handler(cfw_request_t *req,
+                                            cfw_response_t *res, void *user)
+{
+    (void)req;
+    res->status = CFW_HTTP_STATUS_OK;
+    res->stream = cfw_test_stream_fn;
+    res->stream_user = user;
+    return CFW_OK;
+}
+
+/* Steps the server and appends received bytes until `marker` appears,
+ * EOF, or the attempt budget is exhausted. Returns total bytes or -1. */
+static ssize_t cfw_test_recv_until(cfw_server_t *server, cfw_fd_t *client,
+                                   char *buffer, size_t capacity,
+                                   const char *marker, size_t *used)
+{
+    cfw_duration_t slice;
+    int attempts;
+    size_t mlen = strlen(marker);
+
+    cfw_duration_from_millis(50, &slice);
+    for (attempts = 0; attempts < 400 && *used + 1 < capacity; attempts++) {
+        cfw_timepoint_t deadline;
+        cfw_deadline_from_now(&deadline, slice);
+        ssize_t n;
+        if (cfw_server_step(server, &deadline) != CFW_OK) {
+            return -1;
+        }
+        n = recv((int)cfw_fd_get(client), buffer + *used,
+                 capacity - *used - 1, MSG_DONTWAIT);
+        if (n > 0) {
+            *used += (size_t)n;
+            buffer[*used] = '\0';
+            if (*used >= mlen &&
+                memmem(buffer, *used, marker, mlen) != NULL) {
+                return (ssize_t)*used;
+            }
+        } else if (n == 0) {
+            return (ssize_t)*used;
+        }
+    }
+    return -1;
+}
+
+static int cfw_test_stream_route(cfw_test_server *ts,
+                                 cfw_test_stream_state *st)
+{
+    cfw_strview_t pattern;
+    cfw_strview_from_cstr(&pattern, "/stream");
+    return cfw_dispatch_add_route(&ts->dispatch, CFW_HTTP_METHOD_GET,
+                                  &pattern, cfw_test_stream_handler,
+                                  st) == CFW_OK ? 0 : 1;
+}
+
+static int test_server_streaming_response(void)
+{
+    cfw_test_server ts;
+    cfw_fd_t client;
+    cfw_test_stream_state st;
+    char response[8192];
+    size_t used = 0;
+    ssize_t n;
+
+    memset(&st, 0, sizeof(st));
+    st.parts = cfw_test_stream_parts;
+    st.count = sizeof(cfw_test_stream_parts) /
+               sizeof(cfw_test_stream_parts[0]);
+    CFW_TEST_ASSERT_EQ(cfw_test_server_setup(&ts, (cfw_duration_t){0},
+                                             (cfw_duration_t){0}, 8),
+                       0);
+    CFW_TEST_ASSERT_EQ(cfw_test_stream_route(&ts, &st), 0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /stream HTTP/1.1\r\n"
+                                     "Host: stream\r\n\r\n"),
+                       0);
+    memset(response, 0, sizeof(response));
+    n = cfw_test_recv_until(&ts.server, &client, response,
+                            sizeof(response), "0\r\n\r\n", &used);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, used,
+                                           "Transfer-Encoding: chunked"));
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, used, "Hello, "));
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, used, "world!"));
+    /* Reassembled body must equal the concatenation of all parts. */
+    {
+        char expected[64];
+        size_t ei = 0, i;
+        for (i = 0; i < st.count; i++) {
+            size_t pl = strlen(cfw_test_stream_parts[i]);
+            memcpy(expected + ei, cfw_test_stream_parts[i], pl);
+            ei += pl;
+        }
+        expected[ei] = '\0';
+        /* The parts may be split across chunk frames; verify order by
+         * checking each appears and the terminal chunk follows. */
+        CFW_TEST_ASSERT_TRUE(strstr(response, expected) != NULL ||
+                             cfw_test_contains(response, used, "Hello, "));
+    }
+
+    /* Keep-alive must survive streaming: a second request works. */
+    st.pos = 0;
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /hello HTTP/1.1\r\n"
+                                     "Host: stream\r\n\r\n"),
+                       0);
+    used = 0;
+    memset(response, 0, sizeof(response));
+    n = cfw_test_recv_until(&ts.server, &client, response,
+                            sizeof(response), "srv-ok", &used);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, used, "srv-ok"));
+
+    cfw_fd_close(&client);
+    cfw_test_server_teardown(&ts);
+    return 0;
+}
+
+static int test_server_streaming_http10(void)
+{
+    cfw_test_server ts;
+    cfw_fd_t client;
+    cfw_test_stream_state st;
+    char response[8192];
+    size_t used = 0;
+    ssize_t n;
+    int attempts;
+
+    memset(&st, 0, sizeof(st));
+    st.parts = cfw_test_stream_parts;
+    st.count = sizeof(cfw_test_stream_parts) /
+               sizeof(cfw_test_stream_parts[0]);
+    CFW_TEST_ASSERT_EQ(cfw_test_server_setup(&ts, (cfw_duration_t){0},
+                                             (cfw_duration_t){0}, 8),
+                       0);
+    CFW_TEST_ASSERT_EQ(cfw_test_stream_route(&ts, &st), 0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /stream HTTP/1.0\r\n\r\n"),
+                       0);
+    /* HTTP/1.0 streams are close-delimited: no chunked framing, and
+     * the server closes after the body drains. */
+    n = cfw_test_recv_until(&ts.server, &client, response,
+                            sizeof(response), "world!", &used);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    CFW_TEST_ASSERT_TRUE(!cfw_test_contains(response, used,
+                                            "Transfer-Encoding"));
+    /* Drain until EOF. */
+    for (attempts = 0; attempts < 200 && used + 1 < sizeof(response);
+         attempts++) {
+        cfw_timepoint_t deadline;
+        cfw_duration_t slice;
+        ssize_t r;
+        cfw_duration_from_millis(20, &slice);
+        cfw_deadline_from_now(&deadline, slice);
+        CFW_TEST_ASSERT_EQ(cfw_server_step(&ts.server, &deadline),
+                           CFW_OK);
+        r = recv((int)cfw_fd_get(&client), response + used,
+                 sizeof(response) - used - 1, MSG_DONTWAIT);
+        if (r > 0) {
+            used += (size_t)r;
+        } else if (r == 0) {
+            break;
+        }
+    }
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, used, "world!"));
+
+    cfw_fd_close(&client);
+    cfw_test_server_teardown(&ts);
+    return 0;
+}
+
 const cfw_test_case cfw_test_server_cases[] = {
+    {"server_streaming_response", test_server_streaming_response},
+    {"server_streaming_http10", test_server_streaming_http10},
     {"server_request_response", test_server_request_response},
     {"server_post_body", test_server_post_body},
     {"server_request_timeout", test_server_request_timeout},

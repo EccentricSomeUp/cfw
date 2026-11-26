@@ -89,6 +89,10 @@ semantic versioning once a stable release policy is adopted.
   at request-head time so waiting clients are not stalled
 - DNS resolution for server listen hosts via getaddrinfo (init-time
   only; first address in the configured family)
+- Response streaming: pull-style `cfw_response_stream_fn` body source
+  with chunked transfer-encoding for HTTP/1.1 and close-delimited framing
+  for older versions, bounded output backpressure, and keep-alive
+  preservation (ADR 0031)
 - End-to-end request-smuggling security suite (tests/security):
   CL/TE conflicts, duplicate Content-Length, non-chunked and
   multi-coding Transfer-Encoding, obs-fold, malformed request lines,
