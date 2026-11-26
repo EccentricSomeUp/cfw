@@ -37,8 +37,8 @@ Add a kqueue backend to `src/cfw/private/pollset.c`, selected on
 - `wait` uses a relative `struct timespec` timeout derived from the
   monotonic `cfw_timepoint_t` deadline (nanosecond precision — finer
   than the epoll/poll millisecond path), retries on `EINTR` with a
-  recomputed timeout, and maps `NOTE_READ`→`IN`, `NOTE_WRITE`→`OUT`,
-  `NOTE_EOF`/`NOTE_HUP`→`HUP`, `NOTE_ERR`/`EV_ERROR`→`ERR`.
+  recomputed timeout, and maps delivered `EVFILT_READ`/`EVFILT_WRITE`
+  events to `IN`/`OUT`, `EV_EOF`→`HUP`, and `EV_ERROR`→`ERR`.
 - Readiness from both filters of one handle is merged into a single
   output event, preserving level-triggered semantics.
 - The kqueue fd is created close-on-exec via `fcntl`.

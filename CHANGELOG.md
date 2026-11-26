@@ -11,6 +11,11 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ### Fixed
 
+- macOS/BSD polling: kqueue readiness was gated on BSD `NOTE_*`
+  fflags, but those flags describe vnode/user events rather than
+  READ/WRITE readiness. Delivered `EVFILT_READ`/`EVFILT_WRITE` events
+  now map directly to `CFW_POLL_IN`/`CFW_POLL_OUT`, with `EV_EOF`
+  reported as `CFW_POLL_HUP` and `EV_ERROR` as `CFW_POLL_ERR`.
 - macOS build: the kqueue pollset backend was nested inside the epoll
   `#ifdef` branch, so on macOS/BSD it never compiled — the pollset fell
   through to the unavailable-backend stubs and the shared helpers were

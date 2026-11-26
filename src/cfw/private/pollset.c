@@ -709,35 +709,22 @@ cfw_status_t cfw_pollset_remove(cfw_pollset_t *pollset, intptr_t handle)
     return CFW_OK;
 }
 
-static uint32_t cfw_kqueue_to_cfw(int16_t filter, uint32_t fflags,
-                                  uint16_t kev_flags)
+static uint32_t cfw_kqueue_to_cfw(int16_t filter, uint32_t kev_flags)
 {
     uint32_t events = 0;
 
     if ((kev_flags & EV_ERROR) != 0) {
         events |= CFW_POLL_ERR;
     }
-#ifdef NOTE_ERR
-    if ((fflags & NOTE_ERR) != 0) {
-        events |= CFW_POLL_ERR;
-    }
-#endif
+    /* READ/WRITE readiness is the delivery of the matching filter
+     * event; NOTE_* fflags are filter-specific hints, not readiness bits. */
     if (filter == EVFILT_READ) {
-        if ((fflags & NOTE_READ) != 0) {
-            events |= CFW_POLL_IN;
-        }
-        if ((fflags & NOTE_EOF) != 0) {
-            events |= CFW_POLL_HUP;
-        }
-#ifdef NOTE_HUP
-        if ((fflags & NOTE_HUP) != 0) {
-            events |= CFW_POLL_HUP;
-        }
-#endif
+        events |= CFW_POLL_IN;
     } else if (filter == EVFILT_WRITE) {
-        if ((fflags & NOTE_WRITE) != 0) {
-            events |= CFW_POLL_OUT;
-        }
+        events |= CFW_POLL_OUT;
+    }
+    if ((kev_flags & EV_EOF) != 0) {
+        events |= CFW_POLL_HUP;
     }
     return events;
 }
@@ -837,8 +824,7 @@ cfw_status_t cfw_pollset_wait(cfw_pollset_t *pollset,
         if (record == NULL) {
             continue;
         }
-        record->ready |= cfw_kqueue_to_cfw(ready[i].filter, ready[i].fflags,
-                                           ready[i].flags);
+        record->ready |= cfw_kqueue_to_cfw(ready[i].filter, ready[i].flags);
     }
 
     if (nready == 0) {
