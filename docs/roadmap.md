@@ -26,11 +26,13 @@ tests.
 
 ## Phase 2: Platform abstraction
 
-- Platform capability detection
-- Socket, poll/epoll/kqueue/IOCP abstraction design
-- File descriptor/handle ownership rules
-- Threading, mutex, and condition-variable primitives if required
-- Clock, random source, and filesystem boundaries
+- [x] Platform capability detection
+- [x] Socket, poll/epoll/kqueue/IOCP abstraction design (epoll + poll
+  implemented internally; kqueue/IOCP designed, pending backends)
+- [x] File descriptor/handle ownership rules
+- [ ] Threading, mutex, and condition-variable primitives if required
+  (deferred until Phase 5 server lifecycle)
+- [x] Clock, random source, and filesystem boundaries
 
 Exit criteria: documented platform matrix and portable internal APIs.
 

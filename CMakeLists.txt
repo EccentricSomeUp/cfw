@@ -33,6 +33,7 @@ set(CFW_SOURCES
     src/cfw/checked_arithmetic.c
     src/cfw/fd.c
     src/cfw/fs.c
+    src/cfw/http.c
     src/cfw/log.c
     src/cfw/platform.c
     src/cfw/private/net.c

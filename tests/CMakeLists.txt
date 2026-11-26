@@ -8,6 +8,7 @@ add_executable(cfw_unit_tests
     unit/test_checked_arithmetic.c
     unit/test_fd.c
     unit/test_fs.c
+    unit/test_http.c
     unit/test_log.c
     unit/test_main.c
     unit/test_net.c

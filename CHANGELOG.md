@@ -39,6 +39,8 @@ semantic versioning once a stable release policy is adopted.
 - Internal nonblocking socket primitives: numeric IPv4/IPv6 addresses,
   socket/bind/listen/accept/connect wrappers, and `CFW_ERROR_WOULDBLOCK`
   status for nonblocking I/O
+- HTTP/1.x token primitives: method, version, and status enums with strict
+  bounded parsers and canonical names
 - CMake build, presets, sanitizer configuration, install rules, and CMake
   package config
 - Custom unit-test harness with debug, release, and sanitizer verification
