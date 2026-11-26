@@ -8,9 +8,11 @@
     #include "private/net.h"
 
     #include <errno.h>
+    #include <signal.h>
     #include <stdlib.h>
     #include <string.h>
     #include <sys/socket.h>
+    #include <sys/time.h>
     #include <unistd.h>
 
 static cfw_status_t cfw_test_connect(cfw_fd_t *client, uint16_t port)
@@ -134,6 +136,7 @@ static void cfw_test_server_options(cfw_server_options_t *options,
 static int cfw_test_server_setup_ex(cfw_test_server *ts,
                                     cfw_duration_t keep_alive,
                                     cfw_duration_t request_timeout,
+                                    cfw_duration_t drain_timeout,
                                     size_t max_connections,
                                     const char *host,
                                     cfw_upload_begin_fn upload_begin,
@@ -173,6 +176,7 @@ static int cfw_test_server_setup_ex(cfw_test_server *ts,
     options.host = host;
     options.keep_alive_timeout = keep_alive;
     options.request_timeout = request_timeout;
+    options.drain_timeout = drain_timeout;
     options.max_connections = max_connections;
     options.upload_begin = upload_begin;
     options.upload_write = upload_write;
@@ -191,6 +195,7 @@ static int cfw_test_server_setup_host(cfw_test_server *ts,
                                       const char *host)
 {
     return cfw_test_server_setup_ex(ts, keep_alive, request_timeout,
+                                    (cfw_duration_t){0},
                                     max_connections, host, NULL, NULL,
                                     NULL, NULL, NULL);
 }
@@ -1389,7 +1394,8 @@ static int test_server_error_logging(void)
     /* Missing Host on HTTP/1.1 must produce a 400 and a warn log. */
     CFW_TEST_ASSERT_EQ(cfw_test_server_setup_ex(
                            &ts, (cfw_duration_t){0},
-                           (cfw_duration_t){0}, 8, "127.0.0.1", NULL,
+                           (cfw_duration_t){0}, (cfw_duration_t){0}, 8,
+                           "127.0.0.1", NULL,
                            NULL, NULL, NULL, &logger),
                        0);
     cfw_fd_init(&client);
@@ -1505,6 +1511,7 @@ static int cfw_test_setup_upload_to(cfw_test_server *ts,
     memset(st, 0, sizeof(*st));
     CFW_TEST_ASSERT_EQ(cfw_test_server_setup_ex(
                            ts, (cfw_duration_t){0}, request_timeout,
+                           (cfw_duration_t){0},
                            8, "127.0.0.1", cfw_test_upload_begin,
                            cfw_test_upload_write, cfw_test_upload_end, st,
                            NULL),
@@ -1789,6 +1796,95 @@ static int test_server_upload_begin_error(void)
     return 0;
 }
 
+static cfw_server_t *cfw_test_sig_server;
+
+static void cfw_test_sigalrm_stop(int signo)
+{
+    (void)signo;
+    /* Test-only: cfw_server_stop performs a handful of syscalls
+     * (pollset modify, wake-byte send) which are effectively
+     * async-signal-safe on the POSIX targets; no heap or locks. */
+    cfw_server_stop(cfw_test_sig_server);
+}
+
+static int test_server_run_and_drain(void)
+{
+    cfw_test_server ts;
+    cfw_fd_t client;
+    char response[8192];
+    size_t used = 0;
+    cfw_status_t st;
+    cfw_duration_t drain;
+    struct sigaction sa;
+    struct sigaction sa_old;
+    struct itimerval it;
+    int attempts;
+
+    CFW_TEST_ASSERT_EQ(cfw_server_run(NULL), CFW_ERROR_INVALID_ARGUMENT);
+
+    cfw_duration_from_millis(300, &drain);
+    CFW_TEST_ASSERT_EQ(cfw_test_server_setup_ex(
+                           &ts, (cfw_duration_t){0}, (cfw_duration_t){0},
+                           drain, 8, "127.0.0.1", NULL, NULL, NULL, NULL,
+                           NULL),
+                       0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /hello HTTP/1.1\r\n"
+                                     "Host: run\r\n\r\n"),
+                       0);
+
+    /* Stop the blocking loop from a timer: cfw_server_stop writes the
+     * wake byte, so run() returns promptly without a second thread. */
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = cfw_test_sigalrm_stop;
+    sigemptyset(&sa.sa_mask);
+    CFW_TEST_ASSERT_EQ(sigaction(SIGALRM, &sa, &sa_old), 0);
+    cfw_test_sig_server = &ts.server;
+    memset(&it, 0, sizeof(it));
+    it.it_value.tv_sec = 0;
+    it.it_value.tv_usec = 200000;
+    CFW_TEST_ASSERT_EQ(setitimer(ITIMER_REAL, &it, NULL), 0);
+
+    st = cfw_server_run(&ts.server);
+
+    memset(&it, 0, sizeof(it));
+    setitimer(ITIMER_REAL, &it, NULL);
+    sigaction(SIGALRM, &sa_old, NULL);
+    cfw_test_sig_server = NULL;
+
+    CFW_TEST_ASSERT_EQ(st, CFW_OK);
+    CFW_TEST_ASSERT_TRUE(cfw_server_is_stopping(&ts.server));
+    CFW_TEST_ASSERT_EQ(cfw_server_requests_total(&ts.server), 1);
+
+    /* The keep-alive conn was still open at stop: run() drained until
+     * drain_timeout expired, then returned with the conn tracked. The
+     * response was flushed during the run. */
+    for (attempts = 0; attempts < 200 && used + 1 < sizeof(response);
+         attempts++) {
+        ssize_t n = recv((int)cfw_fd_get(&client), response + used,
+                         sizeof(response) - used - 1, MSG_DONTWAIT);
+        if (n > 0) {
+            used += (size_t)n;
+            if (cfw_test_contains(response, used, "200 OK")) {
+                break;
+            }
+        } else {
+            usleep(1000);
+        }
+    }
+    response[used] = '\0';
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, used,
+                                           "HTTP/1.1 200 OK"));
+
+    cfw_fd_close(&client);
+    cfw_test_server_teardown(&ts);
+    return 0;
+}
+
 const cfw_test_case cfw_test_server_cases[] = {
     {"server_upload_content_length", test_server_upload_content_length},
     {"server_upload_chunked", test_server_upload_chunked},
@@ -1814,6 +1910,7 @@ const cfw_test_case cfw_test_server_cases[] = {
     {"server_max_connections", test_server_max_connections},
     {"server_soak", test_server_soak},
     {"server_drain_after_stop", test_server_drain_after_stop},
+    {"server_run_and_drain", test_server_run_and_drain},
     {"server_expect_continue", test_server_expect_continue},
     {"server_keep_alive_timeout", test_server_keep_alive_timeout},
     {"server_dns_listen", test_server_dns_listen},
