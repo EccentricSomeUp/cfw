@@ -103,7 +103,10 @@ ctest --preset sanitizers --output-on-failure
 (see `tests/fuzz/README.md`) and, when a C++ compiler is available, builds a
 `cfw_cpp_consumer` test proving the public headers compile as C++. The
 `cfw_install_smoke` CTest case installs into a scratch prefix and builds a
-`find_package(cfw)` consumer against it.
+`find_package(cfw)` consumer against it. `cfw_pollset_poll_tests` runs the
+pollset suite against the `poll()` fallback backend on every non-Windows
+build via the test-only `CFW_POLLF_FORCE_POLL` override, so the non-epoll
+path is verified even on Linux.
 
 ## Continuous integration
 
