@@ -218,6 +218,38 @@ static cfw_server_conn_t *cfw_server_find_conn(cfw_server_t *server,
     return NULL;
 }
 
+/* Adds an automatic Date header unless the response already has one.
+ * Non-fatal on clock or scratch failure. `date` must be caller storage
+ * that outlives the response-head format. */
+static void cfw_server_add_date_header(cfw_response_t *res, char *date)
+{
+    int64_t unix_seconds;
+    size_t hi;
+    int have_date = 0;
+
+    for (hi = 0; hi < res->header_count; hi++) {
+        cfw_strview_t dn;
+        int eq;
+        cfw_strview_from_cstr(&dn, "Date");
+        if (cfw_strview_equal_nocase(&res->headers[hi].name, &dn,
+                                     &eq) == CFW_OK &&
+            eq) {
+            have_date = 1;
+            break;
+        }
+    }
+    if (have_date || cfw_time_wall_now(&unix_seconds) != CFW_OK ||
+        cfw_http_date_format(unix_seconds, date, 30) != CFW_OK) {
+        return;
+    }
+    {
+        cfw_strview_t hn, hv;
+        cfw_strview_from_cstr(&hn, "Date");
+        cfw_strview_init(&hv, date, 29);
+        cfw_response_header_add(res, &hn, &hv);
+    }
+}
+
 static void cfw_server_send_error(cfw_server_t *server,
                                   cfw_server_conn_t *conn,
                                   cfw_http1_error_kind_t kind)
@@ -230,8 +262,12 @@ static void cfw_server_send_error(cfw_server_t *server,
     char head_buf[512];
     size_t written = 0;
 
+    char date[30];
     memset(&res, 0, sizeof(res));
     res.status = status;
+    res.headers = conn->headers;
+    res.header_capacity = server->options.max_headers;
+    cfw_server_add_date_header(&res, date);
     memset(&req_view, 0, sizeof(req_view));
     if (conn->have_head) {
         req_view.method = conn->head.request_line.method;
@@ -287,31 +323,7 @@ static void cfw_server_handle_done(cfw_server_t *server,
 
     /* Date header: added automatically unless the handler supplied
      * one. Wall-clock failure or a full header scratch is non-fatal. */
-    {
-        int64_t unix_seconds;
-        size_t hi;
-        int have_date = 0;
-        for (hi = 0; hi < res.header_count; hi++) {
-            cfw_strview_t dn;
-            int eq;
-            cfw_strview_from_cstr(&dn, "Date");
-            if (cfw_strview_equal_nocase(&res.headers[hi].name, &dn,
-                                         &eq) == CFW_OK &&
-                eq) {
-                have_date = 1;
-                break;
-            }
-        }
-        if (!have_date &&
-            cfw_time_wall_now(&unix_seconds) == CFW_OK &&
-            cfw_http_date_format(unix_seconds, date,
-                                 sizeof(date)) == CFW_OK) {
-            cfw_strview_t hn, hv;
-            cfw_strview_from_cstr(&hn, "Date");
-            cfw_strview_init(&hv, date, 29);
-            cfw_response_header_add(&res, &hn, &hv);
-        }
-    }
+    cfw_server_add_date_header(&res, date);
 
     /* Signal close to the client when the connection will not be
      * reused; header_add failure (full scratch) is non-fatal. */
