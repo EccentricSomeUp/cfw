@@ -8,12 +8,32 @@
 #include <cfw/strview.h>
 
 #include <stdarg.h>
-#include <stdatomic.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
+#include <atomic>
+#endif
+
+#ifdef __cplusplus
 extern "C" {
+#endif
+
+/*
+ * The logger's rate-limiting counters are atomics in C. C++ has no
+ * <stdatomic.h> integer types, so the public fields use std::atomic there.
+ * Both spellings denote a single lock-free integer with identical layout on
+ * supported platforms; the static asserts below guard that assumption. The
+ * fields are managed exclusively by the API and must not be accessed
+ * directly by callers.
+ */
+#ifdef __cplusplus
+typedef std::atomic<int_fast64_t> cfw_atomic_int_fast64_t;
+typedef std::atomic<uint_fast64_t> cfw_atomic_uint_fast64_t;
+#else
+#include <stdatomic.h>
+typedef atomic_int_fast64_t cfw_atomic_int_fast64_t;
+typedef atomic_uint_fast64_t cfw_atomic_uint_fast64_t;
 #endif
 
 typedef enum cfw_log_level {
@@ -51,10 +71,19 @@ typedef struct cfw_logger {
     void *user_data;
     cfw_log_level_t min_level;
     uint32_t rate_limit_per_second;
-    atomic_int_fast64_t window_start_ns;
-    atomic_uint_fast64_t window_count;
-    atomic_uint_fast64_t dropped_count;
+    cfw_atomic_int_fast64_t window_start_ns;
+    cfw_atomic_uint_fast64_t window_count;
+    cfw_atomic_uint_fast64_t dropped_count;
 } cfw_logger_t;
+
+#ifdef __cplusplus
+static_assert(sizeof(cfw_atomic_int_fast64_t) == sizeof(int_fast64_t),
+              "cfw_atomic_int_fast64_t must be layout-compatible with the C "
+              "_Atomic int_fast64_t used by the implementation");
+static_assert(sizeof(cfw_atomic_uint_fast64_t) == sizeof(uint_fast64_t),
+              "cfw_atomic_uint_fast64_t must be layout-compatible with the C "
+              "_Atomic uint_fast64_t used by the implementation");
+#endif
 
 CFW_API void cfw_logger_init(cfw_logger_t *logger);
 CFW_API void cfw_logger_set_sink(cfw_logger_t *logger, cfw_log_sink_fn sink,

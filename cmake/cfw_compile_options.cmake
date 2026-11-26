@@ -14,9 +14,6 @@ function(cfw_apply_strict_flags target)
             -Wextra
             -Wpedantic
             -Wshadow
-            -Wstrict-prototypes
-            -Wmissing-prototypes
-            -Wredundant-decls
             -Wundef
             -Wcast-align
             -Wwrite-strings
@@ -24,6 +21,17 @@ function(cfw_apply_strict_flags target)
             -Winit-self
             -Wformat=2
         )
+
+        # These warnings are only valid for C; GCC/Clang diagnose them on
+        # C++ translation units, which breaks -Werror builds.
+        get_target_property(_cfw_sources ${target} SOURCES)
+        if(NOT _cfw_sources MATCHES "\\.(cpp|cc|cxx|CXX)$")
+            target_compile_options(${target} PRIVATE
+                -Wstrict-prototypes
+                -Wmissing-prototypes
+                -Wredundant-decls
+            )
+        endif()
     endif()
 
     if(CFW_ENABLE_WERROR)
