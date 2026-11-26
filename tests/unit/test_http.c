@@ -43,6 +43,69 @@ static int test_http_method_names_and_parse(void)
     return 0;
 }
 
+static int test_http_method_status_exhaustive(void)
+{
+    static const cfw_http_method_t methods[] = {
+        CFW_HTTP_METHOD_GET,   CFW_HTTP_METHOD_HEAD,
+        CFW_HTTP_METHOD_POST,  CFW_HTTP_METHOD_PUT,
+        CFW_HTTP_METHOD_DELETE, CFW_HTTP_METHOD_CONNECT,
+        CFW_HTTP_METHOD_OPTIONS, CFW_HTTP_METHOD_TRACE,
+        CFW_HTTP_METHOD_PATCH,
+    };
+    static const cfw_http_status_t statuses[] = {
+        CFW_HTTP_STATUS_CONTINUE,           CFW_HTTP_STATUS_SWITCHING_PROTOCOLS,
+        CFW_HTTP_STATUS_OK,                 CFW_HTTP_STATUS_CREATED,
+        CFW_HTTP_STATUS_ACCEPTED,           CFW_HTTP_STATUS_NO_CONTENT,
+        CFW_HTTP_STATUS_MOVED_PERMANENTLY,  CFW_HTTP_STATUS_FOUND,
+        CFW_HTTP_STATUS_NOT_MODIFIED,       CFW_HTTP_STATUS_BAD_REQUEST,
+        CFW_HTTP_STATUS_UNAUTHORIZED,       CFW_HTTP_STATUS_FORBIDDEN,
+        CFW_HTTP_STATUS_NOT_FOUND,          CFW_HTTP_STATUS_METHOD_NOT_ALLOWED,
+        CFW_HTTP_STATUS_REQUEST_TIMEOUT,    CFW_HTTP_STATUS_CONFLICT,
+        CFW_HTTP_STATUS_PAYLOAD_TOO_LARGE,  CFW_HTTP_STATUS_URI_TOO_LONG,
+        CFW_HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE,
+        CFW_HTTP_STATUS_EXPECTATION_FAILED, CFW_HTTP_STATUS_TOO_MANY_REQUESTS,
+        CFW_HTTP_STATUS_INTERNAL_SERVER_ERROR,
+        CFW_HTTP_STATUS_NOT_IMPLEMENTED,    CFW_HTTP_STATUS_BAD_GATEWAY,
+        CFW_HTTP_STATUS_SERVICE_UNAVAILABLE, CFW_HTTP_STATUS_GATEWAY_TIMEOUT,
+    };
+    size_t i;
+
+    /* Every known method must have a name that parses back to itself. */
+    for (i = 0; i < sizeof(methods) / sizeof(methods[0]); i++) {
+        const char *name = cfw_http_method_name(methods[i]);
+        cfw_strview_t token;
+        cfw_http_method_t parsed;
+        CFW_TEST_ASSERT_TRUE(name != NULL);
+        token = cfw_test_view(name);
+        CFW_TEST_ASSERT_EQ(cfw_http_method_parse(&token, &parsed), CFW_OK);
+        CFW_TEST_ASSERT_EQ(parsed, methods[i]);
+    }
+
+    /* Every known status must have a reason phrase and round-trip
+     * through cfw_http_status_parse. */
+    for (i = 0; i < sizeof(statuses) / sizeof(statuses[0]); i++) {
+        cfw_http_status_t parsed;
+        CFW_TEST_ASSERT_TRUE(cfw_http_status_reason(statuses[i]) != NULL);
+        CFW_TEST_ASSERT_EQ(
+            cfw_http_status_parse((uint32_t)statuses[i], &parsed), CFW_OK);
+        CFW_TEST_ASSERT_EQ(parsed, statuses[i]);
+    }
+
+    /* Unknown codes must fail closed. */
+    {
+        cfw_http_status_t parsed;
+        static const uint32_t bad[] = {0, 99, 199, 203, 418, 418 + 1000,
+                                       600, 999};
+        for (i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+            CFW_TEST_ASSERT_EQ(cfw_http_status_parse(bad[i], &parsed),
+                               CFW_ERROR_INVALID_ARGUMENT);
+        }
+        CFW_TEST_ASSERT_EQ(cfw_http_status_parse(200, NULL),
+                           CFW_ERROR_INVALID_ARGUMENT);
+    }
+    return 0;
+}
+
 static int test_http_version_parse_and_format(void)
 {
     cfw_strview_t token;
@@ -810,6 +873,8 @@ static int test_http_date_format(void)
 
 const cfw_test_case cfw_test_http_cases[] = {
     {"http_method_names_and_parse", test_http_method_names_and_parse},
+    {"http_method_status_exhaustive",
+     test_http_method_status_exhaustive},
     {"http_version_parse_and_format", test_http_version_parse_and_format},
     {"http_status_reason_and_parse", test_http_status_reason_and_parse},
     {"http_headers_next_basic", test_http_headers_next_basic},
