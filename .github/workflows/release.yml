@@ -4,7 +4,11 @@ name: release
 
 on:
   push:
-    tags: ["v*"]
+    # Final releases only: vMAJOR.MINOR.PATCH. Prerelease-style tags such as
+    # v1.0.0-rc.1 are excluded so they cannot publish a GitHub release.
+    tags:
+      - "v[0-9]*.[0-9]*.[0-9]*"
+      - "!v*-*"
 
 permissions:
   contents: write

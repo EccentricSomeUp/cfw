@@ -93,5 +93,7 @@ staged rollout.
 
 - Keep development history reviewable.
 - Do not force-push shared branches.
-- Tag releases only after the relevant audit checklist has been completed.
+- Tag releases only through `scripts/cfw-release.sh` per
+  `docs/process/versioning.md`, and only after the relevant audit
+  checklist has been completed.
 - Pre-1.0 releases may break API/ABI, but breaking changes must be documented.

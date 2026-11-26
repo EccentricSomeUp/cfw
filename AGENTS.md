@@ -63,6 +63,16 @@ pull request. Regular audits should cover, at minimum:
 - denial-of-service resistance
 - license and supply-chain compliance
 
+## Versioning and releases
+
+- Releases follow `docs/process/versioning.md` (SemVer; `project(VERSION)`
+  in `CMakeLists.txt` is the single source of truth).
+- Never hand-edit versions or create release tags manually; use
+  `scripts/cfw-release.sh`, which enforces changelog, version, and tag
+  consistency and runs all preset verification before tagging.
+- Every user-visible change lands in `CHANGELOG.md` under
+  `## [Unreleased]` before a release is cut.
+
 ## Documentation
 
 Update documentation when architecture, API behavior, build requirements,

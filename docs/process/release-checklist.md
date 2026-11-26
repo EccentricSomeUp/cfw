@@ -3,6 +3,10 @@
 # Release checklist
 
 No release should be tagged until the applicable items below are complete.
+Releases are governed by `docs/process/versioning.md` and executed with
+`scripts/cfw-release.sh`, which mechanically enforces the build, test,
+changelog, and tag-consistency items; the judgment items below remain the
+releaser's responsibility.
 
 ## Required for every release
 

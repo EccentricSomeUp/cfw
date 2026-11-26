@@ -39,6 +39,13 @@ Reviewers should check for:
 - Test coverage proportional to risk
 - License and dependency compliance
 
+## Changelog and releases
+
+User-visible changes must be recorded under `## [Unreleased]` in
+`CHANGELOG.md` using Keep a Changelog categories. Versioning, tagging, and
+the release procedure are defined in `docs/process/versioning.md`; releases
+are cut with `scripts/cfw-release.sh`, never by hand-tagging.
+
 ## Security issues
 
 Do not open public issues for exploitable vulnerabilities. Follow
