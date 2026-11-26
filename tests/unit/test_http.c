@@ -286,6 +286,87 @@ static int test_http_request_line_parse(void)
     return 0;
 }
 
+static int test_http_request_head_parse(void)
+{
+    cfw_http_request_head_t head;
+    cfw_http_header_t header;
+    size_t cursor;
+    int done;
+
+    /* Minimal head: no headers. */
+    {
+        cfw_strview_t view = cfw_test_view("GET / HTTP/1.1\r\n\r\n");
+        CFW_TEST_ASSERT_EQ(cfw_http_request_head_parse(&view, &head), CFW_OK);
+        CFW_TEST_ASSERT_EQ(head.request_line.method, CFW_HTTP_METHOD_GET);
+        cursor = 0;
+        CFW_TEST_ASSERT_EQ(cfw_http_headers_next(&head.headers, &cursor,
+                                                 &header, &done),
+                           CFW_OK);
+        CFW_TEST_ASSERT_TRUE(done);
+    }
+
+    /* Head with headers. */
+    {
+        cfw_strview_t view = cfw_test_view(
+            "POST /submit?a=1 HTTP/1.1\r\n"
+            "Host: example.com\r\n"
+            "Content-Length: 4\r\n"
+            "\r\n");
+        int seen_host = 0;
+        int seen_length = 0;
+
+        CFW_TEST_ASSERT_EQ(cfw_http_request_head_parse(&view, &head), CFW_OK);
+        CFW_TEST_ASSERT_EQ(head.request_line.method, CFW_HTTP_METHOD_POST);
+        CFW_TEST_ASSERT_EQ(head.request_line.target.size, 11);
+
+        cursor = 0;
+        for (;;) {
+            CFW_TEST_ASSERT_EQ(cfw_http_headers_next(&head.headers, &cursor,
+                                                     &header, &done),
+                               CFW_OK);
+            if (done) {
+                break;
+            }
+            if (header.name.size == 4 &&
+                memcmp(header.name.data, "Host", 4) == 0) {
+                seen_host = 1;
+            }
+            if (header.name.size == 14 &&
+                memcmp(header.name.data, "Content-Length", 14) == 0) {
+                seen_length = 1;
+                CFW_TEST_ASSERT_EQ(header.value.size, 1);
+                CFW_TEST_ASSERT_EQ(header.value.data[0], '4');
+            }
+        }
+        CFW_TEST_ASSERT_TRUE(seen_host);
+        CFW_TEST_ASSERT_TRUE(seen_length);
+    }
+
+    /* Malformed heads fail closed. */
+    {
+        static const char *bad[] = {
+            "",
+            "GET / HTTP/1.1",
+            "GET / HTTP/1.1\r\n",          /* missing terminator */
+            "GET / HTTP/1.1\n\n",          /* LF only */
+            "GET / HTTP/1.1\r\nBad Header\r\n\r\n",
+            "GET / HTTP/1.1\r\n\r\nGARBAGE",
+            "GET / HTTP/1.1\r\nA: b\r\n\r\nC: d\r\n\r\n",
+            "BAD / HTTP/1.1\r\n\r\n",
+        };
+        size_t i;
+        for (i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+            cfw_strview_t view = cfw_test_view(bad[i]);
+            CFW_TEST_ASSERT_EQ(cfw_http_request_head_parse(&view, &head),
+                               CFW_ERROR_INVALID_ARGUMENT);
+        }
+    }
+
+    CFW_TEST_ASSERT_EQ(cfw_http_request_head_parse(NULL, &head),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    return 0;
+}
+
 const cfw_test_case cfw_test_http_cases[] = {
     {"http_method_names_and_parse", test_http_method_names_and_parse},
     {"http_version_parse_and_format", test_http_version_parse_and_format},
@@ -296,5 +377,6 @@ const cfw_test_case cfw_test_http_cases[] = {
      test_http_headers_next_rejects_malformed},
     {"http_headers_next_invalid_args", test_http_headers_next_invalid_args},
     {"http_request_line_parse", test_http_request_line_parse},
+    {"http_request_head_parse", test_http_request_head_parse},
     {NULL, NULL},
 };

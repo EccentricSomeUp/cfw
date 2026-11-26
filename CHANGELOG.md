@@ -45,6 +45,8 @@ semantic versioning once a stable release policy is adopted.
   OWS trimming, and obs-fold/bare-CRLF rejection
 - Strict HTTP request-line parser producing method, target, and version
   with single-space grammar and control-character rejection
+- Complete request-head parser validating request line, headers, and the
+  empty-line terminator with nothing permitted after it
 - CMake build, presets, sanitizer configuration, install rules, and CMake
   package config
 - Custom unit-test harness with debug, release, and sanitizer verification

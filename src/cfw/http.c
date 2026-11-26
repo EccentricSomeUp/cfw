@@ -460,3 +460,84 @@ cfw_status_t cfw_http_request_line_parse(const cfw_strview_t *line,
     request_line->target = target_view;
     return CFW_OK;
 }
+
+cfw_status_t cfw_http_request_head_parse(const cfw_strview_t *head,
+                                         cfw_http_request_head_t *request_head)
+{
+    size_t i;
+    size_t eol;
+    cfw_strview_t request_line_view;
+    cfw_strview_t headers_view;
+    size_t cursor;
+    cfw_http_header_t header;
+    int done;
+    cfw_status_t status;
+
+    if (head == NULL || head->data == NULL || request_head == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (head->size != 0 && head->data == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    /* Locate the CRLF ending the request line. */
+    eol = head->size;
+    for (i = 0; i < head->size; i++) {
+        if (head->data[i] == '\r') {
+            if (i + 1 >= head->size || head->data[i + 1] != '\n') {
+                return CFW_ERROR_INVALID_ARGUMENT;
+            }
+            eol = i;
+            break;
+        }
+        if (head->data[i] == '\n') {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+    }
+    if (eol == head->size) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (eol == 0) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    request_line_view.data = head->data;
+    request_line_view.size = eol;
+
+    status = cfw_http_request_line_parse(&request_line_view,
+                                         &request_head->request_line);
+    if (status != CFW_OK) {
+        return status;
+    }
+
+    /* Everything after the request-line CRLF is the header section; it must
+     * be at least the two-byte empty-line terminator. */
+    if (eol + 2 >= head->size) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    headers_view.data = head->data + eol + 2;
+    headers_view.size = head->size - eol - 2;
+
+    /* Walk every header line; the iterator stops at the empty line, after
+     * which only the final CRLF may remain. */
+    cursor = 0;
+    for (;;) {
+        status = cfw_http_headers_next(&headers_view, &cursor, &header,
+                                       &done);
+        if (status != CFW_OK) {
+            return status;
+        }
+        if (done) {
+            break;
+        }
+    }
+
+    if (cursor + 2 != headers_view.size ||
+        headers_view.data[cursor] != '\r' ||
+        headers_view.data[cursor + 1] != '\n') {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    request_head->headers = headers_view;
+    return CFW_OK;
+}

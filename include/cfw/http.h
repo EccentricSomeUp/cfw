@@ -84,6 +84,19 @@ typedef struct cfw_http_request_line {
 CFW_API cfw_status_t cfw_http_request_line_parse(
     const cfw_strview_t *line, cfw_http_request_line_t *request_line);
 
+typedef struct cfw_http_request_head {
+    cfw_http_request_line_t request_line;
+    /* Header section including its terminating empty line; iterate with
+     * cfw_http_headers_next, which stops at the empty line. */
+    cfw_strview_t headers;
+} cfw_http_request_head_t;
+
+/* Parses a complete request head: request line, header lines, and the
+ * mandatory empty-line terminator. The input must contain exactly the head
+ * bytes and nothing after the final CRLF. */
+CFW_API cfw_status_t cfw_http_request_head_parse(
+    const cfw_strview_t *head, cfw_http_request_head_t *request_head);
+
 CFW_API cfw_status_t cfw_http_headers_next(const cfw_strview_t *block,
                                            size_t *cursor,
                                            cfw_http_header_t *header,
