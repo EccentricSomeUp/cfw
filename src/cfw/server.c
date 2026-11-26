@@ -86,7 +86,6 @@ struct cfw_server_conn {
     cfw_span_t stream_chunk;
     size_t stream_pos;
     int stream_eof;
-    int stream_done;
     int stream_chunked;
     int stream_hold_close;
     int have_head;
@@ -291,6 +290,30 @@ static void cfw_server_send_error(cfw_server_t *server,
     cfw_server_update_conn_interest(server, conn);
 }
 
+/* Removes every occurrence of a response header by name
+ * (case-insensitive), compacting the array in place. Used to keep
+ * handler-supplied framing headers from conflicting with the framing
+ * the server emits. */
+static void cfw_server_response_strip(cfw_response_t *res,
+                                      const char *name)
+{
+    cfw_strview_t target;
+    size_t i;
+    size_t w = 0;
+
+    cfw_strview_from_cstr(&target, name);
+    for (i = 0; i < res->header_count; i++) {
+        int eq = 0;
+        if (cfw_strview_equal_nocase(&res->headers[i].name, &target,
+                                     &eq) == CFW_OK &&
+            eq) {
+            continue;
+        }
+        res->headers[w++] = res->headers[i];
+    }
+    res->header_count = w;
+}
+
 static void cfw_server_handle_done(cfw_server_t *server,
                                    cfw_server_conn_t *conn)
 {
@@ -321,6 +344,12 @@ static void cfw_server_handle_done(cfw_server_t *server,
         return;
     }
 
+    /* The server owns response framing: a handler-supplied
+     * Transfer-Encoding cannot be honored (only identity bodies and
+     * server-driven chunked streaming exist) and would corrupt the byte
+     * stream, so it is always stripped. */
+    cfw_server_response_strip(&res, "transfer-encoding");
+
     /* Date header: added automatically unless the handler supplied
      * one. Wall-clock failure or a full header scratch is non-fatal. */
     cfw_server_add_date_header(&res, date);
@@ -347,10 +376,10 @@ static void cfw_server_handle_done(cfw_server_t *server,
         conn->stream_chunk = (cfw_span_t){0};
         conn->stream_pos = 0;
         conn->stream_eof = 0;
-        conn->stream_done = 0;
         conn->stream_hold_close = conn->http.close_after_write;
         conn->http.close_after_write = 0;
         memset(&res.body, 0, sizeof(res.body));
+        cfw_server_response_strip(&res, "content-length");
         conn->stream_chunked = 0;
         if (conn->head.request_line.version.major > 1 ||
             (conn->head.request_line.version.major == 1 &&
@@ -476,8 +505,6 @@ static void cfw_server_expect_continue(cfw_server_t *server,
 static void cfw_server_stream_pump(cfw_server_t *server,
                                    cfw_server_conn_t *conn)
 {
-    (void)server;
-
     while (conn->stream_fn != NULL && !conn->dead) {
         cfw_span_t piece;
         size_t free_bytes;
@@ -519,9 +546,6 @@ static void cfw_server_stream_pump(cfw_server_t *server,
                 conn->http.close_after_write = 1;
             }
             conn->stream_fn = NULL;
-            conn->stream_done = 1;
-            cfw_server_conn_deadline(conn,
-                                     server->options.keep_alive_timeout);
             return;
         }
 
@@ -587,6 +611,11 @@ static void cfw_server_stream_pump(cfw_server_t *server,
             }
         }
         conn->stream_pos += n;
+        /* Progress was made: re-arm the drain deadline so the timeout
+         * measures stream *inactivity* (a stalled client is still
+         * killed), not total stream duration. */
+        cfw_server_conn_deadline(conn,
+                                 server->options.keep_alive_timeout);
 
         if (cfw_http1_conn_flush(&conn->http) == CFW_ERROR_IO) {
             conn->dead = 1;
@@ -654,6 +683,8 @@ static void cfw_server_service_read(cfw_server_t *server,
                                       CFW_HTTP1_ERR_PROTOCOL);
                 cfw_http1_conn_close_after_write(&conn->http);
                 conn->rejecting = 1;
+                cfw_server_conn_deadline(
+                    conn, server->options.keep_alive_timeout);
                 break;
             }
             cfw_server_expect_continue(server, conn);

@@ -588,6 +588,76 @@ static int test_dispatch_route_handlers(void)
     return 0;
 }
 
+static cfw_status_t cfw_test_stream_fn(void *user, cfw_span_t *chunk,
+                                       int *eof)
+{
+    (void)user;
+    (void)chunk;
+    *eof = 1;
+    return CFW_OK;
+}
+
+static cfw_status_t cfw_test_stream_handler(cfw_request_t *req,
+                                            cfw_response_t *res, void *user)
+{
+    (void)req;
+    (void)user;
+    res->status = CFW_HTTP_STATUS_OK;
+    res->stream = cfw_test_stream_fn;
+    return CFW_OK;
+}
+
+/* Reusing a cfw_response_t across dispatch calls must not leak a stale
+ * stream source into a response that does not set one. */
+static int test_dispatch_response_reset(void)
+{
+    cfw_arena_t *arena = cfw_arena_create(8192);
+    cfw_router_t router;
+    cfw_dispatch_t dispatch;
+    cfw_dispatch_options_t options;
+    cfw_test_handler_state state = {0, CFW_HTTP_STATUS_OK, "plain"};
+    cfw_http_header_t res_headers[8];
+    cfw_route_param_t params[8];
+    cfw_response_t res;
+    static const char head_stream[] = "GET /s HTTP/1.1\r\n\r\n";
+    static const char head_plain[] = "GET /p HTTP/1.1\r\n\r\n";
+
+    CFW_TEST_ASSERT_TRUE(arena != NULL);
+    CFW_TEST_ASSERT_EQ(cfw_router_init(&router, arena), CFW_OK);
+    memset(&options, 0, sizeof(options));
+    options.router = &router;
+    options.handler = cfw_test_handler;
+    options.handler_user = &state;
+    options.max_middleware = 1;
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_init(&dispatch, arena, &options),
+                       CFW_OK);
+
+    {
+        cfw_strview_t pattern = cfw_test_sv("/s");
+        CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(
+                               &dispatch, CFW_HTTP_METHOD_GET, &pattern,
+                               cfw_test_stream_handler, NULL),
+                           CFW_OK);
+    }
+    CFW_TEST_ASSERT_EQ(cfw_test_router_add(&router, CFW_HTTP_METHOD_GET,
+                                           "/p", NULL),
+                       0);
+
+    CFW_TEST_ASSERT_EQ(cfw_test_dispatch_run(&dispatch, head_stream, NULL,
+                                             res_headers, 8, params, 8, &res),
+                       CFW_OK);
+    CFW_TEST_ASSERT_TRUE(res.stream != NULL);
+
+    CFW_TEST_ASSERT_EQ(cfw_test_dispatch_run(&dispatch, head_plain, NULL,
+                                             res_headers, 8, params, 8, &res),
+                       CFW_OK);
+    CFW_TEST_ASSERT_TRUE(res.stream == NULL);
+    CFW_TEST_ASSERT_TRUE(res.stream_user == NULL);
+
+    cfw_arena_destroy(arena);
+    return 0;
+}
+
 const cfw_test_case cfw_test_dispatch_cases[] = {
     {"dispatch_basic", test_dispatch_basic},
     {"dispatch_middleware_order_cancel", test_dispatch_middleware_order_cancel},
@@ -596,5 +666,6 @@ const cfw_test_case cfw_test_dispatch_cases[] = {
     {"dispatch_response_format", test_dispatch_response_format},
     {"dispatch_validation", test_dispatch_validation},
     {"dispatch_route_handlers", test_dispatch_route_handlers},
+    {"dispatch_response_reset", test_dispatch_response_reset},
     {NULL, NULL},
 };

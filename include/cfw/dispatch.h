@@ -65,9 +65,12 @@ typedef struct cfw_route_binding {
 } cfw_route_binding_t;
 
 /* Pull-style streaming body source. Each call fills *chunk with the
- * next body span (borrowed; valid until the next call) and sets *eof
- * when the stream ends. Return CFW_OK to continue or CFW_ERROR_* to
- * abort the response (the connection is then closed). */
+ * next body span and sets *eof when the stream ends. The chunk must
+ * remain valid until this function is invoked again; the server only
+ * re-invokes it after the previous chunk has been fully emitted.
+ * Return CFW_OK to continue or CFW_ERROR_* to abort the response (the
+ * connection is then closed). A non-EOF call must return a non-empty
+ * chunk; violations close the connection. */
 typedef cfw_status_t (*cfw_response_stream_fn)(void *user,
                                                cfw_span_t *chunk,
                                                int *eof);
@@ -185,7 +188,10 @@ CFW_API cfw_status_t cfw_dispatch_add_route(cfw_dispatch_t *dispatch,
  *   (match.param_count still reports the total).
  * - res: output response. The caller must set res->headers and
  *   res->header_capacity to its scratch array before the call; the
- *   function resets status (200), header_count, body, and user.
+ *   function resets status (200), header_count, body, stream,
+ *   stream_user, and user. Handlers own response framing details:
+ *   Content-Length, when present, must equal body.size; the server
+ *   strips Transfer-Encoding and manages chunked framing itself.
  *
  * Returns CFW_OK when a response was produced (including error-mapped
  * ones); CFW_ERROR_INVALID_ARGUMENT on invalid arguments. Routing,

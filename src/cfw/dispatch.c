@@ -190,6 +190,8 @@ cfw_status_t cfw_dispatch_request(
     res->status = CFW_HTTP_STATUS_OK;
     res->header_count = 0;
     memset(&res->body, 0, sizeof(res->body));
+    res->stream = NULL;
+    res->stream_user = NULL;
     res->user = NULL;
 
     memset(&req, 0, sizeof(req));

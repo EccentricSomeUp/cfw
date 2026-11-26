@@ -91,6 +91,12 @@ semantic versioning once a stable release policy is adopted.
   only; first address in the configured family)
 - RFC 9112 Host enforcement: HTTP/1.1 requests without a non-empty Host
   field are rejected with 400 and the connection closed
+- Audit hardening for streaming and dispatch: `cfw_dispatch_request`
+  now resets `stream`/`stream_user` on reused responses; stream drain
+  deadline measures inactivity rather than total stream duration;
+  handler-supplied Transfer-Encoding is stripped and Content-Length
+  removed when streaming so server framing cannot be corrupted;
+  rejected connections get a drain deadline
 - Fixed a pollset registration leak when a connection fd closed during
   response drain: the cached handle is now used for pollset operations,
   preventing fd-number reuse from starving new connections
