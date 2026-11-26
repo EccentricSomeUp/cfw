@@ -77,3 +77,33 @@ cfw_apply_hardening_flags(cfw_security_tests)
 cfw_apply_sanitizer_flags(cfw_security_tests)
 
 add_test(NAME cfw_security COMMAND cfw_security_tests)
+
+# C++ consumer smoke test: all public headers must compile as C++ and the
+# exported symbols must link. Only built when a C++ compiler is available.
+include(CheckLanguage)
+check_language(CXX)
+if(CMAKE_CXX_COMPILER)
+    enable_language(CXX)
+    add_executable(cfw_cpp_consumer cpp_consumer/main.cpp)
+    target_link_libraries(cfw_cpp_consumer PRIVATE cfw)
+    cfw_apply_strict_flags(cfw_cpp_consumer)
+    cfw_apply_hardening_flags(cfw_cpp_consumer)
+    cfw_apply_sanitizer_flags(cfw_cpp_consumer)
+    add_test(NAME cfw_cpp_consumer COMMAND cfw_cpp_consumer)
+endif()
+
+# Install/package smoke test: installs into a scratch prefix, then configures,
+# builds, and runs a consumer project against the installed package files.
+# Skipped under the sanitizers preset: the installed static library is
+# sanitizer-instrumented, and a plain consumer cannot link it without
+# propagating sanitizer runtimes, which is out of scope for a packaging test.
+if(NOT CFW_ENABLE_SANITIZERS)
+    add_test(NAME cfw_install_smoke
+        COMMAND ${CMAKE_COMMAND}
+            -DCMAKE_COMMAND=${CMAKE_COMMAND}
+            -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
+            -DBINARY_DIR=${CMAKE_BINARY_DIR}
+            -DPREFIX=${CMAKE_BINARY_DIR}/install-smoke
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/install_smoke.cmake
+    )
+endif()
