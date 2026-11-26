@@ -177,6 +177,26 @@ target_compile_definitions(cfw_pollset_none_compile PRIVATE
 )
 cfw_apply_strict_flags(cfw_pollset_none_compile)
 
+# Loopback server benchmark: manual measurement tool (not a ctest).
+# POSIX only — it uses the private socket layer like the unit tests.
+if(NOT WIN32)
+    add_executable(cfw_bench
+        ../src/cfw/private/net.c
+        ../src/cfw/private/pollset.c
+        bench/bench_server.c
+    )
+
+    target_include_directories(cfw_bench PRIVATE
+        unit
+        ${CMAKE_SOURCE_DIR}/src/cfw
+    )
+    target_link_libraries(cfw_bench PRIVATE cfw)
+
+    cfw_apply_strict_flags(cfw_bench)
+    cfw_apply_hardening_flags(cfw_bench)
+    cfw_apply_sanitizer_flags(cfw_bench)
+endif()
+
 # C++ consumer smoke test: all public headers must compile as C++ and the
 # exported symbols must link. Only built when a C++ compiler is available.
 include(CheckLanguage)

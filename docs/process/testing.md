@@ -111,6 +111,11 @@ force the `epoll`, `kqueue` (against a stub `<sys/event.h>` on hosts
 without one), `poll`, and `none` backend selections so every `#if` branch
 in `pollset.c` is compiled on every host (ADR 0053).
 
+A manual benchmark binary, `cfw_bench` (POSIX builds only, not a CTest
+case), measures single-connection keep-alive throughput against a live
+`cfw_server_t`: `./build/release/tests/cfw_bench [requests] [warmup]`.
+Use it for relative comparisons between builds on the same machine.
+
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs every configure preset (debug, release,

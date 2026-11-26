@@ -23,6 +23,9 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   `cfw_thread_t` workers each running a `cfw_server_t` with
   `reuse_port` on a shared dispatch, with a mutex/condvar startup
   rendezvous.
+- `tests/bench/bench_server.c` (`cfw_bench`): manual loopback
+  keep-alive benchmark reporting requests/second and response
+  throughput for `cfw_server_t` (POSIX builds, not a CTest case).
 - Per-request completion audit hook (ADR 0055): new optional
   `request_done`/`request_done_user` fields on `cfw_server_options_t`
   deliver a `cfw_request_record_t` exactly once per parsed request
