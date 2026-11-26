@@ -257,7 +257,7 @@ static int test_route_registration_validation(void)
         "/:",         /* empty param name */
         "/a b",       /* space in literal */
         "/a?b",       /* '?' in literal */
-        "/a\x01" "b", /* control char */
+        ("/a\x01" "b"), /* control char */
         "/:x/:x",     /* duplicate param name */
     };
     size_t i;

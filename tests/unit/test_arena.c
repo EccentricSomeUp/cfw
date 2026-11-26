@@ -45,8 +45,8 @@ static int test_arena_alloc_basic_and_alignment(void)
 
     bytes = (char *)p1;
     memset(bytes, 0xAB, 100);
-    CFW_TEST_ASSERT_EQ(bytes[0], (char)0xAB);
-    CFW_TEST_ASSERT_EQ(bytes[99], (char)0xAB);
+    CFW_TEST_ASSERT_EQ((unsigned char)bytes[0], 0xAB);
+    CFW_TEST_ASSERT_EQ((unsigned char)bytes[99], 0xAB);
 
     cfw_arena_destroy(arena);
     return 0;

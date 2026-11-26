@@ -1,5 +1,15 @@
 /* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 */
 
+#include "private/platform_detect.h"
+
+#if CFW_PLATFORM_WINDOWS
+    /* fopen/fwrite/fclose trip MSVC CRT deprecation warnings; tests use
+     * plain stdio for fixture setup, matching src/cfw/fs.c. */
+    #ifndef _CRT_SECURE_NO_WARNINGS
+        #define _CRT_SECURE_NO_WARNINGS
+    #endif
+#endif
+
 #include <cfw/cfw.h>
 
 #include "private/fs_confined.h"

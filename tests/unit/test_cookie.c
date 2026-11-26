@@ -183,7 +183,7 @@ static int test_cookie_parse_malformed(void)
 
     /* Non-ASCII byte rejected. */
     {
-        char raw[] = {'a', '=', 'b', (char)0xC3, (char)0xA9};
+        static const unsigned char raw[] = {'a', '=', 'b', 0xC3, 0xA9};
         cfw_strview_t hv;
         cfw_strview_init(&hv, raw, sizeof(raw));
         CFW_TEST_ASSERT_EQ(cfw_cookie_parse(&hv, pairs, 4, &count,

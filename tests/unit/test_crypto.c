@@ -6,15 +6,26 @@
 
 #include <string.h>
 
+static unsigned int cfw_test_hex_value(char c)
+{
+    if (c >= '0' && c <= '9') {
+        return (unsigned int)(c - '0');
+    }
+    if (c >= 'a' && c <= 'f') {
+        return (unsigned int)(c - 'a' + 10u);
+    }
+    return (unsigned int)(c - 'A' + 10u);
+}
+
 /* Decodes a 64-char lowercase hex string into `out` (32 bytes). */
 static void cfw_test_hex32(const char *hex, unsigned char *out)
 {
     size_t i;
 
     for (i = 0; i < 32u; i++) {
-        unsigned int byte;
-        sscanf(hex + i * 2u, "%2x", &byte);
-        out[i] = (unsigned char)byte;
+        unsigned int hi = cfw_test_hex_value(hex[i * 2u]);
+        unsigned int lo = cfw_test_hex_value(hex[i * 2u + 1u]);
+        out[i] = (unsigned char)((hi << 4u) | lo);
     }
 }
 

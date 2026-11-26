@@ -13,11 +13,11 @@
 
 static int test_pollset_create_destroy(void)
 {
-    cfw_pollset_t *pollset = NULL;
-
 #if !CFW_PLATFORM_POSIX
     return 0; /* pollset backend is POSIX-only for now. */
 #else
+    cfw_pollset_t *pollset = NULL;
+
     CFW_TEST_ASSERT_EQ(cfw_pollset_create(NULL), CFW_ERROR_INVALID_ARGUMENT);
     CFW_TEST_ASSERT_EQ(cfw_pollset_create(&pollset), CFW_OK);
     CFW_TEST_ASSERT(pollset != NULL);
@@ -29,6 +29,9 @@ static int test_pollset_create_destroy(void)
 
 static int test_pollset_wait_reports_readable(void)
 {
+#if !CFW_PLATFORM_POSIX
+    return 0; /* pollset backend is POSIX-only for now. */
+#else
     cfw_pollset_t *pollset;
     cfw_poll_event_t events[4];
     cfw_timepoint_t deadline;
@@ -38,9 +41,6 @@ static int test_pollset_wait_reports_readable(void)
     int fds[2];
     char byte = 'x';
 
-#if !CFW_PLATFORM_POSIX
-    return 0; /* pollset backend is POSIX-only for now. */
-#else
     CFW_TEST_ASSERT_EQ(pipe(fds), 0);
     CFW_TEST_ASSERT_EQ(cfw_pollset_create(&pollset), CFW_OK);
 
@@ -84,6 +84,9 @@ static int test_pollset_wait_reports_readable(void)
 
 static int test_pollset_modify_and_remove(void)
 {
+#if !CFW_PLATFORM_POSIX
+    return 0;
+#else
     cfw_pollset_t *pollset;
     cfw_poll_event_t events[4];
     cfw_timepoint_t deadline;
@@ -93,9 +96,6 @@ static int test_pollset_modify_and_remove(void)
     int token_b = 2;
     int fds[2];
 
-#if !CFW_PLATFORM_POSIX
-    return 0;
-#else
     CFW_TEST_ASSERT_EQ(pipe(fds), 0);
     CFW_TEST_ASSERT_EQ(cfw_pollset_create(&pollset), CFW_OK);
 
@@ -129,15 +129,15 @@ static int test_pollset_modify_and_remove(void)
 
 static int test_pollset_invalid_arguments(void)
 {
+#if !CFW_PLATFORM_POSIX
+    return 0;
+#else
     cfw_pollset_t *pollset;
     cfw_poll_event_t events[1];
     cfw_timepoint_t deadline;
     cfw_duration_t wait_time;
     size_t count;
 
-#if !CFW_PLATFORM_POSIX
-    return 0;
-#else
     CFW_TEST_ASSERT_EQ(cfw_pollset_create(&pollset), CFW_OK);
     CFW_TEST_ASSERT_EQ(cfw_duration_from_seconds(1, &wait_time), CFW_OK);
     CFW_TEST_ASSERT_EQ(cfw_deadline_from_now(&deadline, wait_time), CFW_OK);
