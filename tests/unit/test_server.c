@@ -139,7 +139,8 @@ static int cfw_test_server_setup_ex(cfw_test_server *ts,
                                     cfw_upload_begin_fn upload_begin,
                                     cfw_upload_write_fn upload_write,
                                     cfw_upload_end_fn upload_end,
-                                    void *upload_user)
+                                    void *upload_user,
+                                    cfw_logger_t *logger)
 {
     cfw_server_options_t options;
     cfw_dispatch_options_t doptions;
@@ -177,6 +178,7 @@ static int cfw_test_server_setup_ex(cfw_test_server *ts,
     options.upload_write = upload_write;
     options.upload_end = upload_end;
     options.upload_user = upload_user;
+    options.logger = logger;
     CFW_TEST_ASSERT_EQ(cfw_server_init(&ts->server, &options), CFW_OK);
     CFW_TEST_ASSERT_TRUE(cfw_server_port(&ts->server) != 0);
     return 0;
@@ -190,7 +192,7 @@ static int cfw_test_server_setup_host(cfw_test_server *ts,
 {
     return cfw_test_server_setup_ex(ts, keep_alive, request_timeout,
                                     max_connections, host, NULL, NULL,
-                                    NULL, NULL);
+                                    NULL, NULL, NULL);
 }
 
 static int cfw_test_server_setup(cfw_test_server *ts,
@@ -1349,6 +1351,72 @@ static int test_server_stream_empty_chunk(void)
     return 0;
 }
 
+static char cfw_test_log_buf[256];
+static size_t cfw_test_log_len;
+static int cfw_test_log_calls;
+static cfw_log_level_t cfw_test_log_level;
+
+static void cfw_test_log_sink(cfw_log_level_t level,
+                              const cfw_strview_t *message, void *user)
+{
+    (void)user;
+    cfw_test_log_calls++;
+    cfw_test_log_level = level;
+    cfw_test_log_len = 0;
+    if (message->size < sizeof(cfw_test_log_buf)) {
+        memcpy(cfw_test_log_buf, message->data, message->size);
+        cfw_test_log_len = message->size;
+        cfw_test_log_buf[message->size] = '\0';
+    }
+}
+
+static int test_server_error_logging(void)
+{
+    cfw_test_server ts;
+    cfw_fd_t client;
+    cfw_logger_t logger;
+    char response[4096];
+    ssize_t n;
+
+    memset(&ts, 0, sizeof(ts));
+    cfw_logger_init(&logger);
+    cfw_logger_set_min_level(&logger, CFW_LOG_WARN);
+    cfw_logger_set_sink(&logger, cfw_test_log_sink, NULL);
+    cfw_test_log_calls = 0;
+    cfw_test_log_len = 0;
+    cfw_test_log_buf[0] = '\0';
+
+    /* Missing Host on HTTP/1.1 must produce a 400 and a warn log. */
+    CFW_TEST_ASSERT_EQ(cfw_test_server_setup_ex(
+                           &ts, (cfw_duration_t){0},
+                           (cfw_duration_t){0}, 8, "127.0.0.1", NULL,
+                           NULL, NULL, NULL, &logger),
+                       0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /hello HTTP/1.1\r\n\r\n"),
+                       0);
+    n = cfw_test_serve_recv(&ts.server, &client, response,
+                            sizeof(response) - 1);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    response[n] = '\0';
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n, "400"));
+
+    CFW_TEST_ASSERT_TRUE(cfw_test_log_calls >= 1);
+    CFW_TEST_ASSERT_EQ(cfw_test_log_level, CFW_LOG_WARN);
+    CFW_TEST_ASSERT_TRUE(cfw_test_log_len > 0);
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(cfw_test_log_buf,
+                                           cfw_test_log_len,
+                                           "request error"));
+
+    cfw_fd_close(&client);
+    cfw_test_server_teardown(&ts);
+    return 0;
+}
+
 /* ---- upload hooks (ADR 0033) ---- */
 
 typedef struct {
@@ -1438,7 +1506,8 @@ static int cfw_test_setup_upload_to(cfw_test_server *ts,
     CFW_TEST_ASSERT_EQ(cfw_test_server_setup_ex(
                            ts, (cfw_duration_t){0}, request_timeout,
                            8, "127.0.0.1", cfw_test_upload_begin,
-                           cfw_test_upload_write, cfw_test_upload_end, st),
+                           cfw_test_upload_write, cfw_test_upload_end, st,
+                           NULL),
                        0);
     cfw_strview_from_cstr(&pattern, "/up");
     CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(&ts->dispatch,
@@ -1734,6 +1803,7 @@ const cfw_test_case cfw_test_server_cases[] = {
     {"server_method_fallbacks", test_server_method_fallbacks},
     {"server_expect_rejected", test_server_expect_rejected},
     {"server_host_required", test_server_host_required},
+    {"server_error_logging", test_server_error_logging},
     {"server_streaming_response", test_server_streaming_response},
     {"server_streaming_http10", test_server_streaming_http10},
     {"server_request_response", test_server_request_response},
