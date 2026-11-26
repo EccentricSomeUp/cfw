@@ -199,6 +199,9 @@ typedef struct {
     cfw_ws_opcode_t last_opcode;
     unsigned char last_payload[2048];
     size_t last_payload_len;
+    /* FNV-1a over the full payload regardless of size — verifies
+     * reassembly of messages larger than last_payload. */
+    uint64_t last_payload_hash;
     size_t max_message_size;
     char accept[CFW_WS_ACCEPT_KEY_CAPACITY];
     /* All live cfw_ws_t objects (multi-connection tests); st->ws
@@ -246,10 +249,18 @@ static cfw_status_t cfw_test_ws_on_message(cfw_ws_t *ws,
     (void)ws;
     st->messages++;
     st->last_opcode = msg->opcode;
+    {
+        uint64_t h = 1469598103934665603ull;
+        size_t i;
+        for (i = 0; i < msg->payload.size; i++) {
+            h = (h ^ msg->payload.data[i]) * 1099511628211ull;
+        }
+        st->last_payload_hash = h;
+    }
+    st->last_payload_len = msg->payload.size;
     if (msg->payload.size <= sizeof(st->last_payload)) {
         memcpy(st->last_payload, msg->payload.data,
                msg->payload.size);
-        st->last_payload_len = msg->payload.size;
     }
     if (st->echo) {
         if (msg->opcode == CFW_WS_OPCODE_TEXT) {
@@ -1315,6 +1326,161 @@ static int test_ws_soak(void)
     cfw_test_ws_teardown(st);
     return 0;
 }
+
+static int test_ws_large_frame_across_recvs(void)
+{
+    cfw_test_ws_state *st = &cfw_test_ws_st;
+    cfw_fd_t client;
+    char response[256 * 1024];
+    static uint8_t payload[40 * 1024];
+    uint8_t frame[64];
+    size_t flen;
+    size_t used = 0;
+    size_t i;
+
+    cfw_test_ws_setup(st);
+    st->echo = 1;
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_connect(&client,
+                                           cfw_server_port(&st->server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_handshake(&st->server, &client,
+                                             response,
+                                             sizeof(response)),
+                       0);
+
+    /* 40 KiB single-frame message: far larger than the server's 16 KiB
+     * recv buffer, so payload arrives across many recv calls and must
+     * be reassembled incrementally. */
+    for (i = 0; i < sizeof(payload); i++) {
+        payload[i] = (uint8_t)(i * 31u + 7u);
+    }
+    /* Build the frame manually: header (masked, 16-bit length) +
+     * masked payload streamed in chunks. */
+    {
+        static const uint8_t mask[4] = {0x12, 0x34, 0x56, 0x78};
+        size_t off = 0;
+        frame[0] = 0x82; /* FIN + binary */
+        frame[1] = (uint8_t)(0x80 | 126);
+        frame[2] = (uint8_t)(sizeof(payload) >> 8);
+        frame[3] = (uint8_t)sizeof(payload);
+        memcpy(frame + 4, mask, 4);
+        flen = 8;
+        CFW_TEST_ASSERT_EQ(cfw_test_ws_send(&client, frame, flen), 0);
+        /* Payload in 8 KiB masked chunks. */
+        while (off < sizeof(payload)) {
+            uint8_t chunk[8192];
+            size_t n = sizeof(payload) - off;
+            size_t k;
+            if (n > sizeof(chunk)) {
+                n = sizeof(chunk);
+            }
+            for (k = 0; k < n; k++) {
+                chunk[k] = (uint8_t)(payload[off + k] ^
+                                     mask[(off + k) & 3]);
+            }
+            CFW_TEST_ASSERT_EQ(cfw_test_ws_send(&client, chunk, n), 0);
+            off += n;
+        }
+    }
+
+    /* Drain the echo: the server fragments it at max_frame_payload
+     * (16 KiB) into multiple frames, so just accumulate until the
+     * expected wire size arrives — this proves the large send flushed
+     * without error. The reassembled inbound message is verified via
+     * st->last_payload below. */
+    {
+        /* 3 frames (16384 + 16384 + 8192 payload): each exceeds 125
+         * bytes so each header is 4 bytes (126 + 16-bit length). */
+        size_t want = 40960 + 12;
+        cfw_duration_t slice;
+        int attempts;
+        cfw_duration_from_millis(50, &slice);
+        for (attempts = 0;
+             attempts < 4000 && used + 1 < sizeof(response);
+             attempts++) {
+            cfw_timepoint_t deadline;
+            cfw_deadline_from_now(&deadline, slice);
+            ssize_t n;
+            if (cfw_server_step(&st->server, &deadline) != CFW_OK) {
+                break;
+            }
+            n = recv((int)cfw_fd_get(&client), response + used,
+                     sizeof(response) - used - 1, MSG_DONTWAIT);
+            if (n > 0) {
+                used += (size_t)n;
+                if (used >= want) {
+                    break;
+                }
+            } else if (n == 0) {
+                break;
+            }
+        }
+        CFW_TEST_ASSERT_TRUE(used >= want);
+    }
+    CFW_TEST_ASSERT_EQ(st->messages, 1);
+    CFW_TEST_ASSERT_EQ(st->last_payload_len, sizeof(payload));
+    {
+        uint64_t h = 1469598103934665603ull;
+        for (i = 0; i < sizeof(payload); i++) {
+            h = (h ^ payload[i]) * 1099511628211ull;
+        }
+        CFW_TEST_ASSERT_EQ(st->last_payload_hash, h);
+    }
+
+    cfw_fd_close(&client);
+    cfw_test_ws_teardown(st);
+    return 0;
+}
+
+static int test_ws_drip_feed(void)
+{
+    cfw_test_ws_state *st = &cfw_test_ws_st;
+    cfw_fd_t client;
+    char response[8192];
+    uint8_t frame[64];
+    size_t flen;
+    size_t i;
+    size_t used = 0;
+
+    cfw_test_ws_setup(st);
+    st->echo = 1;
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_connect(&client,
+                                           cfw_server_port(&st->server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_handshake(&st->server, &client,
+                                             response,
+                                             sizeof(response)),
+                       0);
+
+    /* Deliver a masked text frame one byte at a time, stepping the
+     * server between sends: exercises partial header and partial
+     * payload state across recv calls. */
+    flen = cfw_test_ws_masked_frame(frame, 1, 0x1, "drip", 4);
+    for (i = 0; i < flen; i++) {
+        CFW_TEST_ASSERT_EQ(cfw_test_ws_send(&client, frame + i, 1), 0);
+        {
+            cfw_timepoint_t deadline;
+            cfw_duration_t slice;
+            cfw_duration_from_millis(5, &slice);
+            cfw_deadline_from_now(&deadline, slice);
+            CFW_TEST_ASSERT_EQ(cfw_server_step(&st->server, &deadline),
+                               CFW_OK);
+        }
+    }
+
+    CFW_TEST_ASSERT_TRUE(cfw_test_ws_recv_until(
+                             &st->server, &client, response,
+                             sizeof(response), "drip", &used) > 0);
+    CFW_TEST_ASSERT_EQ(st->messages, 1);
+    CFW_TEST_ASSERT_EQ(st->last_payload_len, 4);
+    CFW_TEST_ASSERT_EQ(memcmp(st->last_payload, "drip", 4), 0);
+
+    cfw_fd_close(&client);
+    cfw_test_ws_teardown(st);
+    return 0;
+}
 #endif /* !_WIN32 */
 
 const cfw_test_case cfw_test_ws_cases[] = {
@@ -1343,6 +1509,9 @@ const cfw_test_case cfw_test_ws_cases[] = {
     {"ws_ping_interleaved_fragment",
      test_ws_ping_interleaved_fragment},
     {"ws_soak", test_ws_soak},
+    {"ws_large_frame_across_recvs",
+     test_ws_large_frame_across_recvs},
+    {"ws_drip_feed", test_ws_drip_feed},
 #endif
     {NULL, NULL},
 };
