@@ -57,7 +57,10 @@ bounded resource behavior (head/body/pending caps) — met.
 - Error handling and response pipeline — met (ADR 0027)
 - Extensibility hooks for applications and plugins — met (ADR 0028)
 
-Exit criteria: API stability review and integration tests.
+Exit criteria met: API stability review (match.ex binding contract
+documented; response-head NULL-header edge fixed) and end-to-end
+integration tests over real loopback TCP
+(tests/integration/test_http_pipeline.c).
 
 ## Phase 5: Server lifecycle
 

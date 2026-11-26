@@ -70,6 +70,8 @@ semantic versioning once a stable release policy is adopted.
   mapping (400/404/500), and automatic Content-Length response heads
 - Per-route handlers via `cfw_dispatch_add_route` and the router's opaque
   route extension pointer (`cfw_router_add_ex`, ADR 0028)
+- End-to-end integration test binary exercising TCP, HTTP/1.1 framing,
+  dispatch, middleware, and response serialization
 - CMake build, presets, sanitizer configuration, install rules, and CMake
   package config
 - Custom unit-test harness with debug, release, and sanitizer verification

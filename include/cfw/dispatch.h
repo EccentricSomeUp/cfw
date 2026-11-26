@@ -56,7 +56,9 @@ typedef struct cfw_dispatch_middleware {
 
 /* Per-route handler binding installed by cfw_dispatch_add_route. When a
  * matched route carries a binding (match.ex), it overrides the dispatch
- * default handler. */
+ * default handler. WARNING: dispatch interprets ANY non-NULL match.ex
+ * as this type — do not register routes with cfw_router_add_ex using a
+ * different ex layout on a router served by cfw_dispatch. */
 typedef struct cfw_route_binding {
     cfw_handler_fn handler;
     void *user;
@@ -166,7 +168,9 @@ CFW_API cfw_status_t cfw_dispatch_add_route(cfw_dispatch_t *dispatch,
  * - headers/param scratch: caller arrays; headers beyond capacity are
  *   dropped and counted. params beyond capacity truncate extraction
  *   (match.param_count still reports the total).
- * - res: output response, reset by this call (status=200, empty).
+ * - res: output response. The caller must set res->headers and
+ *   res->header_capacity to its scratch array before the call; the
+ *   function resets status (200), header_count, body, and user.
  *
  * Returns CFW_OK when a response was produced (including error-mapped
  * ones); CFW_ERROR_INVALID_ARGUMENT on invalid arguments. Routing,

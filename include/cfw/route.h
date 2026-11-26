@@ -69,7 +69,10 @@ CFW_API cfw_status_t cfw_router_add(cfw_router_t *router,
 
 /* Extended registration carrying an opaque extension pointer copied
  * verbatim into match->ex. cfw_router_add is equivalent to passing
- * ex=NULL. */
+ * ex=NULL. The router never interprets ex; consumers above the router
+ * define its meaning (cfw dispatch treats a non-NULL ex as a
+ * cfw_route_binding_t — routes registered this way must only be used
+ * with cfw_dispatch_add_route or a compatible binding). */
 CFW_API cfw_status_t cfw_router_add_ex(cfw_router_t *router,
                                        cfw_http_method_t method,
                                        const cfw_strview_t *pattern,

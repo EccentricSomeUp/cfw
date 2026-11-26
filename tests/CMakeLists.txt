@@ -38,3 +38,22 @@ cfw_apply_hardening_flags(cfw_unit_tests)
 cfw_apply_sanitizer_flags(cfw_unit_tests)
 
 add_test(NAME cfw_unit COMMAND cfw_unit_tests)
+
+add_executable(cfw_integration_tests
+    ../src/cfw/private/net.c
+    ../src/cfw/private/pollset.c
+    integration/main.c
+    integration/test_http_pipeline.c
+)
+
+target_include_directories(cfw_integration_tests PRIVATE
+    unit
+    ${CMAKE_SOURCE_DIR}/src/cfw
+)
+target_link_libraries(cfw_integration_tests PRIVATE cfw)
+
+cfw_apply_strict_flags(cfw_integration_tests)
+cfw_apply_hardening_flags(cfw_integration_tests)
+cfw_apply_sanitizer_flags(cfw_integration_tests)
+
+add_test(NAME cfw_integration COMMAND cfw_integration_tests)

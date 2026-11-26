@@ -342,7 +342,7 @@ cfw_status_t cfw_dispatch_response_head_format(
     size_t n;
 
     if (req == NULL || res == NULL || buffer == NULL || written == NULL ||
-        res->headers == NULL) {
+        (res->header_count != 0 && res->headers == NULL)) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
 
