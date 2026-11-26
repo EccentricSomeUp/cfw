@@ -22,6 +22,7 @@ add_executable(cfw_unit_tests
     unit/test_route.c
     unit/test_server.c
     unit/test_span.c
+    unit/test_static.c
     unit/test_status.c
     unit/test_strview.c
     unit/test_ws.c

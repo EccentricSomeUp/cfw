@@ -48,6 +48,14 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   response finishes or its connection dies mid-stream, letting apps
   release per-stream resources such as open files. Includes
   `cfw_file_stream_end`, a ready-made adapter for `cfw_file_stream_t`.
+- Static file serving (ADR 0036): new `cfw/static.h` provides
+  `cfw_static_mount_init` + `cfw_static_serve`, a dispatch middleware
+  that streams GET/HEAD requests under a URL prefix from a document
+  root. Percent-decodes and validates suffixes (rejects `..`,
+  encoded traversal, NUL, backslash), resolves directories to
+  `index.html`, maps extensions to Content-Type, and serves through a
+  fixed arena slot pool (`max_concurrent` × `buffer_size`, 503 on
+  exhaustion) with cleanup via `stream_end` on completion or abort.
 
 ## [0.1.0] - 2026-11-26
 

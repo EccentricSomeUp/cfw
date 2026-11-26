@@ -46,6 +46,7 @@ set(CFW_SOURCES
     src/cfw/route.c
     src/cfw/server.c
     src/cfw/span.c
+    src/cfw/static.c
     src/cfw/status.c
     src/cfw/strview.c
     src/cfw/time.c

@@ -23,6 +23,7 @@ extern const cfw_test_case cfw_test_random_cases[];
 extern const cfw_test_case cfw_test_route_cases[];
 extern const cfw_test_case cfw_test_server_cases[];
 extern const cfw_test_case cfw_test_span_cases[];
+extern const cfw_test_case cfw_test_static_cases[];
 extern const cfw_test_case cfw_test_status_cases[];
 extern const cfw_test_case cfw_test_strview_cases[];
 extern const cfw_test_case cfw_test_time_cases[];
@@ -53,6 +54,7 @@ static const cfw_test_suite cfw_test_suites[] = {
     {"route", cfw_test_route_cases},
     {"server", cfw_test_server_cases},
     {"span", cfw_test_span_cases},
+    {"static", cfw_test_static_cases},
     {"status", cfw_test_status_cases},
     {"strview", cfw_test_strview_cases},
     {"time", cfw_test_time_cases},
