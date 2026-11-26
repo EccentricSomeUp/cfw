@@ -399,3 +399,64 @@ cfw_status_t cfw_http_headers_next(const cfw_strview_t *block,
     }
     return CFW_OK;
 }
+
+cfw_status_t cfw_http_request_line_parse(const cfw_strview_t *line,
+                                         cfw_http_request_line_t *request_line)
+{
+    size_t i;
+    size_t sp1;
+    size_t sp2;
+    cfw_strview_t method_token;
+    cfw_strview_t version_token;
+    cfw_strview_t target_view;
+    cfw_http_method_t method;
+    cfw_status_t status;
+
+    if (line == NULL || line->data == NULL || request_line == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    /* Exactly two single SP separators: METHOD SP TARGET SP VERSION */
+    sp1 = line->size;
+    sp2 = line->size;
+    for (i = 0; i < line->size; i++) {
+        if (line->data[i] == ' ') {
+            if (sp1 == line->size) {
+                sp1 = i;
+            } else if (sp2 == line->size) {
+                sp2 = i;
+            } else {
+                return CFW_ERROR_INVALID_ARGUMENT;
+            }
+        } else if ((unsigned char)line->data[i] <= 0x20 ||
+                   (unsigned char)line->data[i] == 0x7F) {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+    }
+    if (sp1 == line->size || sp2 == line->size || sp2 + 1 >= line->size ||
+        sp1 == 0 || sp2 == sp1 + 1) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    method_token.data = line->data;
+    method_token.size = sp1;
+    target_view.data = line->data + sp1 + 1;
+    target_view.size = sp2 - sp1 - 1;
+    version_token.data = line->data + sp2 + 1;
+    version_token.size = line->size - sp2 - 1;
+
+    status = cfw_http_method_parse(&method_token, &method);
+    if (status != CFW_OK || method == CFW_HTTP_METHOD_UNKNOWN) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    status = cfw_http_version_parse(&version_token,
+                                    &request_line->version);
+    if (status != CFW_OK) {
+        return status;
+    }
+
+    request_line->method = method;
+    request_line->target = target_view;
+    return CFW_OK;
+}

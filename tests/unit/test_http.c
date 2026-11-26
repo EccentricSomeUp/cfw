@@ -224,6 +224,68 @@ static int test_http_headers_next_invalid_args(void)
     return 0;
 }
 
+static int test_http_request_line_parse(void)
+{
+    cfw_http_request_line_t req;
+    cfw_strview_t line;
+
+    line = cfw_test_view("GET /index.html HTTP/1.1");
+    CFW_TEST_ASSERT_EQ(cfw_http_request_line_parse(&line, &req), CFW_OK);
+    CFW_TEST_ASSERT_EQ(req.method, CFW_HTTP_METHOD_GET);
+    CFW_TEST_ASSERT_EQ(req.target.size, 11);
+    CFW_TEST_ASSERT(memcmp(req.target.data, "/index.html", 11) == 0);
+    CFW_TEST_ASSERT_EQ(req.version.major, 1);
+    CFW_TEST_ASSERT_EQ(req.version.minor, 1);
+
+    line = cfw_test_view("POST http://example.com/a?b=c HTTP/1.0");
+    CFW_TEST_ASSERT_EQ(cfw_http_request_line_parse(&line, &req), CFW_OK);
+    CFW_TEST_ASSERT_EQ(req.method, CFW_HTTP_METHOD_POST);
+    CFW_TEST_ASSERT_EQ(req.version.minor, 0);
+
+    line = cfw_test_view("OPTIONS * HTTP/1.1");
+    CFW_TEST_ASSERT_EQ(cfw_http_request_line_parse(&line, &req), CFW_OK);
+    CFW_TEST_ASSERT_EQ(req.target.size, 1);
+
+    line = cfw_test_view("CONNECT example.com:443 HTTP/1.1");
+    CFW_TEST_ASSERT_EQ(cfw_http_request_line_parse(&line, &req), CFW_OK);
+    CFW_TEST_ASSERT_EQ(req.method, CFW_HTTP_METHOD_CONNECT);
+
+    /* Percent-encoded and UTF-8 targets are permitted. */
+    line = cfw_test_view("GET /%20caf\xC3\xA9 HTTP/1.1");
+    CFW_TEST_ASSERT_EQ(cfw_http_request_line_parse(&line, &req), CFW_OK);
+
+    /* Malformed request lines fail closed. */
+    {
+        static const char *bad[] = {
+            "",
+            "GET",
+            "GET /",
+            "GET  / HTTP/1.1",      /* double space */
+            "GET /  HTTP/1.1",      /* double space */
+            " GET / HTTP/1.1",      /* leading space */
+            "GET / HTTP/1.1 ",      /* trailing space */
+            "GET / HTTP/1.1 extra", /* extra token */
+            "get / HTTP/1.1",       /* lowercase method */
+            "FOO / HTTP/1.1",       /* unknown method */
+            "GET /path\tHTTP/1.1",  /* tab instead of space splits wrong */
+            "GET /\x01 HTTP/1.1",   /* control char in target */
+        };
+        size_t i;
+        for (i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+            line = cfw_test_view(bad[i]);
+            CFW_TEST_ASSERT_EQ(cfw_http_request_line_parse(&line, &req),
+                               CFW_ERROR_INVALID_ARGUMENT);
+        }
+    }
+
+    CFW_TEST_ASSERT_EQ(cfw_http_request_line_parse(NULL, &req),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    line = cfw_test_view("GET / HTTP/1.1");
+    CFW_TEST_ASSERT_EQ(cfw_http_request_line_parse(&line, NULL),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    return 0;
+}
+
 const cfw_test_case cfw_test_http_cases[] = {
     {"http_method_names_and_parse", test_http_method_names_and_parse},
     {"http_version_parse_and_format", test_http_version_parse_and_format},
@@ -233,5 +295,6 @@ const cfw_test_case cfw_test_http_cases[] = {
     {"http_headers_next_rejects_malformed",
      test_http_headers_next_rejects_malformed},
     {"http_headers_next_invalid_args", test_http_headers_next_invalid_args},
+    {"http_request_line_parse", test_http_request_line_parse},
     {NULL, NULL},
 };

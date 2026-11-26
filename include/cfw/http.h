@@ -71,6 +71,19 @@ typedef struct cfw_http_header {
     cfw_strview_t value;
 } cfw_http_header_t;
 
+typedef struct cfw_http_request_line {
+    cfw_http_method_t method;
+    cfw_strview_t target;
+    cfw_http_version_t version;
+} cfw_http_request_line_t;
+
+/* Parses one request line (no trailing CRLF) in origin, absolute,
+ * authority, or asterisk form. The target is validated only for
+ * control characters and whitespace; form-specific validation belongs to
+ * the routing layer. */
+CFW_API cfw_status_t cfw_http_request_line_parse(
+    const cfw_strview_t *line, cfw_http_request_line_t *request_line);
+
 CFW_API cfw_status_t cfw_http_headers_next(const cfw_strview_t *block,
                                            size_t *cursor,
                                            cfw_http_header_t *header,

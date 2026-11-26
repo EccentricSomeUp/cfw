@@ -43,6 +43,8 @@ semantic versioning once a stable release policy is adopted.
   bounded parsers and canonical names
 - Allocation-free HTTP header-block iterator with strict token grammar,
   OWS trimming, and obs-fold/bare-CRLF rejection
+- Strict HTTP request-line parser producing method, target, and version
+  with single-space grammar and control-character rejection
 - CMake build, presets, sanitizer configuration, install rules, and CMake
   package config
 - Custom unit-test harness with debug, release, and sanitizer verification
