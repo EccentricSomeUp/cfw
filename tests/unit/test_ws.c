@@ -425,6 +425,43 @@ static size_t cfw_test_ws_masked_frame(uint8_t *out, int fin, int opcode,
     return n;
 }
 
+/* Returns the total wire length of the first frame in `buf`
+ * (header + payload), or 0 when incomplete/invalid. */
+static size_t cfw_test_ws_frame_len(const uint8_t *buf, size_t len)
+{
+    uint64_t plen;
+    size_t pos = 2;
+    int i;
+
+    if (len < 2) {
+        return 0;
+    }
+    plen = buf[1] & 0x7f;
+    if (plen == 126) {
+        if (len < 4) {
+            return 0;
+        }
+        plen = ((uint64_t)buf[2] << 8) | buf[3];
+        pos = 4;
+    } else if (plen == 127) {
+        if (len < 10) {
+            return 0;
+        }
+        plen = 0;
+        for (i = 0; i < 8; i++) {
+            plen = (plen << 8) | buf[2 + i];
+        }
+        pos = 10;
+    }
+    if (buf[1] & 0x80) {
+        return 0; /* server frames are unmasked */
+    }
+    if (plen > len - pos || plen > SIZE_MAX - pos) {
+        return 0;
+    }
+    return pos + (size_t)plen;
+}
+
 /* Parses the first server->client (unmasked) frame in `buf`.
  * Returns 1 on success and fills opcode/payload pointer+size. */
 static int cfw_test_ws_parse_frame(const uint8_t *buf, size_t len,
@@ -815,6 +852,341 @@ static int test_ws_send_close_from_app(void)
     cfw_test_ws_teardown(st);
     return 0;
 }
+
+/* Sends one masked frame and expects the connection to die with the
+ * given close status code (2-byte big-endian in the close payload). */
+static int cfw_test_ws_expect_close(cfw_test_ws_state *st,
+                                    cfw_fd_t *client, char *response,
+                                    size_t capacity, const uint8_t *frame,
+                                    size_t flen, uint16_t status)
+{
+    size_t used = 0;
+    char nstr[5];
+
+    /* Close frame: 0x88 0x02 <status hi> <status lo>. */
+    nstr[0] = (char)0x88;
+    nstr[1] = (char)0x02;
+    nstr[2] = (char)(status >> 8);
+    nstr[3] = (char)status;
+    nstr[4] = '\0';
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_send(client, frame, flen), 0);
+    CFW_TEST_ASSERT_TRUE(cfw_test_ws_recv_until(
+                             &st->server, client, response, capacity,
+                             nstr, &used) > 0);
+    CFW_TEST_ASSERT_TRUE(cfw_ws_is_closed(st->ws));
+    CFW_TEST_ASSERT_EQ(st->messages, 0);
+    return 0;
+}
+
+static int test_ws_continuation_without_start(void)
+{
+    cfw_test_ws_state *st = &cfw_test_ws_st;
+    cfw_fd_t client;
+    char response[8192];
+    uint8_t frame[64];
+    size_t flen;
+
+    cfw_test_ws_setup(st);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_connect(&client,
+                                           cfw_server_port(&st->server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_handshake(&st->server, &client,
+                                             response,
+                                             sizeof(response)),
+                       0);
+
+    /* Continuation frame with no fragmented message in progress. */
+    flen = cfw_test_ws_masked_frame(frame, 1, 0x0, "x", 1);
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_expect_close(st, &client, response,
+                                                sizeof(response), frame,
+                                                flen, 1002),
+                       0);
+
+    cfw_fd_close(&client);
+    cfw_test_ws_teardown(st);
+    return 0;
+}
+
+static int test_ws_data_opcode_mid_fragment(void)
+{
+    cfw_test_ws_state *st = &cfw_test_ws_st;
+    cfw_fd_t client;
+    char response[8192];
+    uint8_t frame[64];
+    size_t flen;
+
+    cfw_test_ws_setup(st);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_connect(&client,
+                                           cfw_server_port(&st->server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_handshake(&st->server, &client,
+                                             response,
+                                             sizeof(response)),
+                       0);
+
+    /* Start a fragmented text message, then a new binary data frame
+     * before the final continuation: protocol error. */
+    flen = cfw_test_ws_masked_frame(frame, 0, 0x1, "a", 1);
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_send(&client, frame, flen), 0);
+    flen = cfw_test_ws_masked_frame(frame, 1, 0x2, "b", 1);
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_expect_close(st, &client, response,
+                                                sizeof(response), frame,
+                                                flen, 1002),
+                       0);
+
+    cfw_fd_close(&client);
+    cfw_test_ws_teardown(st);
+    return 0;
+}
+
+static int test_ws_control_frame_too_big(void)
+{
+    cfw_test_ws_state *st = &cfw_test_ws_st;
+    cfw_fd_t client;
+    char response[8192];
+    uint8_t frame[256];
+    uint8_t payload[126];
+    size_t flen;
+
+    cfw_test_ws_setup(st);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_connect(&client,
+                                           cfw_server_port(&st->server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_handshake(&st->server, &client,
+                                             response,
+                                             sizeof(response)),
+                       0);
+
+    /* Ping with 126-byte payload exceeds the 125 control limit. */
+    memset(payload, 'p', sizeof(payload));
+    flen = cfw_test_ws_masked_frame(frame, 1, 0x9, payload,
+                                    sizeof(payload));
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_expect_close(st, &client, response,
+                                                sizeof(response), frame,
+                                                flen, 1002),
+                       0);
+
+    cfw_fd_close(&client);
+    cfw_test_ws_teardown(st);
+    return 0;
+}
+
+static int test_ws_rsv_bits_rejected(void)
+{
+    cfw_test_ws_state *st = &cfw_test_ws_st;
+    cfw_fd_t client;
+    char response[8192];
+    uint8_t frame[64];
+    size_t flen;
+
+    cfw_test_ws_setup(st);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_connect(&client,
+                                           cfw_server_port(&st->server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_handshake(&st->server, &client,
+                                             response,
+                                             sizeof(response)),
+                       0);
+
+    /* RSV1 set on a data frame: no extensions are negotiated. */
+    flen = cfw_test_ws_masked_frame(frame, 1, 0x1, "hi", 2);
+    frame[0] |= 0x40;
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_expect_close(st, &client, response,
+                                                sizeof(response), frame,
+                                                flen, 1002),
+                       0);
+
+    cfw_fd_close(&client);
+    cfw_test_ws_teardown(st);
+    return 0;
+}
+
+static int test_ws_binary_echo(void)
+{
+    cfw_test_ws_state *st = &cfw_test_ws_st;
+    cfw_fd_t client;
+    char response[8192];
+    uint8_t frame[64];
+    static const uint8_t blob[] = {0x00, 0xff, 0xfe, 0x41};
+    size_t flen;
+    size_t used = 0;
+    int opcode;
+    const uint8_t *payload;
+    size_t payload_len;
+
+    cfw_test_ws_setup(st);
+    st->echo = 1;
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_connect(&client,
+                                           cfw_server_port(&st->server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_handshake(&st->server, &client,
+                                             response,
+                                             sizeof(response)),
+                       0);
+
+    /* Binary payload is not UTF-8 validated and echoes verbatim. */
+    flen = cfw_test_ws_masked_frame(frame, 1, 0x2, blob, sizeof(blob));
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_send(&client, frame, flen), 0);
+
+    /* The marker must not contain NUL (strlen-bounded); "A" is the
+     * payload's last byte and cannot appear in the 2-byte header. */
+    CFW_TEST_ASSERT_TRUE(cfw_test_ws_recv_until(
+                             &st->server, &client, response,
+                             sizeof(response), "A", &used) > 0);
+    CFW_TEST_ASSERT_TRUE(cfw_test_ws_parse_frame(
+                             (const uint8_t *)response, used, &opcode,
+                             &payload, &payload_len));
+    CFW_TEST_ASSERT_EQ(opcode, 0x2);
+    CFW_TEST_ASSERT_EQ(payload_len, sizeof(blob));
+    CFW_TEST_ASSERT_EQ(memcmp(payload, blob, sizeof(blob)), 0);
+    CFW_TEST_ASSERT_EQ(st->last_opcode, CFW_WS_OPCODE_BINARY);
+
+    cfw_fd_close(&client);
+    cfw_test_ws_teardown(st);
+    return 0;
+}
+
+static int test_ws_send_wouldblock(void)
+{
+    cfw_test_ws_state *st = &cfw_test_ws_st;
+    cfw_fd_t client;
+    char response[8192];
+    static uint8_t big[100 * 1024];
+
+    cfw_test_ws_setup(st);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_connect(&client,
+                                           cfw_server_port(&st->server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_handshake(&st->server, &client,
+                                             response,
+                                             sizeof(response)),
+                       0);
+    CFW_TEST_ASSERT_TRUE(st->ws != NULL);
+
+    /* 100 KiB exceeds max_out_size (64 KiB): the whole send must fail
+     * atomically rather than queue a partial message. */
+    memset(big, 0x5a, sizeof(big));
+    CFW_TEST_ASSERT_EQ(cfw_ws_send_binary(st->ws, big, sizeof(big)),
+                       CFW_ERROR_WOULDBLOCK);
+    CFW_TEST_ASSERT_FALSE(cfw_ws_is_closed(st->ws));
+
+    cfw_fd_close(&client);
+    cfw_test_ws_teardown(st);
+    return 0;
+}
+
+static int test_ws_close_with_reason(void)
+{
+    cfw_test_ws_state *st = &cfw_test_ws_st;
+    cfw_fd_t client;
+    char response[8192];
+    uint8_t frame[64];
+    uint8_t payload[8];
+    size_t flen;
+    size_t used = 0;
+
+    cfw_test_ws_setup(st);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_connect(&client,
+                                           cfw_server_port(&st->server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_handshake(&st->server, &client,
+                                             response,
+                                             sizeof(response)),
+                       0);
+
+    /* Close: status 1000 + reason "bye" → echo carries all 5 bytes. */
+    payload[0] = 0x03;
+    payload[1] = 0xe8;
+    memcpy(payload + 2, "bye", 3);
+    flen = cfw_test_ws_masked_frame(frame, 1, 0x8, payload, 5);
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_send(&client, frame, flen), 0);
+
+    /* The echoed close frame is exactly: 0x88 0x05 0x03 0xE8 "bye". */
+    {
+        uint8_t exact[7] = {0x88, 0x05, 0x03, 0xe8, 'b', 'y', 'e'};
+        char n7[8];
+        memcpy(n7, exact, 7);
+        n7[7] = '\0';
+        CFW_TEST_ASSERT_TRUE(cfw_test_ws_recv_until(
+                                 &st->server, &client, response,
+                                 sizeof(response), n7, &used) > 0);
+    }
+    CFW_TEST_ASSERT_TRUE(cfw_ws_is_closed(st->ws));
+
+    cfw_fd_close(&client);
+    cfw_test_ws_teardown(st);
+    return 0;
+}
+
+static int test_ws_ping_interleaved_fragment(void)
+{
+    cfw_test_ws_state *st = &cfw_test_ws_st;
+    cfw_fd_t client;
+    char response[8192];
+    uint8_t frame[64];
+    size_t flen;
+    size_t used = 0;
+    size_t pos = 0;
+    int opcode;
+    const uint8_t *payload;
+    size_t payload_len;
+    size_t flen2;
+
+    cfw_test_ws_setup(st);
+    st->echo = 1;
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_connect(&client,
+                                           cfw_server_port(&st->server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_handshake(&st->server, &client,
+                                             response,
+                                             sizeof(response)),
+                       0);
+
+    /* Fragmented "Hello": text(fin=0) "Hel", ping "x" interleaved,
+     * continuation(fin=1) "lo". Expect pong then echoed message. */
+    flen = cfw_test_ws_masked_frame(frame, 0, 0x1, "Hel", 3);
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_send(&client, frame, flen), 0);
+    flen = cfw_test_ws_masked_frame(frame, 1, 0x9, "x", 1);
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_send(&client, frame, flen), 0);
+    flen = cfw_test_ws_masked_frame(frame, 1, 0x0, "lo", 2);
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_send(&client, frame, flen), 0);
+
+    CFW_TEST_ASSERT_TRUE(cfw_test_ws_recv_until(
+                             &st->server, &client, response,
+                             sizeof(response), "Hello", &used) > 0);
+    /* First frame must be the pong (opcode 0xA, payload "x"). */
+    CFW_TEST_ASSERT_TRUE(cfw_test_ws_parse_frame(
+                             (const uint8_t *)response + pos, used - pos,
+                             &opcode, &payload, &payload_len));
+    CFW_TEST_ASSERT_EQ(opcode, 0xA);
+    CFW_TEST_ASSERT_EQ(payload_len, 1);
+    CFW_TEST_ASSERT_EQ(payload[0], 'x');
+    flen2 = cfw_test_ws_frame_len((const uint8_t *)response + pos,
+                                  used - pos);
+    CFW_TEST_ASSERT_TRUE(flen2 != 0);
+    pos += flen2;
+    /* Second frame: echoed text "Hello". */
+    CFW_TEST_ASSERT_TRUE(cfw_test_ws_parse_frame(
+                             (const uint8_t *)response + pos, used - pos,
+                             &opcode, &payload, &payload_len));
+    CFW_TEST_ASSERT_EQ(opcode, 0x1);
+    CFW_TEST_ASSERT_EQ(payload_len, 5);
+    CFW_TEST_ASSERT_EQ(memcmp(payload, "Hello", 5), 0);
+    CFW_TEST_ASSERT_EQ(st->messages, 1);
+    CFW_TEST_ASSERT_EQ(st->last_payload_len, 5);
+
+    cfw_fd_close(&client);
+    cfw_test_ws_teardown(st);
+    return 0;
+}
 #endif /* !_WIN32 */
 
 const cfw_test_case cfw_test_ws_cases[] = {
@@ -832,6 +1204,16 @@ const cfw_test_case cfw_test_ws_cases[] = {
     {"ws_invalid_utf8_rejected", test_ws_invalid_utf8_rejected},
     {"ws_message_too_big", test_ws_message_too_big},
     {"ws_send_close_from_app", test_ws_send_close_from_app},
+    {"ws_continuation_without_start",
+     test_ws_continuation_without_start},
+    {"ws_data_opcode_mid_fragment", test_ws_data_opcode_mid_fragment},
+    {"ws_control_frame_too_big", test_ws_control_frame_too_big},
+    {"ws_rsv_bits_rejected", test_ws_rsv_bits_rejected},
+    {"ws_binary_echo", test_ws_binary_echo},
+    {"ws_send_wouldblock", test_ws_send_wouldblock},
+    {"ws_close_with_reason", test_ws_close_with_reason},
+    {"ws_ping_interleaved_fragment",
+     test_ws_ping_interleaved_fragment},
 #endif
     {NULL, NULL},
 };
