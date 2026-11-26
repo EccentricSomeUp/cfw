@@ -3,6 +3,7 @@
 #ifndef CFW_HTTP_H
 #define CFW_HTTP_H
 
+#include <cfw/buffer.h>
 #include <cfw/export.h>
 #include <cfw/status.h>
 #include <cfw/strview.h>
@@ -121,6 +122,42 @@ typedef struct cfw_http_message_framing {
 CFW_API cfw_status_t cfw_http_request_framing(
     const cfw_http_request_head_t *request_head,
     cfw_http_message_framing_t *framing);
+
+/* Incremental request-head reader for streamed transport. Accumulates
+ * bytes until the "\r\n\r\n" terminator, enforcing a configurable size
+ * limit, then exposes the head for cfw_http_request_head_parse. Bytes
+ * past the terminator (body or pipelined data) are reported as unconsumed
+ * so the caller retains them. */
+
+typedef struct cfw_http_head_reader {
+    cfw_buffer_t buffer;
+    size_t max_size;
+    int complete;
+    size_t head_size;
+} cfw_http_head_reader_t;
+
+CFW_API cfw_status_t cfw_http_head_reader_init(cfw_http_head_reader_t *reader,
+                                               size_t max_size);
+CFW_API void cfw_http_head_reader_free(cfw_http_head_reader_t *reader);
+
+/* Appends input to the pending head. On success *consumed receives the
+ * number of input bytes belonging to the head; any remainder (body or
+ * pipelined bytes) is not retained and must be handled by the caller.
+ * Returns CFW_ERROR_INVALID_ARGUMENT once the accumulated head would
+ * exceed max_size. Safe to call again after completion; it then consumes
+ * nothing. */
+CFW_API cfw_status_t cfw_http_head_reader_feed(cfw_http_head_reader_t *reader,
+                                               const cfw_span_t *input,
+                                               size_t *consumed);
+
+CFW_API int cfw_http_head_reader_is_complete(
+    const cfw_http_head_reader_t *reader);
+
+/* Returns the accumulated head bytes (without bytes past the terminator)
+ * once complete; CFW_ERROR_INVALID_ARGUMENT otherwise. The view is valid
+ * until the next feed or free. */
+CFW_API cfw_status_t cfw_http_head_reader_head(
+    const cfw_http_head_reader_t *reader, cfw_strview_t *head);
 
 /* Incremental chunked-transfer decoder. Consumes framing bytes and yields
  * decoded body bytes as a zero-copy view into the input; a single call may

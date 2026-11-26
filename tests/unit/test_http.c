@@ -672,6 +672,114 @@ static int test_http_response_serialize(void)
     return 0;
 }
 
+static int test_http_head_reader(void)
+{
+    static const char request[] =
+        "POST /submit HTTP/1.1\r\n"
+        "Host: example.com\r\n"
+        "Content-Length: 4\r\n"
+        "\r\n"
+        "BODY";
+    cfw_http_head_reader_t reader;
+    cfw_strview_t head;
+    cfw_span_t input;
+    cfw_http_request_head_t parsed;
+    size_t consumed;
+    size_t i;
+
+    /* Feed byte-by-byte; head completes exactly at the terminator and the
+     * body bytes are reported unconsumed. */
+    CFW_TEST_ASSERT_EQ(cfw_http_head_reader_init(&reader, 4096), CFW_OK);
+    for (i = 0; i < sizeof(request) - 1; i++) {
+        cfw_span_init(&input, request + i, 1);
+        CFW_TEST_ASSERT_EQ(cfw_http_head_reader_feed(&reader, &input,
+                                                      &consumed),
+                           CFW_OK);
+        if (!cfw_http_head_reader_is_complete(&reader)) {
+            CFW_TEST_ASSERT_EQ(consumed, 1);
+        } else {
+            break;
+        }
+    }
+    CFW_TEST_ASSERT_TRUE(cfw_http_head_reader_is_complete(&reader));
+    /* The completing feed consumed only the last terminator byte. */
+    CFW_TEST_ASSERT_EQ(consumed, 1);
+
+    CFW_TEST_ASSERT_EQ(cfw_http_head_reader_head(&reader, &head), CFW_OK);
+    CFW_TEST_ASSERT_EQ(head.size, sizeof(request) - 1 - 4);
+    {
+        cfw_strview_t view = cfw_test_view(request);
+        view.size = head.size;
+        CFW_TEST_ASSERT_EQ(cfw_http_request_head_parse(&view, &parsed),
+                           CFW_OK);
+        CFW_TEST_ASSERT_EQ(parsed.request_line.method, CFW_HTTP_METHOD_POST);
+    }
+
+    /* Feeding after completion consumes nothing. */
+    cfw_span_init(&input, "XXXX", 4);
+    CFW_TEST_ASSERT_EQ(cfw_http_head_reader_feed(&reader, &input, &consumed),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(consumed, 0);
+    cfw_http_head_reader_free(&reader);
+
+    /* One-shot feed with head + pipelined tail. */
+    {
+        static const char two[] =
+            "GET /a HTTP/1.1\r\n\r\nGET /b HTTP/1.1\r\n\r\n";
+        CFW_TEST_ASSERT_EQ(cfw_http_head_reader_init(&reader, 4096), CFW_OK);
+        cfw_span_init(&input, two, sizeof(two) - 1);
+        CFW_TEST_ASSERT_EQ(cfw_http_head_reader_feed(&reader, &input,
+                                                      &consumed),
+                           CFW_OK);
+        CFW_TEST_ASSERT_TRUE(cfw_http_head_reader_is_complete(&reader));
+        CFW_TEST_ASSERT_EQ(consumed, 19);
+        CFW_TEST_ASSERT_EQ(memcmp(two + consumed, "GET /b", 6), 0);
+        cfw_http_head_reader_free(&reader);
+    }
+
+    /* Oversized head is rejected. */
+    {
+        char big[300];
+        memset(big, 'A', sizeof(big));
+        memcpy(big + sizeof(big) - 4, "\r\n\r\n", 4);
+        CFW_TEST_ASSERT_EQ(cfw_http_head_reader_init(&reader, 128), CFW_OK);
+        cfw_span_init(&input, big, sizeof(big));
+        /* First feed fills the buffer to the limit without a terminator. */
+        CFW_TEST_ASSERT_EQ(cfw_http_head_reader_feed(&reader, &input,
+                                                      &consumed),
+                           CFW_OK);
+        CFW_TEST_ASSERT_EQ(consumed, 128);
+        /* Any further byte proves the head can never complete. */
+        CFW_TEST_ASSERT_EQ(cfw_http_head_reader_feed(&reader, &input,
+                                                      &consumed),
+                           CFW_ERROR_INVALID_ARGUMENT);
+        cfw_http_head_reader_free(&reader);
+    }
+
+    /* Exact-limit head is accepted. */
+    {
+        /* "GET / HTTP/1.1\r\n\r\n" is 18 bytes; pad a header to reach 64. */
+        char exact[64];
+        size_t base = strlen("GET / HTTP/1.1\r\nX: ");
+        memcpy(exact, "GET / HTTP/1.1\r\nX: ", base);
+        memset(exact + base, 'a', sizeof(exact) - base - 4);
+        memcpy(exact + sizeof(exact) - 4, "\r\n\r\n", 4);
+        CFW_TEST_ASSERT_EQ(cfw_http_head_reader_init(&reader, 64), CFW_OK);
+        cfw_span_init(&input, exact, sizeof(exact));
+        CFW_TEST_ASSERT_EQ(cfw_http_head_reader_feed(&reader, &input,
+                                                      &consumed),
+                           CFW_OK);
+        CFW_TEST_ASSERT_TRUE(cfw_http_head_reader_is_complete(&reader));
+        cfw_http_head_reader_free(&reader);
+    }
+
+    CFW_TEST_ASSERT_EQ(cfw_http_head_reader_init(NULL, 10),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_http_head_reader_init(&reader, 0),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    return 0;
+}
+
 const cfw_test_case cfw_test_http_cases[] = {
     {"http_method_names_and_parse", test_http_method_names_and_parse},
     {"http_version_parse_and_format", test_http_version_parse_and_format},
@@ -686,5 +794,6 @@ const cfw_test_case cfw_test_http_cases[] = {
     {"http_request_framing", test_http_request_framing},
     {"http_chunked_decode", test_http_chunked_decode},
     {"http_response_serialize", test_http_response_serialize},
+    {"http_head_reader", test_http_head_reader},
     {NULL, NULL},
 };

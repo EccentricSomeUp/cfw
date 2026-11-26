@@ -1108,3 +1108,127 @@ int cfw_http_response_has_body(cfw_http_method_t method,
     }
     return 1;
 }
+
+/* ------------------------------------------------------------------ */
+/* Incremental head reader                                             */
+/* ------------------------------------------------------------------ */
+
+cfw_status_t cfw_http_head_reader_init(cfw_http_head_reader_t *reader,
+                                       size_t max_size)
+{
+    cfw_status_t status;
+
+    if (reader == NULL || max_size == 0) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    status = cfw_buffer_init(&reader->buffer);
+    if (status != CFW_OK) {
+        return status;
+    }
+    reader->max_size = max_size;
+    reader->complete = 0;
+    reader->head_size = 0;
+    return CFW_OK;
+}
+
+void cfw_http_head_reader_free(cfw_http_head_reader_t *reader)
+{
+    if (reader == NULL) {
+        return;
+    }
+    cfw_buffer_free(&reader->buffer);
+    reader->buffer.data = NULL;
+    reader->buffer.size = 0;
+    reader->buffer.capacity = 0;
+    reader->complete = 0;
+    reader->head_size = 0;
+}
+
+static int cfw_http_head_find_end(const cfw_buffer_t *buffer, size_t start,
+                                  size_t *end_out)
+{
+    size_t i;
+    if (buffer->size < 4 || start + 4 > buffer->size) {
+        return 0;
+    }
+    for (i = start; i + 3 < buffer->size; i++) {
+        if (buffer->data[i] == '\r' && buffer->data[i + 1] == '\n' &&
+            buffer->data[i + 2] == '\r' && buffer->data[i + 3] == '\n') {
+            *end_out = i + 4;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+cfw_status_t cfw_http_head_reader_feed(cfw_http_head_reader_t *reader,
+                                       const cfw_span_t *input,
+                                       size_t *consumed)
+{
+    size_t old_size;
+    size_t scan_start;
+    size_t append_len;
+    size_t end;
+    size_t extra;
+    cfw_status_t status;
+
+    if (reader == NULL || consumed == NULL ||
+        (input->size != 0 && input->data == NULL)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    *consumed = 0;
+
+    if (reader->complete) {
+        return CFW_OK;
+    }
+
+    old_size = reader->buffer.size;
+    if (old_size >= reader->max_size) {
+        /* A head of exactly max_size bytes without a terminator can never
+         * complete. */
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    /* Only the bytes needed to reach max_size are appended; anything past
+     * the limit cannot belong to a valid head. */
+    append_len = input->size;
+    if (append_len > reader->max_size - old_size) {
+        append_len = reader->max_size - old_size;
+    }
+    status = cfw_buffer_append(&reader->buffer, input->data, append_len);
+    if (status != CFW_OK) {
+        return status;
+    }
+
+    /* A terminator not seen before must start within the last 3 bytes of
+     * the previous buffer content. */
+    scan_start = old_size > 3 ? old_size - 3 : 0;
+    if (cfw_http_head_find_end(&reader->buffer, scan_start, &end)) {
+        /* Drop bytes past the terminator; they belong to the caller. */
+        extra = reader->buffer.size - end;
+        reader->buffer.size = end;
+        reader->complete = 1;
+        reader->head_size = end;
+        *consumed = append_len - extra;
+        return CFW_OK;
+    }
+
+    *consumed = append_len;
+    return CFW_OK;
+}
+
+int cfw_http_head_reader_is_complete(const cfw_http_head_reader_t *reader)
+{
+    return reader != NULL && reader->complete;
+}
+
+cfw_status_t cfw_http_head_reader_head(const cfw_http_head_reader_t *reader,
+                                       cfw_strview_t *head)
+{
+    if (reader == NULL || head == NULL || !reader->complete) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    head->data = (const char *)reader->buffer.data;
+    head->size = reader->head_size;
+    return CFW_OK;
+}
