@@ -14,6 +14,7 @@
 #include <cfw/http1_conn.h>
 #include <cfw/log.h>
 #include <cfw/platform.h>
+#include <cfw/query.h>
 #include <cfw/random.h>
 #include <cfw/route.h>
 #include <cfw/server.h>

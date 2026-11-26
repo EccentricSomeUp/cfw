@@ -72,6 +72,11 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   206/`Content-Range` (416 when unsatisfiable). New fs primitives
   `cfw_file_fstat` and `cfw_file_seek` provide handle-relative
   metadata and positioned reads; new status codes 206, 412, 416.
+- Query-string parsing (ADR 0042): new `cfw/query.h` module with
+  `cfw_query_parse` (form-urlencoded pairs, `+`/`%XX` decoding into
+  caller scratch, capacity/drop accounting, strict malformed-escape
+  rejection) and `cfw_http_target_query` in `cfw/http.h` for
+  extracting the query component of any request-target.
 - Known-length streaming responses (ADR 0041): `cfw_response_t` gains
   `stream_size`/`CFW_STREAM_SIZE_UNKNOWN`. A stream with a declared
   length is framed with `Content-Length` + identity bytes on every

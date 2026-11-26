@@ -19,6 +19,7 @@ extern const cfw_test_case cfw_test_log_cases[];
 extern const cfw_test_case cfw_test_net_cases[];
 extern const cfw_test_case cfw_test_platform_cases[];
 extern const cfw_test_case cfw_test_pollset_cases[];
+extern const cfw_test_case cfw_test_query_cases[];
 extern const cfw_test_case cfw_test_random_cases[];
 extern const cfw_test_case cfw_test_route_cases[];
 extern const cfw_test_case cfw_test_server_cases[];
@@ -50,6 +51,7 @@ static const cfw_test_suite cfw_test_suites[] = {
     {"net", cfw_test_net_cases},
     {"platform", cfw_test_platform_cases},
     {"pollset", cfw_test_pollset_cases},
+    {"query", cfw_test_query_cases},
     {"random", cfw_test_random_cases},
     {"route", cfw_test_route_cases},
     {"server", cfw_test_server_cases},

@@ -223,6 +223,14 @@ CFW_API cfw_status_t cfw_http_headers_next(const cfw_strview_t *block,
 CFW_API cfw_status_t cfw_http_target_path(const cfw_strview_t *target,
                                          cfw_strview_t *path);
 
+/* Extracts the query component of a request-target: the text after
+ * the first '?' (an empty view when no '?' is present). Works for
+ * every target form since it only scans for '?'. The returned view
+ * references the input; pair it with cfw_query_parse (cfw/query.h)
+ * for decoded access. */
+CFW_API cfw_status_t cfw_http_target_query(const cfw_strview_t *target,
+                                           cfw_strview_t *query);
+
 CFW_API const char *cfw_http_method_name(cfw_http_method_t method);
 CFW_API cfw_status_t cfw_http_method_parse(const cfw_strview_t *token,
                                            cfw_http_method_t *method);

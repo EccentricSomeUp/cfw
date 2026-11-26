@@ -1313,6 +1313,26 @@ cfw_status_t cfw_http_target_path(const cfw_strview_t *target,
     return CFW_OK;
 }
 
+cfw_status_t cfw_http_target_query(const cfw_strview_t *target,
+                                   cfw_strview_t *query)
+{
+    size_t i;
+
+    if (target == NULL || query == NULL || target->data == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    for (i = 0; i < target->size; i++) {
+        if (target->data[i] == '?') {
+            query->data = target->data + i + 1;
+            query->size = target->size - i - 1;
+            return CFW_OK;
+        }
+    }
+    query->data = target->data + target->size;
+    query->size = 0;
+    return CFW_OK;
+}
+
 #define CFW_HTTP_DATE_MIN_YEAR 1900
 #define CFW_HTTP_DATE_MAX_YEAR 9999
 
