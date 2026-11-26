@@ -12,6 +12,13 @@
 extern "C" {
 #endif
 
+/*
+ * Checked arithmetic helpers for the public integer types. Every function
+ * writes its result only on success: on CFW_ERROR_INVALID_ARGUMENT (NULL
+ * result) or CFW_ERROR_OVERFLOW the output parameter is left untouched.
+ * These are pure functions with no side effects and no allocation, safe
+ * to call from any thread.
+ */
 CFW_API cfw_status_t cfw_checked_add_u32(uint32_t a, uint32_t b,
                                          uint32_t *result);
 CFW_API cfw_status_t cfw_checked_sub_u32(uint32_t a, uint32_t b,

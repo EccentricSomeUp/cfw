@@ -13,6 +13,20 @@
 extern "C" {
 #endif
 
+/*
+ * cfw_buffer_t is an owning, resizable byte buffer with checked doubling
+ * growth. cfw_buffer_init must succeed before any other call;
+ * cfw_buffer_free releases all storage, is idempotent, and must be called
+ * exactly once per initialized buffer. cfw_buffer_clear keeps the
+ * allocation but resets size to 0. cfw_buffer_span exposes a non-owning
+ * cfw_span_t view that stays valid until the next call that may reallocate
+ * or mutate the buffer.
+ *
+ * The buffer is not thread-safe; concurrent use requires external
+ * synchronization. Growth and append are checked: requests that cannot be
+ * satisfied return CFW_ERROR_OVERFLOW or CFW_ERROR_NOMEM rather than
+ * wrapping.
+ */
 typedef struct cfw_buffer {
     uint8_t *data;
     size_t size;

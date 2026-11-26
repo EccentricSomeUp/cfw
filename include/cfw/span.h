@@ -12,6 +12,15 @@
 extern "C" {
 #endif
 
+/*
+ * cfw_span_t is a non-owning view over a byte range. The pointed-to bytes
+ * must outlive every use of the span; the span never frees or mutates
+ * them. A NULL data pointer is valid only when size is 0.
+ *
+ * These are pure functions with no side effects and no allocation; they
+ * are safe to call from any thread. On failure the result parameter is
+ * left untouched.
+ */
 typedef struct cfw_span {
     const uint8_t *data;
     size_t size;

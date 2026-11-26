@@ -9,6 +9,14 @@
 extern "C" {
 #endif
 
+/*
+ * cfw_status_t is the single error channel for the public API. CFW_OK is
+ * zero; every other value denotes a failure class. Enumerator values are
+ * append-only and never change meaning.
+ *
+ * cfw_status_string returns a static, never-NULL string; unrecognized
+ * values map to "unknown".
+ */
 typedef enum cfw_status {
     CFW_OK = 0,
     CFW_ERROR_INVALID_ARGUMENT,

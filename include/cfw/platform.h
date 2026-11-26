@@ -42,6 +42,14 @@ typedef enum cfw_endian {
     CFW_ENDIAN_BIG
 } cfw_endian_t;
 
+/*
+ * Platform capability detection. cfw_platform_detect reports compile-time
+ * and runtime platform facts. The *_name functions return static strings
+ * and map unrecognized enum values to "unknown".
+ * cfw_platform_page_size returns the OS allocation granularity and fails
+ * only when the underlying OS query fails. All of these are pure,
+ * side-effect-free, and safe to call from any thread.
+ */
 typedef struct cfw_platform_info {
     cfw_os_t os;
     cfw_arch_t arch;
