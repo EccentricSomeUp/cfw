@@ -316,6 +316,51 @@ static void cfw_server_handle_done(cfw_server_t *server,
     cfw_server_conn_deadline(conn, server->options.keep_alive_timeout);
 }
 
+
+/* Sends an interim "100 Continue" when the request head carries
+ * "Expect: 100-continue". Called at HEAD time so clients that wait for
+ * the interim response before sending a body are not stalled. Queue
+ * failures are non-fatal: the final response still goes out. */
+static void cfw_server_expect_continue(cfw_server_t *server,
+                                       cfw_server_conn_t *conn)
+{
+    static const char interim[] = "HTTP/1.1 100 Continue\r\n\r\n";
+    cfw_strview_t block = conn->head.headers;
+    size_t cursor = 0;
+
+    (void)server;
+    for (;;) {
+        cfw_http_header_t field;
+        int done = 0;
+        cfw_strview_t expect;
+        cfw_strview_t value;
+        int equal = 0;
+
+        if (cfw_http_headers_next(&block, &cursor, &field, &done) !=
+                CFW_OK ||
+            done) {
+            return;
+        }
+        cfw_strview_from_cstr(&expect, "expect");
+        if (field.name.size != expect.size ||
+            cfw_strview_equal_nocase(&field.name, &expect, &equal) !=
+                CFW_OK ||
+            !equal) {
+            continue;
+        }
+        cfw_strview_from_cstr(&value, "100-continue");
+        equal = 0;
+        if (field.value.size == value.size &&
+            cfw_strview_equal_nocase(&field.value, &value, &equal) ==
+                CFW_OK &&
+            equal) {
+            cfw_http1_conn_queue(&conn->http, interim,
+                                 sizeof(interim) - 1);
+            return;
+        }
+    }
+}
+
 static void cfw_server_service_read(cfw_server_t *server,
                                     cfw_server_conn_t *conn)
 {
@@ -336,6 +381,7 @@ static void cfw_server_service_read(cfw_server_t *server,
             conn->head = event.head;
             conn->have_head = 1;
             cfw_buffer_clear(&conn->body);
+            cfw_server_expect_continue(server, conn);
             cfw_server_conn_deadline(conn,
                                      server->options.request_timeout);
             break;

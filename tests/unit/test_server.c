@@ -518,6 +518,61 @@ static int test_server_drain_after_stop(void)
     return 0;
 }
 
+
+static int test_server_expect_continue(void)
+{
+    cfw_test_server ts;
+    cfw_fd_t client;
+    char response[4096];
+    ssize_t n;
+    cfw_strview_t pattern;
+
+    CFW_TEST_ASSERT_EQ(cfw_test_server_setup(&ts, (cfw_duration_t){0},
+                                             (cfw_duration_t){0}, 8),
+                       0);
+    cfw_strview_from_cstr(&pattern, "/upload");
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(&ts.dispatch,
+                                              CFW_HTTP_METHOD_POST,
+                                              &pattern, cfw_test_ok_handler,
+                                              NULL),
+                       CFW_OK);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+
+    /* Client announces a body and waits for 100 Continue. */
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "POST /upload HTTP/1.1\r\n"
+                                     "Host: test\r\n"
+                                     "Expect: 100-continue\r\n"
+                                     "Content-Length: 4\r\n"
+                                     "\r\n"),
+                       0);
+
+    /* First recv should contain the interim response (possibly with
+     * the final response appended). */
+    n = cfw_test_serve_recv(&ts.server, &client, response,
+                            sizeof(response) - 1);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    response[n] = '\0';
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                           "100 Continue"));
+
+    /* Now send the body; final response follows. */
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client, "data"), 0);
+    n = cfw_test_serve_recv(&ts.server, &client, response,
+                            sizeof(response) - 1);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    response[n] = '\0';
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                           "HTTP/1.1 200 OK"));
+
+    cfw_fd_close(&client);
+    cfw_test_server_teardown(&ts);
+    return 0;
+}
+
 const cfw_test_case cfw_test_server_cases[] = {
     {"server_request_response", test_server_request_response},
     {"server_post_body", test_server_post_body},
@@ -526,6 +581,7 @@ const cfw_test_case cfw_test_server_cases[] = {
     {"server_max_connections", test_server_max_connections},
     {"server_soak", test_server_soak},
     {"server_drain_after_stop", test_server_drain_after_stop},
+    {"server_expect_continue", test_server_expect_continue},
     {NULL, NULL},
 };
 
@@ -636,6 +692,61 @@ static int test_server_drain_after_stop(void)
     CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
                                            "HTTP/1.1 200 OK"));
     CFW_TEST_ASSERT_EQ(cfw_server_requests_total(&ts.server), 2);
+
+    cfw_fd_close(&client);
+    cfw_test_server_teardown(&ts);
+    return 0;
+}
+
+
+static int test_server_expect_continue(void)
+{
+    cfw_test_server ts;
+    cfw_fd_t client;
+    char response[4096];
+    ssize_t n;
+    cfw_strview_t pattern;
+
+    CFW_TEST_ASSERT_EQ(cfw_test_server_setup(&ts, (cfw_duration_t){0},
+                                             (cfw_duration_t){0}, 8),
+                       0);
+    cfw_strview_from_cstr(&pattern, "/upload");
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(&ts.dispatch,
+                                              CFW_HTTP_METHOD_POST,
+                                              &pattern, cfw_test_ok_handler,
+                                              NULL),
+                       CFW_OK);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+
+    /* Client announces a body and waits for 100 Continue. */
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "POST /upload HTTP/1.1\r\n"
+                                     "Host: test\r\n"
+                                     "Expect: 100-continue\r\n"
+                                     "Content-Length: 4\r\n"
+                                     "\r\n"),
+                       0);
+
+    /* First recv should contain the interim response (possibly with
+     * the final response appended). */
+    n = cfw_test_serve_recv(&ts.server, &client, response,
+                            sizeof(response) - 1);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    response[n] = '\0';
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                           "100 Continue"));
+
+    /* Now send the body; final response follows. */
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client, "data"), 0);
+    n = cfw_test_serve_recv(&ts.server, &client, response,
+                            sizeof(response) - 1);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    response[n] = '\0';
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                           "HTTP/1.1 200 OK"));
 
     cfw_fd_close(&client);
     cfw_test_server_teardown(&ts);
