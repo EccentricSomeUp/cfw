@@ -72,6 +72,13 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   206/`Content-Range` (416 when unsatisfiable). New fs primitives
   `cfw_file_fstat` and `cfw_file_seek` provide handle-relative
   metadata and positioned reads; new status codes 206, 412, 416.
+- Cookie parsing and serialization (ADR 0045): new `cfw/cookie.h`
+  module — `cfw_cookie_parse` splits a Cookie header into zero-copy
+  name/value pairs (token names, cookie-octet values, DQUOTE
+  stripping, strict malformed-input rejection), and
+  `cfw_cookie_serialize` renders Set-Cookie values with Path,
+  Domain, Max-Age, Expires, Secure, HttpOnly, Partitioned, and
+  SameSite attributes.
 - URI percent-decoding primitive (ADR 0044): new `cfw/uri.h` module
   with `cfw_uri_decode` — strict `%XX` decoding, NUL-terminated
   output, and flags for `+`→SP (form components), NUL rejection, and

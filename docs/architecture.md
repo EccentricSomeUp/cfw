@@ -79,6 +79,9 @@ abstraction exists.
 - `uri`: shared percent-decoding primitive with per-use flags
   (implemented; see `cfw/uri.h`, ADR 0044); also backs query parsing,
   static-file path decoding, and route-parameter decoding
+- `cookie`: Cookie header parsing and Set-Cookie serialization with
+  RFC 6265 character validation (implemented; see `cfw/cookie.h`,
+  ADR 0045)
 - `log`: structured, rate-limited, non-blocking-friendly logging
 
 ## Security invariants
