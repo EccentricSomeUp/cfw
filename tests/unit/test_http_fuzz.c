@@ -178,7 +178,7 @@ static void cfw_test_fuzz_one(const char *data, size_t len)
 
 static int test_http_fuzz_mutation(void)
 {
-    enum { ITERS = 4000, CAP = 512 };
+    enum { ITERS = 100000, CAP = 512 };
     char buf[CAP];
     size_t seed_count = sizeof(cfw_test_seeds) / sizeof(cfw_test_seeds[0]);
     size_t iter;

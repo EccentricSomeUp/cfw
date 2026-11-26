@@ -578,6 +578,28 @@ static int test_server_soak(void)
     }
     CFW_TEST_ASSERT_EQ(cfw_server_requests_total(&ts.server), 104);
 
+    /* Connection churn: rapid connect/request/close cycles stress the
+     * accept path and fd-number reuse after close. */
+    for (i = 0; i < 200; i++) {
+        cfw_fd_t churn;
+        cfw_fd_init(&churn);
+        CFW_TEST_ASSERT_EQ(cfw_test_connect(&churn,
+                                            cfw_server_port(&ts.server)),
+                           CFW_OK);
+        CFW_TEST_ASSERT_EQ(cfw_test_send(&churn,
+                                         "GET /hello HTTP/1.1\r\n"
+                                         "Host: churn\r\n\r\n"),
+                           0);
+        n = cfw_test_serve_recv(&ts.server, &churn, response,
+                                sizeof(response) - 1);
+        CFW_TEST_ASSERT_TRUE(n > 0);
+        response[n] = '\0';
+        CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                               "HTTP/1.1 200 OK"));
+        cfw_fd_close(&churn);
+    }
+    CFW_TEST_ASSERT_EQ(cfw_server_requests_total(&ts.server), 304);
+
     cfw_fd_close(&client);
     cfw_test_server_teardown(&ts);
     return 0;
@@ -1622,6 +1644,28 @@ static int test_server_soak(void)
         }
     }
     CFW_TEST_ASSERT_EQ(cfw_server_requests_total(&ts.server), 104);
+
+    /* Connection churn: rapid connect/request/close cycles stress the
+     * accept path and fd-number reuse after close. */
+    for (i = 0; i < 200; i++) {
+        cfw_fd_t churn;
+        cfw_fd_init(&churn);
+        CFW_TEST_ASSERT_EQ(cfw_test_connect(&churn,
+                                            cfw_server_port(&ts.server)),
+                           CFW_OK);
+        CFW_TEST_ASSERT_EQ(cfw_test_send(&churn,
+                                         "GET /hello HTTP/1.1\r\n"
+                                         "Host: churn\r\n\r\n"),
+                           0);
+        n = cfw_test_serve_recv(&ts.server, &churn, response,
+                                sizeof(response) - 1);
+        CFW_TEST_ASSERT_TRUE(n > 0);
+        response[n] = '\0';
+        CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                               "HTTP/1.1 200 OK"));
+        cfw_fd_close(&churn);
+    }
+    CFW_TEST_ASSERT_EQ(cfw_server_requests_total(&ts.server), 304);
 
     cfw_fd_close(&client);
     cfw_test_server_teardown(&ts);

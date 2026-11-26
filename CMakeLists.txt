@@ -136,6 +136,7 @@ if(CFW_BUILD_EXAMPLES)
     target_link_libraries(cfw_example_minimal_server PRIVATE cfw)
     cfw_apply_strict_flags(cfw_example_minimal_server)
     cfw_apply_hardening_flags(cfw_example_minimal_server)
+    cfw_apply_sanitizer_flags(cfw_example_minimal_server)
 endif()
 
 if(CFW_BUILD_TESTING)
