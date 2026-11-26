@@ -11,6 +11,7 @@ extern const cfw_test_case cfw_test_checked_arithmetic_cases[];
 extern const cfw_test_case cfw_test_fd_cases[];
 extern const cfw_test_case cfw_test_fs_cases[];
 extern const cfw_test_case cfw_test_log_cases[];
+extern const cfw_test_case cfw_test_net_cases[];
 extern const cfw_test_case cfw_test_platform_cases[];
 extern const cfw_test_case cfw_test_pollset_cases[];
 extern const cfw_test_case cfw_test_random_cases[];
@@ -32,6 +33,7 @@ static const cfw_test_suite cfw_test_suites[] = {
     {"fd", cfw_test_fd_cases},
     {"fs", cfw_test_fs_cases},
     {"log", cfw_test_log_cases},
+    {"net", cfw_test_net_cases},
     {"platform", cfw_test_platform_cases},
     {"pollset", cfw_test_pollset_cases},
     {"random", cfw_test_random_cases},

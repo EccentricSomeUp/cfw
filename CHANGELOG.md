@@ -36,6 +36,9 @@ semantic versioning once a stable release policy is adopted.
 - Internal pollset abstraction: level-triggered event sets with epoll on
   Linux, poll() fallback on other POSIX, deadline-aware waits, and per-fd
   tokens
+- Internal nonblocking socket primitives: numeric IPv4/IPv6 addresses,
+  socket/bind/listen/accept/connect wrappers, and `CFW_ERROR_WOULDBLOCK`
+  status for nonblocking I/O
 - CMake build, presets, sanitizer configuration, install rules, and CMake
   package config
 - Custom unit-test harness with debug, release, and sanitizer verification

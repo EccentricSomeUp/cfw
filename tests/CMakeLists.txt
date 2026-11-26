@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 add_executable(cfw_unit_tests
+    ../src/cfw/private/net.c
     ../src/cfw/private/pollset.c
     unit/test_arena.c
     unit/test_buffer.c
@@ -9,6 +10,7 @@ add_executable(cfw_unit_tests
     unit/test_fs.c
     unit/test_log.c
     unit/test_main.c
+    unit/test_net.c
     unit/test_platform.c
     unit/test_pollset.c
     unit/test_random.c

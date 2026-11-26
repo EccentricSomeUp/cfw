@@ -21,6 +21,8 @@ const char *cfw_status_string(cfw_status_t status)
         return "internal";
     case CFW_ERROR_OVERFLOW:
         return "overflow";
+    case CFW_ERROR_WOULDBLOCK:
+        return "wouldblock";
     default:
         return "unknown";
     }

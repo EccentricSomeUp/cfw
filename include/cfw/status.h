@@ -17,7 +17,8 @@ typedef enum cfw_status {
     CFW_ERROR_TIMEOUT,
     CFW_ERROR_UNAVAILABLE,
     CFW_ERROR_INTERNAL,
-    CFW_ERROR_OVERFLOW
+    CFW_ERROR_OVERFLOW,
+    CFW_ERROR_WOULDBLOCK
 } cfw_status_t;
 
 CFW_API const char *cfw_status_string(cfw_status_t status);
