@@ -166,6 +166,12 @@ if(CFW_BUILD_EXAMPLES)
     cfw_apply_strict_flags(cfw_example_signed_cookie)
     cfw_apply_hardening_flags(cfw_example_signed_cookie)
     cfw_apply_sanitizer_flags(cfw_example_signed_cookie)
+
+    add_executable(cfw_example_threaded_server examples/threaded_server.c)
+    target_link_libraries(cfw_example_threaded_server PRIVATE cfw)
+    cfw_apply_strict_flags(cfw_example_threaded_server)
+    cfw_apply_hardening_flags(cfw_example_threaded_server)
+    cfw_apply_sanitizer_flags(cfw_example_threaded_server)
 endif()
 
 if(CFW_BUILD_TESTING)

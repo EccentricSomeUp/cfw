@@ -19,6 +19,10 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   `CFW_ERROR_UNAVAILABLE` on platforms without it. This delivers the
   deferred Phase 2/5 scaling path now that `cfw/thread.h` and
   `cfw/sync.h` exist.
+- `examples/threaded_server.c`: reference multi-worker server — N
+  `cfw_thread_t` workers each running a `cfw_server_t` with
+  `reuse_port` on a shared dispatch, with a mutex/condvar startup
+  rendezvous.
 - Per-request completion audit hook (ADR 0055): new optional
   `request_done`/`request_done_user` fields on `cfw_server_options_t`
   deliver a `cfw_request_record_t` exactly once per parsed request
