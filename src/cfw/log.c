@@ -150,7 +150,18 @@ cfw_status_t cfw_log(cfw_logger_t *logger, cfw_log_level_t level,
     }
 
     va_start(args, format);
+    /* The format string is caller-supplied by design; call sites are
+     * checked via the CFW_PRINTF_FORMAT attribute on cfw_log. MSVC has
+     * no -Wformat-nonliteral equivalent and does not understand GCC
+     * diagnostic pragmas. */
+#if !defined(_MSC_VER)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-nonliteral"
+#endif
     needed = vsnprintf(buffer, sizeof(buffer), format, args);
+#if !defined(_MSC_VER)
+#pragma GCC diagnostic pop
+#endif
     va_end(args);
 
     if (needed < 0) {

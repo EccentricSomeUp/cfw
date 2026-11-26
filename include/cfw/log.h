@@ -94,8 +94,9 @@ CFW_API void cfw_logger_set_rate_limit(cfw_logger_t *logger,
                                        uint32_t messages_per_second);
 CFW_API uint64_t cfw_logger_dropped_count(cfw_logger_t *logger);
 
-CFW_API cfw_status_t cfw_log(cfw_logger_t *logger, cfw_log_level_t level,
-                             const char *format, ...);
+CFW_API CFW_PRINTF_FORMAT(3, 4) cfw_status_t
+cfw_log(cfw_logger_t *logger, cfw_log_level_t level, const char *format,
+        ...);
 CFW_API cfw_status_t cfw_log_message(cfw_logger_t *logger,
                                      cfw_log_level_t level,
                                      const cfw_strview_t *message);

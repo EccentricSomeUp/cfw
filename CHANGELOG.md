@@ -16,6 +16,12 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   `_POSIX_C_SOURCE 200809L`, leaving the helper unused and failing
   `-Werror` builds. The helper is now guarded on `defined(O_NOFOLLOW)`
   so it only exists where it is actually used.
+- macOS build: `cfw_log` failed Clang's `-Wformat-nonliteral` (enabled
+  by `-Wformat=2`) because the printf-style format is a runtime
+  parameter. The pass-through `vsnprintf` call is now wrapped in a
+  scoped diagnostic suppression, and `cfw_log` is annotated with a new
+  portable `CFW_PRINTF_FORMAT` attribute so callers still get compile
+  -time format checking.
 
 ## [0.3.0] - 2026-11-26
 

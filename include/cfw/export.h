@@ -27,4 +27,17 @@
     #define CFW_DEPRECATED
 #endif
 
+/*
+ * Marks a variadic function's printf-style format parameter so the
+ * compiler checks call sites. format_index is the 1-based position of
+ * the format parameter; first_variadic_index is the position of the
+ * first variadic argument (...). MSVC has no equivalent attribute.
+ */
+#if defined(__GNUC__) || defined(__clang__)
+    #define CFW_PRINTF_FORMAT(format_index, first_variadic_index) \
+        __attribute__((format(printf, format_index, first_variadic_index)))
+#else
+    #define CFW_PRINTF_FORMAT(format_index, first_variadic_index)
+#endif
+
 #endif /* CFW_EXPORT_H */
