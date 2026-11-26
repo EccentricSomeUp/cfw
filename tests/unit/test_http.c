@@ -431,6 +431,140 @@ static int test_http_request_framing(void)
     return 0;
 }
 
+/* Feeds a complete chunked body in pieces of `piece` bytes, collecting all
+ * decoded output. Returns finished status via *finished_out. */
+static cfw_status_t cfw_test_chunked_feed(const char *body, size_t body_len,
+                                          size_t piece, char *collected,
+                                          size_t *collected_len, int *finished)
+{
+    cfw_http_chunked_decoder_t decoder;
+    size_t offset = 0;
+    cfw_status_t status = CFW_OK;
+
+    *collected_len = 0;
+    *finished = 0;
+    cfw_http_chunked_decoder_init(&decoder);
+
+    while (offset < body_len) {
+        cfw_span_t input;
+        cfw_span_t output;
+        size_t consumed;
+        size_t chunk = body_len - offset;
+        if (chunk > piece) {
+            chunk = piece;
+        }
+        cfw_span_init(&input, body + offset, chunk);
+        status = cfw_http_chunked_decode(&decoder, &input, &output,
+                                         &consumed, finished);
+        if (status != CFW_OK) {
+            return status;
+        }
+        if (output.size > 0) {
+            memcpy(collected + *collected_len, output.data, output.size);
+            *collected_len += output.size;
+        }
+        offset += consumed;
+        if (consumed == 0) {
+            return CFW_ERROR_INTERNAL;
+        }
+        if (*finished) {
+            break;
+        }
+    }
+    return status;
+}
+
+static int test_http_chunked_decode(void)
+{
+    static const struct {
+        const char *body;
+        const char *expected;
+        size_t expected_len;
+    } cases[] = {
+        {"4\r\nWiki\r\n5\r\npedia\r\n0\r\n\r\n", "Wikipedia", 9},
+        {"0\r\n\r\n", "", 0},
+        {"0\r\nX-Trailer: yes\r\n\r\n", "", 0},
+        {"a;foo=bar\r\n0123456789\r\n0\r\n\r\n", "0123456789", 10},
+        {"1\r\nX\r\n1\r\nY\r\n0\r\n\r\n", "XY", 2},
+    };
+    static const char *invalid[] = {
+        "Z\r\n",                    /* bad hex */
+        "4\nWiki\r\n0\r\n\r\n",     /* bare LF in size line */
+        "4\r\nWikiXX\r\n0\r\n\r\n",/* missing CRLF after data */
+        "4;\r\nWiki\r\n0\r\n\r\n",  /* empty extension */
+        "0\r\nBad Trailer\r\n\r\n", /* trailer without colon */
+        "0\r\nX: a\rb\r\n\r\n",     /* CTL in trailer value */
+    };
+    size_t i;
+    size_t piece;
+
+    /* Every case at every split size from 1 byte up. */
+    for (piece = 1; piece <= 9; piece++) {
+        for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+            char collected[64];
+            size_t collected_len;
+            int finished;
+            CFW_TEST_ASSERT_EQ(
+                cfw_test_chunked_feed(cases[i].body, strlen(cases[i].body),
+                                      piece, collected, &collected_len,
+                                      &finished),
+                CFW_OK);
+            CFW_TEST_ASSERT_TRUE(finished);
+            CFW_TEST_ASSERT_EQ(collected_len, cases[i].expected_len);
+            CFW_TEST_ASSERT_EQ(memcmp(collected, cases[i].expected,
+                                      cases[i].expected_len),
+                               0);
+        }
+    }
+
+    /* Invalid bodies must fail. */
+    for (i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+        cfw_http_chunked_decoder_t decoder;
+        cfw_span_t input;
+        cfw_span_t output;
+        size_t consumed;
+        int finished = 0;
+        size_t len = strlen(invalid[i]);
+
+        cfw_http_chunked_decoder_init(&decoder);
+        cfw_span_init(&input, invalid[i], len);
+        CFW_TEST_ASSERT_EQ(cfw_http_chunked_decode(&decoder, &input,
+                                                    &output, &consumed,
+                                                    &finished),
+                           CFW_ERROR_INVALID_ARGUMENT);
+    }
+
+    /* Pipelined bytes after the terminal chunk are left unconsumed. */
+    {
+        static const char pipelined[] =
+            "1\r\nA\r\n0\r\n\r\nGET /next HTTP/1.1\r\n\r\n";
+        cfw_http_chunked_decoder_t decoder;
+        cfw_span_t input;
+        cfw_span_t output;
+        size_t consumed;
+        int finished = 0;
+        const char *tail;
+
+        cfw_http_chunked_decoder_init(&decoder);
+        cfw_span_init(&input, pipelined, sizeof(pipelined) - 1);
+        CFW_TEST_ASSERT_EQ(cfw_http_chunked_decode(&decoder, &input,
+                                                    &output, &consumed,
+                                                    &finished),
+                           CFW_OK);
+        CFW_TEST_ASSERT_TRUE(finished);
+        CFW_TEST_ASSERT_EQ(consumed, 11);
+        tail = pipelined + consumed;
+        CFW_TEST_ASSERT_EQ(memcmp(tail, "GET /next", 9), 0);
+        CFW_TEST_ASSERT_EQ(output.size, 1);
+        CFW_TEST_ASSERT_EQ(output.data[0], 'A');
+    }
+
+    CFW_TEST_ASSERT_EQ(cfw_http_chunked_decode(NULL, NULL, NULL, NULL,
+                                               NULL),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    return 0;
+}
+
 const cfw_test_case cfw_test_http_cases[] = {
     {"http_method_names_and_parse", test_http_method_names_and_parse},
     {"http_version_parse_and_format", test_http_version_parse_and_format},
@@ -443,5 +577,6 @@ const cfw_test_case cfw_test_http_cases[] = {
     {"http_request_line_parse", test_http_request_line_parse},
     {"http_request_head_parse", test_http_request_head_parse},
     {"http_request_framing", test_http_request_framing},
+    {"http_chunked_decode", test_http_chunked_decode},
     {NULL, NULL},
 };

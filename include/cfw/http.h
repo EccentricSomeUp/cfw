@@ -122,6 +122,47 @@ CFW_API cfw_status_t cfw_http_request_framing(
     const cfw_http_request_head_t *request_head,
     cfw_http_message_framing_t *framing);
 
+/* Incremental chunked-transfer decoder. Consumes framing bytes and yields
+ * decoded body bytes as a zero-copy view into the input; a single call may
+ * return at most one contiguous body span, stopping at chunk boundaries so
+ * the caller re-invokes with the remaining input. */
+
+#define CFW_HTTP_CHUNKED_MAX_LINE 4096u
+
+typedef enum cfw_http_chunked_state {
+    CFW_HTTP_CHUNKED_STATE_SIZE = 0,
+    CFW_HTTP_CHUNKED_STATE_DATA,
+    CFW_HTTP_CHUNKED_STATE_DATA_CRLF,
+    CFW_HTTP_CHUNKED_STATE_TRAILER,
+    CFW_HTTP_CHUNKED_STATE_DONE
+} cfw_http_chunked_state_t;
+
+typedef struct cfw_http_chunked_decoder {
+    cfw_http_chunked_state_t state;
+    uint64_t remaining;
+    int cr_pending;
+    int done;
+    size_t line_len;
+    char line_buf[CFW_HTTP_CHUNKED_MAX_LINE];
+} cfw_http_chunked_decoder_t;
+
+CFW_API void cfw_http_chunked_decoder_init(cfw_http_chunked_decoder_t *decoder);
+
+/* Feeds input bytes to the decoder. On return:
+ * - output receives the decoded body bytes produced by this call (a view
+ *   into input; empty when only framing bytes were consumed);
+ * - consumed receives the number of input bytes used — bytes past it
+ *   belong to the next pipelined message;
+ * - finished is set to 1 once the terminal chunk and trailers are done.
+ * The decoder must not be called again after finished == 1. Chunk-size and
+ * trailer lines are bounded by CFW_HTTP_CHUNKED_MAX_LINE; chunk extensions
+ * are accepted but must be printable ASCII. Trailer fields must satisfy the
+ * same grammar as header fields. Bare LF and malformed hex sizes are
+ * rejected with CFW_ERROR_INVALID_ARGUMENT. */
+CFW_API cfw_status_t cfw_http_chunked_decode(
+    cfw_http_chunked_decoder_t *decoder, const cfw_span_t *input,
+    cfw_span_t *output, size_t *consumed, int *finished);
+
 CFW_API cfw_status_t cfw_http_headers_next(const cfw_strview_t *block,
                                            size_t *cursor,
                                            cfw_http_header_t *header,

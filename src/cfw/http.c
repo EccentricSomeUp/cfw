@@ -311,6 +311,19 @@ static cfw_status_t cfw_http_parse_header_line(const cfw_strview_t *line,
         value_end--;
     }
 
+    /* Field values allow VCHAR, obs-text, SP, and HTAB; other control
+     * characters (including a bare CR that survived line splitting) are
+     * rejected. */
+    for (i = value_start; i < value_end; i++) {
+        unsigned char c = (unsigned char)line->data[i];
+        if (c < 0x20 && c != '\t') {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+        if (c == 0x7F) {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+    }
+
     header->name.data = line->data;
     header->name.size = name_end;
     header->value.data = line->data + value_start;
@@ -661,5 +674,281 @@ cfw_status_t cfw_http_request_framing(
         framing->framing = CFW_HTTP_BODY_CONTENT_LENGTH;
         framing->content_length = content_length;
     }
+    return CFW_OK;
+}
+
+/* ------------------------------------------------------------------ */
+/* Chunked transfer decoder                                            */
+/* ------------------------------------------------------------------ */
+
+void cfw_http_chunked_decoder_init(cfw_http_chunked_decoder_t *decoder)
+{
+    if (decoder == NULL) {
+        return;
+    }
+    decoder->state = CFW_HTTP_CHUNKED_STATE_SIZE;
+    decoder->remaining = 0;
+    decoder->cr_pending = 0;
+    decoder->done = 0;
+    decoder->line_len = 0;
+}
+
+/* Accumulates input into the line buffer until a CRLF-terminated line is
+ * complete. Returns 1 when a line is ready (content in line_buf, length in
+ * line_len, CRLF consumed), 0 when more input is needed, or a negative
+ * cfw_status_t-style error via *status. Advances *pos past consumed bytes. */
+static int cfw_http_chunked_read_line(cfw_http_chunked_decoder_t *decoder,
+                                      const cfw_span_t *input, size_t *pos,
+                                      cfw_status_t *status)
+{
+    size_t avail = input->size - *pos;
+    size_t i;
+    size_t nl;
+
+    /* Find the next LF within the remaining input. */
+    nl = avail;
+    for (i = 0; i < avail; i++) {
+        if (input->data[*pos + i] == '\n') {
+            nl = i;
+            break;
+        }
+    }
+    {
+        if (nl == avail) {
+            /* No complete line; buffer what we have. */
+            if (avail > CFW_HTTP_CHUNKED_MAX_LINE - decoder->line_len) {
+                *status = CFW_ERROR_INVALID_ARGUMENT;
+                return -1;
+            }
+            memcpy(decoder->line_buf + decoder->line_len, input->data + *pos,
+                   avail);
+            decoder->line_len += avail;
+            *pos += avail;
+            return 0;
+        }
+
+        /* nl is the offset of '\n' within the remaining input. The byte
+         * before it must be '\r', which may sit in the buffer or input. */
+        if (nl == 0) {
+            /* '\n' is the first unconsumed byte: the CR must be the last
+             * buffered byte. */
+            if (decoder->line_len == 0 ||
+                decoder->line_buf[decoder->line_len - 1] != '\r') {
+                *status = CFW_ERROR_INVALID_ARGUMENT;
+                return -1;
+            }
+            decoder->line_len--;
+        } else {
+            if (input->data[*pos + nl - 1] != '\r') {
+                *status = CFW_ERROR_INVALID_ARGUMENT;
+                return -1;
+            }
+            if (decoder->line_len + nl - 1 >
+                CFW_HTTP_CHUNKED_MAX_LINE) {
+                *status = CFW_ERROR_INVALID_ARGUMENT;
+                return -1;
+            }
+            memcpy(decoder->line_buf + decoder->line_len,
+                   input->data + *pos, nl - 1);
+            decoder->line_len += nl - 1;
+        }
+        *pos += nl + 1;
+        return 1;
+    }
+}
+
+static int cfw_http_hex_digit_value(unsigned char c)
+{
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    }
+    if (c >= 'A' && c <= 'F') {
+        return c - 'A' + 10;
+    }
+    return -1;
+}
+
+static cfw_status_t cfw_http_chunked_parse_size(cfw_http_chunked_decoder_t *d,
+                                                uint64_t *out)
+{
+    size_t i;
+    size_t hex_len = d->line_len;
+    uint64_t value = 0;
+    int have_hex = 0;
+
+    /* Split off optional ";extensions"; the hex part must be nonempty. */
+    for (i = 0; i < d->line_len; i++) {
+        if (d->line_buf[i] == ';') {
+            hex_len = i;
+            break;
+        }
+    }
+    if (hex_len == 0) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    for (i = 0; i < hex_len; i++) {
+        int digit = cfw_http_hex_digit_value((unsigned char)d->line_buf[i]);
+        if (digit < 0) {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+        have_hex = 1;
+        if (value > (UINT64_MAX - (uint64_t)digit) / 16) {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+        value = value * 16 + (uint64_t)digit;
+    }
+    if (!have_hex) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    /* Extension bytes must be printable ASCII and nonempty after ';'. */
+    if (hex_len < d->line_len) {
+        if (hex_len + 1 == d->line_len) {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+        for (i = hex_len + 1; i < d->line_len; i++) {
+            unsigned char c = (unsigned char)d->line_buf[i];
+            if (c < 0x20 || c > 0x7E) {
+                return CFW_ERROR_INVALID_ARGUMENT;
+            }
+        }
+    }
+
+    *out = value;
+    return CFW_OK;
+}
+
+cfw_status_t cfw_http_chunked_decode(cfw_http_chunked_decoder_t *decoder,
+                                     const cfw_span_t *input,
+                                     cfw_span_t *output, size_t *consumed,
+                                     int *finished)
+{
+    size_t pos = 0;
+    const uint8_t *output_data = NULL;
+    size_t output_size = 0;
+    cfw_status_t status;
+
+    if (decoder == NULL || input == NULL || output == NULL ||
+        consumed == NULL || finished == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if ((input->size != 0 && input->data == NULL) || decoder->done) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    output->data = NULL;
+    output->size = 0;
+    *consumed = 0;
+    *finished = 0;
+
+    while (pos < input->size && !decoder->done) {
+        switch (decoder->state) {
+        case CFW_HTTP_CHUNKED_STATE_SIZE:
+        case CFW_HTTP_CHUNKED_STATE_TRAILER: {
+            int is_trailer =
+                decoder->state == CFW_HTTP_CHUNKED_STATE_TRAILER;
+            int got;
+            got = cfw_http_chunked_read_line(decoder, input, &pos, &status);
+            if (got < 0) {
+                return status;
+            }
+            if (got == 0) {
+                goto out;
+            }
+            if (is_trailer) {
+                if (decoder->line_len == 0) {
+                    decoder->state = CFW_HTTP_CHUNKED_STATE_DONE;
+                    decoder->done = 1;
+                    *finished = 1;
+                    goto out;
+                }
+                {
+                    cfw_strview_t line;
+                    cfw_http_header_t trailer;
+                    line.data = decoder->line_buf;
+                    line.size = decoder->line_len;
+                    status = cfw_http_parse_header_line(&line, &trailer);
+                    decoder->line_len = 0;
+                    if (status != CFW_OK) {
+                        return status;
+                    }
+                }
+                break;
+            }
+            {
+                uint64_t size;
+                status = cfw_http_chunked_parse_size(decoder, &size);
+                decoder->line_len = 0;
+                if (status != CFW_OK) {
+                    return status;
+                }
+                if (size == 0) {
+                    decoder->state = CFW_HTTP_CHUNKED_STATE_TRAILER;
+                } else {
+                    decoder->remaining = size;
+                    decoder->state = CFW_HTTP_CHUNKED_STATE_DATA;
+                }
+            }
+            break;
+        }
+        case CFW_HTTP_CHUNKED_STATE_DATA: {
+            size_t avail = input->size - pos;
+            size_t n;
+            if (output_data != NULL) {
+                /* A second contiguous body span would be needed; leave the
+                 * rest for the next call. */
+                goto out;
+            }
+            n = avail < decoder->remaining
+                    ? avail
+                    : (size_t)decoder->remaining;
+            output_data = input->data + pos;
+            output_size = n;
+            pos += n;
+            decoder->remaining -= (uint64_t)n;
+            if (decoder->remaining == 0) {
+                decoder->state = CFW_HTTP_CHUNKED_STATE_DATA_CRLF;
+            }
+            break;
+        }
+        case CFW_HTTP_CHUNKED_STATE_DATA_CRLF:
+            if (decoder->cr_pending) {
+                if (input->data[pos] != '\n') {
+                    return CFW_ERROR_INVALID_ARGUMENT;
+                }
+                decoder->cr_pending = 0;
+                pos++;
+                decoder->state = CFW_HTTP_CHUNKED_STATE_SIZE;
+                break;
+            }
+            if (pos + 1 >= input->size) {
+                /* Only one byte left; it must be CR, LF comes next call. */
+                if (input->data[pos] != '\r') {
+                    return CFW_ERROR_INVALID_ARGUMENT;
+                }
+                decoder->cr_pending = 1;
+                pos++;
+                goto out;
+            }
+            if (input->data[pos] != '\r' || input->data[pos + 1] != '\n') {
+                return CFW_ERROR_INVALID_ARGUMENT;
+            }
+            pos += 2;
+            decoder->state = CFW_HTTP_CHUNKED_STATE_SIZE;
+            break;
+        case CFW_HTTP_CHUNKED_STATE_DONE:
+        default:
+            goto out;
+        }
+    }
+
+out:
+    output->data = output_data;
+    output->size = output_size;
+    *consumed = pos;
     return CFW_OK;
 }

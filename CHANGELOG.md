@@ -50,6 +50,8 @@ semantic versioning once a stable release policy is adopted.
 - Request body framing detection with request-smuggling-resistant rules:
   conflicting Content-Length rejected, TE+CL rejected, only sole
   "chunked" transfer coding accepted
+- Incremental zero-copy chunked-transfer decoder with bounded line state,
+  strict grammar, and pipelining-safe consumption
 - CMake build, presets, sanitizer configuration, install rules, and CMake
   package config
 - Custom unit-test harness with debug, release, and sanitizer verification
