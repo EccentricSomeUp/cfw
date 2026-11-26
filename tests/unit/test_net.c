@@ -118,6 +118,7 @@ static int test_tcp_loopback_connect_accept(void)
             if (send((int)client.handle, &byte, 1, 0) == 1) {
                 break;
             }
+            usleep(1000);
         }
         CFW_TEST_ASSERT(tries < 100);
     }
@@ -127,6 +128,7 @@ static int test_tcp_loopback_connect_accept(void)
             if (recv((int)server_side.handle, &received, 1, 0) == 1) {
                 break;
             }
+            usleep(1000);
         }
         CFW_TEST_ASSERT(tries < 100);
         CFW_TEST_ASSERT_EQ(received, 'q');

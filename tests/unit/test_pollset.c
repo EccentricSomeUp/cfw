@@ -95,6 +95,7 @@ static int test_pollset_modify_and_remove(void)
     int token_a = 1;
     int token_b = 2;
     int fds[2];
+    char byte = 'x';
 
     CFW_TEST_ASSERT_EQ(pipe(fds), 0);
     CFW_TEST_ASSERT_EQ(cfw_pollset_create(&pollset), CFW_OK);
@@ -108,16 +109,42 @@ static int test_pollset_modify_and_remove(void)
                                           &token_b),
                        CFW_ERROR_INVALID_ARGUMENT);
 
-    /* modify changes interest and token */
-    CFW_TEST_ASSERT_EQ(cfw_pollset_modify(pollset, fds[0], CFW_POLL_OUT,
+    /* Disable all interest while data is pending: the wait must time
+     * out instead of reporting the stale IN registration. */
+    CFW_TEST_ASSERT_EQ(write(fds[1], &byte, 1), 1);
+    CFW_TEST_ASSERT_EQ(cfw_pollset_modify(pollset, fds[0], 0,
                                           &token_b),
                        CFW_OK);
-
-    /* Pipe read end is never writable: with only OUT interest and nothing
-     * pending, a short deadline must time out rather than report IN. */
     CFW_TEST_ASSERT_EQ(cfw_duration_from_millis(50, &wait_time), CFW_OK);
     CFW_TEST_ASSERT_EQ(cfw_deadline_from_now(&deadline, wait_time), CFW_OK);
-    CFW_TEST_ASSERT_EQ(cfw_pollset_wait(pollset, &deadline, events, 4, &count),
+    CFW_TEST_ASSERT_EQ(cfw_pollset_wait(pollset, &deadline, events, 4,
+                                        &count),
+                       CFW_ERROR_TIMEOUT);
+    CFW_TEST_ASSERT_EQ(count, 0);
+
+    /* Re-enable IN with the new token and confirm the pending byte is
+     * reported exactly once under the updated registration. */
+    CFW_TEST_ASSERT_EQ(cfw_pollset_modify(pollset, fds[0], CFW_POLL_IN,
+                                          &token_b),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_duration_from_seconds(2, &wait_time), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_deadline_from_now(&deadline, wait_time), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_pollset_wait(pollset, &deadline, events, 4,
+                                        &count),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(count, 1);
+    CFW_TEST_ASSERT_EQ(events[0].handle, fds[0]);
+    CFW_TEST_ASSERT_TRUE((events[0].events & CFW_POLL_IN) != 0);
+    CFW_TEST_ASSERT_EQ(events[0].token, &token_b);
+
+    /* Removal must also suppress the still-pending readable state. */
+    CFW_TEST_ASSERT_EQ(cfw_pollset_remove(pollset, fds[0]), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_pollset_remove(pollset, fds[0]),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_duration_from_millis(50, &wait_time), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_deadline_from_now(&deadline, wait_time), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_pollset_wait(pollset, &deadline, events, 4,
+                                        &count),
                        CFW_ERROR_TIMEOUT);
 
     cfw_pollset_destroy(pollset);

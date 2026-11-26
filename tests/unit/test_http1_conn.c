@@ -81,6 +81,22 @@ static int cfw_test_client_send(cfw_fd_t *client, const char *data)
     return n == (ssize_t)strlen(data) ? 0 : 1;
 }
 
+static cfw_status_t cfw_test_conn_next_event(cfw_http1_conn_t *conn,
+                                             cfw_http1_event_t *event)
+{
+    int attempts;
+    cfw_status_t status;
+
+    for (attempts = 0; attempts < 1000; attempts++) {
+        status = cfw_http1_conn_next_event(conn, event);
+        if (status != CFW_ERROR_WOULDBLOCK) {
+            return status;
+        }
+        usleep(1000);
+    }
+    return status;
+}
+
 /* Reads up to `capacity` bytes from the client with a short retry loop for
  * nonblocking delivery. Returns bytes read, 0 on EOF, -1 on timeout. */
 static ssize_t cfw_test_client_recv(cfw_fd_t *client, char *buffer,
@@ -135,9 +151,9 @@ static int test_http1_conn_request_response(void)
                        CFW_ERROR_WOULDBLOCK);
 
     CFW_TEST_ASSERT_EQ(cfw_test_client_send(&client_fd, "GET / HTTP/1.1\r\n\r\n"), 0);
-    CFW_TEST_ASSERT_EQ(cfw_http1_conn_next_event(&conn, &event), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_conn_next_event(&conn, &event), CFW_OK);
     CFW_TEST_ASSERT_EQ(event.kind, CFW_HTTP1_EV_HEAD);
-    CFW_TEST_ASSERT_EQ(cfw_http1_conn_next_event(&conn, &event), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_conn_next_event(&conn, &event), CFW_OK);
     CFW_TEST_ASSERT_EQ(event.kind, CFW_HTTP1_EV_MESSAGE_DONE);
     CFW_TEST_ASSERT_FALSE(cfw_http1_conn_is_closed(&conn));
 
@@ -175,9 +191,9 @@ static int test_http1_conn_close_after_response(void)
                        CFW_OK);
 
     CFW_TEST_ASSERT_EQ(cfw_test_client_send(&client_fd, "GET / HTTP/1.1\r\nConnection: close\r\n\r\n"), 0);
-    CFW_TEST_ASSERT_EQ(cfw_http1_conn_next_event(&conn, &event), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_conn_next_event(&conn, &event), CFW_OK);
     CFW_TEST_ASSERT_EQ(event.kind, CFW_HTTP1_EV_HEAD);
-    CFW_TEST_ASSERT_EQ(cfw_http1_conn_next_event(&conn, &event), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_conn_next_event(&conn, &event), CFW_OK);
     CFW_TEST_ASSERT_EQ(event.kind, CFW_HTTP1_EV_MESSAGE_DONE);
 
     CFW_TEST_ASSERT_EQ(cfw_http1_conn_queue(&conn, response,
@@ -215,7 +231,7 @@ static int test_http1_conn_protocol_error(void)
                        CFW_OK);
 
     CFW_TEST_ASSERT_EQ(cfw_test_client_send(&client_fd, "GARBAGE\r\n\r\n"), 0);
-    CFW_TEST_ASSERT_EQ(cfw_http1_conn_next_event(&conn, &event), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_conn_next_event(&conn, &event), CFW_OK);
     CFW_TEST_ASSERT_EQ(event.kind, CFW_HTTP1_EV_ERROR);
     CFW_TEST_ASSERT_EQ(event.error_kind, CFW_HTTP1_ERR_PROTOCOL);
 

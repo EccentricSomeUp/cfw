@@ -18,17 +18,15 @@
 static cfw_status_t cfw_test_connect(cfw_fd_t *client, uint16_t port)
 {
     cfw_sockaddr_t addr;
+    cfw_status_t st;
 
     CFW_TEST_ASSERT_EQ(cfw_addr_from_str(&addr, "127.0.0.1", port), CFW_OK);
     CFW_TEST_ASSERT_EQ(cfw_net_socket(AF_INET, SOCK_STREAM, 0, client),
                        CFW_OK);
-    {
-        cfw_status_t st = cfw_net_connect(client, &addr);
-        if (st != CFW_OK && st != CFW_ERROR_WOULDBLOCK) {
-            return st;
-        }
-    }
-    return CFW_OK;
+    CFW_TEST_ASSERT_EQ(cfw_net_set_nonblocking(client, 0), CFW_OK);
+    st = cfw_net_connect(client, &addr);
+    CFW_TEST_ASSERT_EQ(cfw_net_set_nonblocking(client, 1), CFW_OK);
+    return st;
 }
 
 static int cfw_test_send(cfw_fd_t *client, const char *data)
