@@ -3,7 +3,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(cfw
-    VERSION 0.2.0
+    VERSION 0.3.0
     DESCRIPTION "A security-focused, dependency-free C web framework"
     LANGUAGES C
 )
