@@ -64,13 +64,15 @@ integration tests over real loopback TCP
 
 ## Phase 5: Server lifecycle
 
-- Configuration model
-- Listener management
-- Connection limits and timeouts
-- Graceful start/stop/reload behavior
-- Operational logging and diagnostics
+- Configuration model — met (ADR 0029)
+- Listener management — met (ADR 0029; numeric hosts only, no DNS)
+- Connection limits and timeouts — met (ADR 0029)
+- Graceful start/stop/reload behavior — start/stop met; hot reload
+  deferred (rebuild server instance; SIGHUP is app policy)
+- Operational logging and diagnostics — met (counters + optional
+  logger events; structured audit logging deferred)
 
-Exit criteria: stability soak tests and DoS audit.
+Exit criteria remaining: stability soak tests and DoS audit.
 
 ## Phase 6: Optional TLS boundary
 

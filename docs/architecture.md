@@ -50,7 +50,8 @@ abstraction exists.
 - `router`: route matching and parameters (implemented; see `cfw/route.h`)
 - `dispatch`: middleware chain, per-route handlers, error mapping, and
   response-head serialization (implemented; see `cfw/dispatch.h`)
-- `server`: lifecycle, configuration, connection management
+- `server`: listener, event loop, connection limits/timeouts,
+  graceful stop (implemented; see `cfw/server.h`)
 - `tls`: optional boundary for a future dependency decision; no TLS dependency
   is approved yet
 - `log`: structured, rate-limited, non-blocking-friendly logging

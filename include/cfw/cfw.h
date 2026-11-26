@@ -16,6 +16,7 @@
 #include <cfw/platform.h>
 #include <cfw/random.h>
 #include <cfw/route.h>
+#include <cfw/server.h>
 #include <cfw/span.h>
 #include <cfw/status.h>
 #include <cfw/strview.h>

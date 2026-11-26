@@ -72,6 +72,10 @@ semantic versioning once a stable release policy is adopted.
   route extension pointer (`cfw_router_add_ex`, ADR 0028)
 - End-to-end integration test binary exercising TCP, HTTP/1.1 framing,
   dispatch, middleware, and response serialization
+- `cfw_server_t` lifecycle: listener management, single-threaded event
+  loop (`cfw_server_run`/`cfw_server_step`), connection limits,
+  keep-alive/request timeouts, graceful stop via wake pipe, and
+  accept/error/request diagnostics counters (ADR 0029)
 - CMake build, presets, sanitizer configuration, install rules, and CMake
   package config
 - Custom unit-test harness with debug, release, and sanitizer verification
