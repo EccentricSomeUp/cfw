@@ -58,3 +58,22 @@ cfw_apply_hardening_flags(cfw_integration_tests)
 cfw_apply_sanitizer_flags(cfw_integration_tests)
 
 add_test(NAME cfw_integration COMMAND cfw_integration_tests)
+
+add_executable(cfw_security_tests
+    ../src/cfw/private/net.c
+    ../src/cfw/private/pollset.c
+    security/main.c
+    security/test_smuggling.c
+)
+
+target_include_directories(cfw_security_tests PRIVATE
+    unit
+    ${CMAKE_SOURCE_DIR}/src/cfw
+)
+target_link_libraries(cfw_security_tests PRIVATE cfw)
+
+cfw_apply_strict_flags(cfw_security_tests)
+cfw_apply_hardening_flags(cfw_security_tests)
+cfw_apply_sanitizer_flags(cfw_security_tests)
+
+add_test(NAME cfw_security COMMAND cfw_security_tests)
