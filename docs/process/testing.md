@@ -80,16 +80,19 @@ Requirements:
 
 ## Current harness
 
-The initial harness lives in `tests/unit/test_harness.h` and
-`tests/unit/test_main.c`. Test suites are registered explicitly in
-`test_main.c`. Future suites may be split into separate executables or test
-binaries while retaining the custom assertion and reporting conventions.
+The harness lives in `tests/unit/test_harness.h` and is shared by three
+test binaries: `cfw_unit_tests` (unit suites, registered in
+`tests/unit/test_main.c`), `cfw_integration_tests` (end-to-end pipeline
+over real loopback TCP), and `cfw_security_tests` (request-smuggling and
+framing-abuse regressions).
 
 Useful commands:
 
 ```sh
 ./build/debug/tests/cfw_unit_tests --list
 ./build/debug/tests/cfw_unit_tests --filter status
+./build/debug/tests/cfw_integration_tests
+./build/debug/tests/cfw_security_tests
 ctest --preset debug --output-on-failure
 ctest --preset sanitizers --output-on-failure
 ```
