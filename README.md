@@ -21,8 +21,12 @@ handshake helpers, masked frame codec, fragmentation, ping/pong, close
 handshake, bounded reassembly — ADR 0035), and static file serving
 (`cfw/static.h`: prefix middleware, traversal-safe decoding,
 index resolution, MIME types, bounded stream slots, and confined
-no-follow file opens on POSIX — ADRs 0036/0037). TLS is out of scope
-(ADR 0030).
+no-follow file opens on POSIX — ADRs 0036/0037), cookie parsing and
+Set-Cookie serialization (ADR 0045), plus security primitives for
+application tokens: SHA-256/HMAC-SHA256 and constant-time comparison
+(ADR 0046), canonical base64/hex codecs (ADR 0047), and HMAC-signed
+token envelopes for cookies/CSRF/reset tokens (ADR 0048). TLS is out
+of scope (ADR 0030).
 
 ## Priorities
 

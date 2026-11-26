@@ -82,6 +82,13 @@ abstraction exists.
 - `cookie`: Cookie header parsing and Set-Cookie serialization with
   RFC 6265 character validation (implemented; see `cfw/cookie.h`,
   ADR 0045)
+- `crypto`: SHA-256, HMAC-SHA256, and constant-time comparison for
+  MACs and integrity tags (implemented; see `cfw/crypto.h`,
+  ADR 0046); not for password hashing
+- `codec`: canonical base64 and hex encode/decode for tokens and
+  signatures (implemented; see `cfw/codec.h`, ADR 0047)
+- `signed`: HMAC-authenticated token envelopes for signed cookies,
+  CSRF, and reset tokens (implemented; see `cfw/signed.h`, ADR 0048)
 - `log`: structured, rate-limited, non-blocking-friendly logging
 
 ## Security invariants
