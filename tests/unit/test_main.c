@@ -27,6 +27,7 @@ extern const cfw_test_case cfw_test_status_cases[];
 extern const cfw_test_case cfw_test_strview_cases[];
 extern const cfw_test_case cfw_test_time_cases[];
 extern const cfw_test_case cfw_test_version_cases[];
+extern const cfw_test_case cfw_test_ws_cases[];
 
 typedef struct cfw_test_suite {
     const char *name;
@@ -56,6 +57,7 @@ static const cfw_test_suite cfw_test_suites[] = {
     {"strview", cfw_test_strview_cases},
     {"time", cfw_test_time_cases},
     {"version", cfw_test_version_cases},
+    {"ws", cfw_test_ws_cases},
 };
 
 static int cfw_test_matches(const char *suite_name, const char *case_name,

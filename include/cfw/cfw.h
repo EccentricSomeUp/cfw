@@ -22,5 +22,6 @@
 #include <cfw/strview.h>
 #include <cfw/time.h>
 #include <cfw/version.h>
+#include <cfw/ws.h>
 
 #endif /* CFW_H */
