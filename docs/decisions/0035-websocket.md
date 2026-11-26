@@ -60,11 +60,10 @@ cfw_status_t cfw_ws_accept_key(const char *key, char out[28]);
 ### 2. Connection object (used inside the upgrade hook)
 
 ```c
-typedef struct cfw_ws cfw_ws_t;
-cfw_status_t cfw_ws_init(cfw_ws_t *ws, cfw_arena_t *arena,
-                         cfw_upgraded_conn_t *conn,
-                         const cfw_ws_options_t *options);
-void cfw_ws_free(cfw_ws_t *ws);
+typedef struct cfw_ws cfw_ws_t;              /* opaque */
+cfw_ws_t *cfw_ws_create(cfw_upgraded_conn_t *conn,
+                        const cfw_ws_options_t *options);
+void cfw_ws_destroy(cfw_ws_t *ws);
 cfw_status_t cfw_ws_on_event(cfw_ws_t *ws, uint32_t events);
 ```
 
@@ -75,26 +74,26 @@ with pong, handles the close handshake (echo close, then
 `max_message_size`, validates UTF-8 on text messages, and invokes the
 application's `cfw_ws_message_fn` once per complete message. Returning
 an error from the message callback or a protocol violation closes the
-connection (1017/1002 semantics where applicable).
+connection (1011/1002/1007/1009 close codes as applicable).
 
-Per-connection state (fragment buffer, parse state) lives in the
-arena or in the `cfw_ws_t` struct; nothing is retained across calls
-except bounded assembly state.
+Per-connection state (fragment buffer, parse state) lives inside the
+heap-allocated `cfw_ws_t`; nothing is retained across calls except
+bounded assembly state.
 
 ### 3. Send helpers
 
 ```c
 cfw_status_t cfw_ws_send(cfw_ws_t *ws, cfw_ws_opcode_t opcode,
-                         const void *data, size_t size, int fin);
-cfw_status_t cfw_ws_send_text/binary/ping/close(...);
+                         const void *data, size_t size);
+cfw_status_t cfw_ws_send_text/binary/ping/pong/close(...);
 ```
 
-Frames are built into a bounded stack/heap scratch and queued via
-`cfw_upgraded_send` (which already enforces `max_out_size` and
-`CFW_UPGRADE_EV_WRITE` backpressure). Server→client frames are never
-masked. `cfw_ws_send` fragments automatically when `size` exceeds
-`max_frame_payload` (default 64 KiB, the RFC minimum guarantee
-reversed — we choose a conservative default).
+`cfw_ws_send` always emits a complete message: it fragments
+automatically into continuation frames when `size` exceeds
+`max_frame_payload` (default 16 KiB) and pre-flights the whole message
+against `cfw_upgraded_out_free` so a send either queues completely or
+returns `CFW_ERROR_WOULDBLOCK` with nothing queued. Server→client
+frames are never masked.
 
 ## Alternatives considered
 

@@ -82,6 +82,12 @@ cfw_status_t cfw_upgraded_send(cfw_upgraded_conn_t *conn, const void *data,
 
 void cfw_upgraded_close(cfw_upgraded_conn_t *conn) { (void)conn; }
 
+size_t cfw_upgraded_out_free(cfw_upgraded_conn_t *conn)
+{
+    (void)conn;
+    return 0;
+}
+
 void *cfw_upgraded_user(cfw_upgraded_conn_t *conn)
 {
     (void)conn;
@@ -1580,6 +1586,21 @@ void cfw_upgraded_close(cfw_upgraded_conn_t *conn)
     if (cfw_http1_conn_pending_out(&conn->http) == 0) {
         conn->dead = 1;
     }
+}
+
+size_t cfw_upgraded_out_free(cfw_upgraded_conn_t *conn)
+{
+    size_t pending;
+
+    if (conn == NULL || !conn->upgraded || conn->dead ||
+        !cfw_fd_valid(&conn->http.fd)) {
+        return 0;
+    }
+    pending = cfw_http1_conn_pending_out(&conn->http);
+    if (pending >= conn->http.max_out_size) {
+        return 0;
+    }
+    return conn->http.max_out_size - pending;
 }
 
 void *cfw_upgraded_user(cfw_upgraded_conn_t *conn)

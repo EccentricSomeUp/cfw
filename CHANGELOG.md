@@ -18,9 +18,22 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   (`CFW_UPGRADE_EV_*`) for the application's protocol. Upgraded
   connections get `cfw_upgraded_recv`/`cfw_upgraded_send`/
   `cfw_upgraded_close` raw I/O with input bytes buffered past the
-  request handed off intact, bounded output via `max_out_size`, and
+  request handed off intact, bounded output via `max_out_size`,
+  `cfw_upgraded_out_free` send-queue headroom queries, and
   `keep_alive_timeout` as the idle deadline. Without the hook, 101 is
   sent as an ordinary response (previous behavior preserved).
+- WebSocket module (ADR 0035, RFC 6455): new `cfw/ws.h` provides
+  opening-handshake helpers (`cfw_ws_handshake_validate`,
+  `cfw_ws_accept_key`, `cfw_ws_handshake_accept`) backed by in-tree
+  SHA-1/base64, plus a connection object (`cfw_ws_create`,
+  `cfw_ws_on_event`, `cfw_ws_send*`, `cfw_ws_send_close`,
+  `cfw_ws_is_closed`) for the upgraded data path: incremental masked
+  frame parsing, fragmentation reassembly bounded by
+  `max_message_size` (default 1 MiB, close 1009), UTF-8 validation on
+  text messages (close 1007), protocol-error closes (1002), automatic
+  ping→pong, close-handshake echo, and transactional fragmented sends
+  with `CFW_ERROR_WOULDBLOCK` backpressure. Cleartext `ws://` only;
+  `wss://` remains deferred with TLS (ADR 0030).
 
 ## [0.1.0] - 2026-11-26
 

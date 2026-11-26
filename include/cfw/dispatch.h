@@ -244,7 +244,10 @@ CFW_API cfw_status_t cfw_dispatch_request_ex(
     const cfw_dispatch_request_info_t *info);
 
 /* Appends a header to a response; fails with CFW_ERROR_NOMEM when
- * header_capacity is reached. */
+ * header_capacity is reached. Header name/value strviews are borrowed:
+ * their backing storage must remain valid until the transport has
+ * serialized the response head — in practice, outlive the dispatch
+ * call (do not point them at handler stack frames). */
 CFW_API cfw_status_t cfw_response_header_add(cfw_response_t *res,
                                              const cfw_strview_t *name,
                                              const cfw_strview_t *value);

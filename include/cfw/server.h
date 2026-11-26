@@ -118,6 +118,13 @@ CFW_API cfw_status_t cfw_upgraded_send(cfw_upgraded_conn_t *conn,
  * nothing is queued. Only valid inside the upgrade hook. */
 CFW_API void cfw_upgraded_close(cfw_upgraded_conn_t *conn);
 
+/* Returns the send-queue space currently available on an upgraded
+ * connection (max_out_size minus queued-but-unflushed bytes); 0 when
+ * the connection is not upgraded or is closed. Protocol modules use
+ * this to pre-flight multi-part sends transactionally. Only valid
+ * inside the upgrade hook. */
+CFW_API size_t cfw_upgraded_out_free(cfw_upgraded_conn_t *conn);
+
 /* Per-connection application state for upgraded connections; the
  * hook's `user` argument is shared across all upgraded connections.
  * Pass NULL to cfw_upgraded_set_user to clear. */
