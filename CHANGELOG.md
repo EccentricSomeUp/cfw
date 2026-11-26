@@ -160,8 +160,11 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 - Server regression tests for previously uncovered paths: upload abort
   on mid-body protocol errors, stream callback failure and empty-chunk
   contract violation, warn logging on rejected requests, the blocking
-  `cfw_server_run` loop with `drain_timeout`, and exhaustive
-  method/status enum round-trips
+  `cfw_server_run` loop with `drain_timeout`, oversized response-head
+  scratch growth, and exhaustive method/status enum round-trips
+- Core-primitive edge-case tests: i64 checked arithmetic, strview
+  affixes, time NULL outputs, log level/throttle paths, buffer/span
+  invalid state, arena `SIZE_MAX` overflow, and `cfw_fd_init(NULL)`
 
 ### Fixed
 
