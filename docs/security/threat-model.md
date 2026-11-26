@@ -33,7 +33,9 @@ business-logic rules.
 ## Primary threats
 
 - Malformed HTTP requests causing parser confusion or memory corruption
-- Request smuggling or ambiguous message boundaries
+- Request smuggling or ambiguous message boundaries, including
+  response-side framing conflicts (the server strips handler-supplied
+  Transfer-Encoding/Content-Length and emits correct framing itself)
 - Resource exhaustion through connections, headers, bodies, or slow clients
 - Integer overflow in length, offset, allocation, or timeout calculations
 - Use-after-free, double-free, or ownership confusion in callbacks
