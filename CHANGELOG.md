@@ -137,3 +137,19 @@ semantic versioning once a stable release policy is adopted.
 - Custom unit-test harness with debug, release, and sanitizer verification
 - Development, testing, security, audit, roadmap, and decision-record
   documentation
+- C++ consumer smoke test compiling all public headers as C++ and linking
+  against `libcfw` (built when a C++ compiler is available)
+- Install/package smoke test: scratch-prefix install plus a
+  `find_package(cfw)` consumer build and run
+- Adversarial HTTP fuzz corpus (`tests/fuzz/corpus`, 26 inputs) replayed
+  through the parser, chunked decoder, and server pipeline by the new
+  `http_fuzz_corpus` test
+- GitHub Actions CI running all presets on Ubuntu and macOS (the macOS
+  leg covers the `poll()` backend)
+
+### Fixed
+
+- `cfw_logger_t` in `cfw/log.h` now compiles for C++ consumers: the
+  rate-limiting counter fields map to `std::atomic` under `__cplusplus`
+  with size `static_assert`s preserving layout parity with the C
+  `_Atomic` types; C-only warnings are no longer applied to C++ targets
