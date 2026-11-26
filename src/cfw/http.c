@@ -204,6 +204,8 @@ const char *cfw_http_status_reason(cfw_http_status_t status)
         return "URI Too Long";
     case CFW_HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE:
         return "Unsupported Media Type";
+    case CFW_HTTP_STATUS_EXPECTATION_FAILED:
+        return "Expectation Failed";
     case CFW_HTTP_STATUS_TOO_MANY_REQUESTS:
         return "Too Many Requests";
     case CFW_HTTP_STATUS_INTERNAL_SERVER_ERROR:
@@ -247,6 +249,7 @@ cfw_status_t cfw_http_status_parse(uint32_t code, cfw_http_status_t *status)
     case 413: *status = CFW_HTTP_STATUS_PAYLOAD_TOO_LARGE; return CFW_OK;
     case 414: *status = CFW_HTTP_STATUS_URI_TOO_LONG; return CFW_OK;
     case 415: *status = CFW_HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE; return CFW_OK;
+    case 417: *status = CFW_HTTP_STATUS_EXPECTATION_FAILED; return CFW_OK;
     case 429: *status = CFW_HTTP_STATUS_TOO_MANY_REQUESTS; return CFW_OK;
     case 500: *status = CFW_HTTP_STATUS_INTERNAL_SERVER_ERROR; return CFW_OK;
     case 501: *status = CFW_HTTP_STATUS_NOT_IMPLEMENTED; return CFW_OK;

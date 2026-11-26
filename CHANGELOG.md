@@ -89,6 +89,9 @@ semantic versioning once a stable release policy is adopted.
   at request-head time so waiting clients are not stalled
 - DNS resolution for server listen hosts via getaddrinfo (init-time
   only; first address in the configured family)
+- RFC 9110 Expect handling: unrecognized expectations now get
+  `417 Expectation Failed` and connection close; `100-continue` token
+  lists are supported; `CFW_HTTP_STATUS_EXPECTATION_FAILED` added
 - RFC 9112 Host enforcement: HTTP/1.1 requests without a non-empty Host
   field are rejected with 400 and the connection closed
 - Audit hardening for streaming and dispatch: `cfw_dispatch_request`

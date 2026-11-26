@@ -251,11 +251,9 @@ static void cfw_server_add_date_header(cfw_response_t *res, char *date)
 
 static void cfw_server_send_error(cfw_server_t *server,
                                   cfw_server_conn_t *conn,
-                                  cfw_http1_error_kind_t kind)
+                                  cfw_http_status_t status,
+                                  const char *log_detail)
 {
-    cfw_http_status_t status = kind == CFW_HTTP1_ERR_BODY_TOO_LARGE
-                                   ? CFW_HTTP_STATUS_PAYLOAD_TOO_LARGE
-                                   : CFW_HTTP_STATUS_BAD_REQUEST;
     cfw_response_t res;
     cfw_request_t req_view;
     char head_buf[512];
@@ -282,10 +280,8 @@ static void cfw_server_send_error(cfw_server_t *server,
     }
     server->errors_total++;
     if (server->options.logger != NULL) {
-        cfw_log(server->options.logger, CFW_LOG_WARN,
-                "request error: %s", kind == CFW_HTTP1_ERR_BODY_TOO_LARGE
-                                          ? "body too large"
-                                          : "protocol error");
+        cfw_log(server->options.logger, CFW_LOG_WARN, "request error: %s",
+                log_detail);
     }
     cfw_server_update_conn_interest(server, conn);
 }
@@ -451,48 +447,94 @@ static void cfw_server_handle_done(cfw_server_t *server,
 }
 
 
-/* Sends an interim "100 Continue" when the request head carries
- * "Expect: 100-continue". Called at HEAD time so clients that wait for
- * the interim response before sending a body are not stalled. Queue
- * failures are non-fatal: the final response still goes out. */
-static void cfw_server_expect_continue(cfw_server_t *server,
-                                       cfw_server_conn_t *conn)
+/* Classifies the request's Expect header(s):
+ * 0 = absent, 1 = every expectation is "100-continue",
+ * 2 = at least one unrecognized expectation (-> 417 per RFC 9110).
+ * Values are comma-separated token lists per RFC 9110 section 10.1.1. */
+static int cfw_server_expect_kind(const cfw_http_request_head_t *head)
 {
-    static const char interim[] = "HTTP/1.1 100 Continue\r\n\r\n";
-    cfw_strview_t block = conn->head.headers;
+    cfw_strview_t block = head->headers;
     size_t cursor = 0;
+    int saw_expect = 0;
+    int unknown = 0;
 
-    (void)server;
     for (;;) {
         cfw_http_header_t field;
         int done = 0;
-        cfw_strview_t expect;
-        cfw_strview_t value;
-        int equal = 0;
+        int is_expect = 0;
+        cfw_strview_t expect_name;
+        size_t pos;
 
         if (cfw_http_headers_next(&block, &cursor, &field, &done) !=
                 CFW_OK ||
             done) {
-            return;
+            break;
         }
-        cfw_strview_from_cstr(&expect, "expect");
-        if (field.name.size != expect.size ||
-            cfw_strview_equal_nocase(&field.name, &expect, &equal) !=
-                CFW_OK ||
-            !equal) {
+        cfw_strview_from_cstr(&expect_name, "expect");
+        if (cfw_strview_equal_nocase(&field.name, &expect_name,
+                                     &is_expect) != CFW_OK ||
+            !is_expect) {
             continue;
         }
-        cfw_strview_from_cstr(&value, "100-continue");
-        equal = 0;
-        if (field.value.size == value.size &&
-            cfw_strview_equal_nocase(&field.value, &value, &equal) ==
-                CFW_OK &&
-            equal) {
-            cfw_http1_conn_queue(&conn->http, interim,
-                                 sizeof(interim) - 1);
-            return;
+        saw_expect = 1;
+
+        /* Split the value on commas; trim SP/HTAB around each token and
+         * require "100-continue" (case-insensitive). */
+        pos = 0;
+        while (pos <= field.value.size) {
+            size_t ts;
+            size_t te;
+            cfw_strview_t token;
+            cfw_strview_t want;
+            int eq = 0;
+
+            ts = pos;
+            while (pos < field.value.size &&
+                   field.value.data[pos] != ',') {
+                pos++;
+            }
+            te = pos;
+            if (pos < field.value.size) {
+                pos++; /* skip the comma */
+            }
+            while (ts < te &&
+                   (field.value.data[ts] == ' ' ||
+                    field.value.data[ts] == '\t')) {
+                ts++;
+            }
+            while (te > ts &&
+                   (field.value.data[te - 1] == ' ' ||
+                    field.value.data[te - 1] == '\t')) {
+                te--;
+            }
+            cfw_strview_init(&token, field.value.data + ts, te - ts);
+            cfw_strview_from_cstr(&want, "100-continue");
+            if (cfw_strview_equal_nocase(&token, &want, &eq) != CFW_OK ||
+                !eq) {
+                unknown = 1;
+            }
+            if (pos >= field.value.size) {
+                break;
+            }
         }
     }
+    if (!saw_expect) {
+        return 0;
+    }
+    return unknown ? 2 : 1;
+}
+
+/* Queues an interim "100 Continue" response. Called at HEAD time when
+ * cfw_server_expect_kind classified every Expect token as
+ * "100-continue", so clients that wait for the interim before sending
+ * a body are not stalled. Queue failure is non-fatal: the final
+ * response still goes out. */
+static void cfw_server_expect_continue(cfw_server_t *server,
+                                       cfw_server_conn_t *conn)
+{
+    static const char interim[] = "HTTP/1.1 100 Continue\r\n\r\n";
+    (void)server;
+    cfw_http1_conn_queue(&conn->http, interim, sizeof(interim) - 1);
 }
 
 
@@ -680,14 +722,30 @@ static void cfw_server_service_read(cfw_server_t *server,
                   conn->head.request_line.version.minor >= 1)) &&
                 !cfw_server_head_has_host(&conn->head)) {
                 cfw_server_send_error(server, conn,
-                                      CFW_HTTP1_ERR_PROTOCOL);
+                                      CFW_HTTP_STATUS_BAD_REQUEST,
+                                      "missing host");
                 cfw_http1_conn_close_after_write(&conn->http);
                 conn->rejecting = 1;
                 cfw_server_conn_deadline(
                     conn, server->options.keep_alive_timeout);
                 break;
             }
-            cfw_server_expect_continue(server, conn);
+            {
+                int expect = cfw_server_expect_kind(&conn->head);
+                if (expect == 2) {
+                    cfw_server_send_error(server, conn,
+                                          CFW_HTTP_STATUS_EXPECTATION_FAILED,
+                                          "unsupported expectation");
+                    cfw_http1_conn_close_after_write(&conn->http);
+                    conn->rejecting = 1;
+                    cfw_server_conn_deadline(
+                        conn, server->options.keep_alive_timeout);
+                    break;
+                }
+                if (expect == 1) {
+                    cfw_server_expect_continue(server, conn);
+                }
+            }
             cfw_server_conn_deadline(conn,
                                      server->options.request_timeout);
             break;
@@ -703,7 +761,14 @@ static void cfw_server_service_read(cfw_server_t *server,
             }
             break;
         case CFW_HTTP1_EV_ERROR:
-            cfw_server_send_error(server, conn, event.error_kind);
+            cfw_server_send_error(
+                server, conn,
+                event.error_kind == CFW_HTTP1_ERR_BODY_TOO_LARGE
+                    ? CFW_HTTP_STATUS_PAYLOAD_TOO_LARGE
+                    : CFW_HTTP_STATUS_BAD_REQUEST,
+                event.error_kind == CFW_HTTP1_ERR_BODY_TOO_LARGE
+                    ? "body too large"
+                    : "protocol error");
             break;
         }
         if (conn->dead || conn->stream_fn != NULL || conn->rejecting) {
