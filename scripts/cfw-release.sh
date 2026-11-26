@@ -122,7 +122,7 @@ COMMITTED=""
 # release commit lands, restore the two files the script edits.
 cleanup() {
     if [[ $? -ne 0 && -z "$COMMITTED" ]]; then
-        git restore -- CHANGELOG.md CMakeLists.txt 2>/dev/null || true
+        git restore --staged --worktree -- CHANGELOG.md CMakeLists.txt 2>/dev/null || true
         rm -f CHANGELOG.md.tmp CMakeLists.txt.tmp
     fi
 }
@@ -183,18 +183,17 @@ done
 # --- Commit and tag ----------------------------------------------------------
 
 git add CHANGELOG.md CMakeLists.txt
-if ! git commit -m "release: ${TAG}"; then
-    # commit.gpgsign may be enabled while no signing-capable agent is
-    # available (e.g. non-interactive pinentry); fall back to an unsigned
-    # commit rather than aborting the release.
-    echo "cfw-release: signed commit failed; retrying without signing" >&2
-    git -c commit.gpgsign=false commit -m "release: ${TAG}"
-fi
+# Commits are SSH-signed (non-interactive, no passphrase prompt), so a
+# signing failure means signing is misconfigured — fail loudly rather
+# than silently producing an unsigned release commit.
+git commit -m "release: ${TAG}"
 COMMITTED=1
-if ! git tag -a "$TAG" -m "cfw ${TAG}"; then
-    echo "cfw-release: signed tag failed; retrying without signing" >&2
-    git -c tag.gpgsign=false tag -a "$TAG" -m "cfw ${TAG}"
-fi
+# Require the commit to carry a signature (any status other than 'N');
+# whether the signature verifies depends on local signer configuration.
+SIG_STATUS="$(git log -1 --format=%G?)"
+[[ "$SIG_STATUS" != "N" ]] \
+    || fail "release commit is not signed (commit.gpgsign may be disabled)"
+git tag -a "$TAG" -m "cfw ${TAG}"
 
 echo "==> Created commit and annotated tag ${TAG}"
 

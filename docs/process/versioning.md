@@ -69,7 +69,9 @@ The script, in order:
    (`debug`, `release`, `sanitizers`, `shared`). Any failure aborts the
    release and restores the edited files.
 7. Commits `release: vX.Y.Z` (containing only the changelog and version
-   bump) and creates the annotated tag `vX.Y.Z`.
+   bump) and creates the annotated tag `vX.Y.Z`. The release commit must
+   be signed (`commit.gpgsign` / `tag.gpgsign` enabled); the script fails
+   rather than silently producing an unsigned release commit or tag.
 8. With `--push`, pushes the branch and the tag. The tag push triggers
    `release.yml`, which re-runs every preset on Ubuntu and macOS, builds
    source archives, and publishes the GitHub release with generated notes.
