@@ -17,7 +17,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
         preset: [debug, release, sanitizers, shared]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Configure ${{ matrix.preset }}
         run: cmake --preset ${{ matrix.preset }}
