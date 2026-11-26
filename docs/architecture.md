@@ -4,11 +4,15 @@
 
 ## Current state
 
-`cfw` is pre-implementation. The repository currently contains only build,
-packaging, API conventions, version/status primitives, checked arithmetic
-helpers, byte-span and owning-buffer primitives, monotonic time/duration/
-deadline primitives, and test infrastructure. The
-architecture below describes the intended direction, not implemented behavior.
+`cfw` is a working, pre-1.0 POSIX HTTP/1.1 server framework. The core
+primitives (status, version, checked arithmetic, span/buffer, arena, time,
+random, logging, filesystem, fd ownership), the platform abstraction layer
+(page size, CSPRNG, file metadata, close), the internal POSIX socket/pollset/
+net layer, the HTTP/1.1 parser and connection binding, the router, the
+dispatch/middleware chain with streaming bodies, and the single-threaded
+server lifecycle are all implemented and covered by unit, integration,
+security, and fuzz tests. Windows and non-POSIX platforms remain stubs
+returning `CFW_STATUS_UNAVAILABLE`; see `docs/platform-matrix.md`.
 
 ## Architectural goals
 
@@ -39,11 +43,17 @@ Layers must not bypass lower-level contracts casually. For example, HTTP code
 must not depend directly on OS socket APIs when an internal transport
 abstraction exists.
 
-## Planned subsystems
+## Subsystems
 
 - `core`: status codes, versioning, allocation policy, buffers, strings, time
-- `platform`: OS capability detection and abstraction
-- `net`: sockets, address handling, polling/event loop primitives
+  (implemented; see `cfw/status.h`, `cfw/version.h`, `cfw/buffer.h`,
+  `cfw/span.h`, `cfw/strview.h`, `cfw/arena.h`, `cfw/time.h`,
+  `cfw/checked_arithmetic.h`, `cfw/random.h`, `cfw/log.h`)
+- `platform`: OS capability detection and abstraction — page size, CSPRNG,
+  file metadata (implemented; see `cfw/platform.h`, `cfw/fs.h`, `cfw/fd.h`)
+- `net`: sockets, address handling, polling/event loop primitives — internal
+  POSIX implementation with `poll` fallback where `epoll` is unavailable
+  (implemented; ADR 0014)
 - `http`: request/response parsing and serialization
 - `http1`: HTTP/1.1 server message reader and connection binding
   (implemented; see `cfw/http.h`, `cfw/http1.h`, `cfw/http1_conn.h`)
@@ -70,9 +80,9 @@ abstraction exists.
 
 ## Extensibility model
 
-Extensibility should occur through typed callbacks and lifecycle hooks rather
+Extensibility occurs through typed callbacks and lifecycle hooks rather
 than macro injection or global mutable state. Middleware ordering, ownership,
-and cancellation behavior must be specified before implementation.
+and cancellation behavior are specified in `cfw/dispatch.h` and ADR 0031.
 
 ## Compatibility policy
 

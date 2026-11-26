@@ -11,10 +11,10 @@ not yet implemented; "planned" means no contract exists yet.
 
 | Platform | Status | Notes |
 | --- | --- | --- |
-| Linux (glibc/musl) | Primary | `clock_gettime`, `getrandom`, `epoll` planned |
-| macOS | Supported | `clock_gettime`, `arc4random_buf`, `kqueue` planned |
-| FreeBSD/OpenBSD/NetBSD | Supported | `clock_gettime`, `arc4random_buf`, `kqueue` planned |
-| Windows (MSVC/MinGW) | Supported | `QueryPerformanceCounter`, `BCryptGenRandom`, IOCP planned |
+| Linux (glibc/musl) | Primary | `clock_gettime`, `getrandom`, `epoll`; the only CI/dev-verified target |
+| macOS | POSIX-compatible | `clock_gettime`, `arc4random_buf`, `poll` backend; `kqueue` planned; not yet verified on a macOS host or CI |
+| FreeBSD/OpenBSD/NetBSD | POSIX-compatible | `clock_gettime`, `arc4random_buf`, `poll` backend; `kqueue` planned; not yet verified on a BSD host or CI |
+| Windows (MSVC/MinGW) | Not supported | core primitives compile where portable, but sockets/pollset/server/fd-close are stubs returning `CFW_STATUS_UNAVAILABLE`; IOCP pending (ADR 0011) |
 
 ## Compiler and language requirements
 
@@ -32,9 +32,9 @@ not yet implemented; "planned" means no contract exists yet.
 | CSPRNG | `getrandom` | `arc4random_buf` | `arc4random_buf` | `BCryptGenRandom` | `cfw_random_*` (implemented) |
 | File metadata | `stat` | `stat` | `stat` | `_stat64` | `cfw_file_*` (implemented) |
 | Descriptor close | `close` | `close` | `close` | stub: `UNAVAILABLE` | `cfw_fd_close` (POSIX; Windows deferred with IOCP) |
-| Polling/event loop | `epoll` (internal) | `poll` fallback | `poll` fallback | stub | `cfw_pollset_*` internal (implemented, ADR 0014) |
-| Sockets | `socket`/`accept4` | `socket`/`accept` | `socket`/`accept` | stub | `cfw_net_*` internal (implemented; numeric IPs plus init-time getaddrinfo for listen hosts) |
-| HTTP/1.1 + server | POSIX only | POSIX only | POSIX only | stub: `UNAVAILABLE` | `cfw_http1*`, `cfw_server` (implemented; Windows pending IOCP) |
+| Polling/event loop | `epoll` | `poll` fallback | `poll` fallback | stub | `cfw_pollset_*` internal (implemented, ADR 0014) |
+| Sockets | `socket`/`accept4` | `socket`/`accept` | `socket`/`accept` | stub | `cfw_net_*` internal (implemented on POSIX; numeric IPs plus init-time getaddrinfo for listen hosts) |
+| HTTP/1.1 + server | yes | yes (POSIX) | yes (POSIX) | stub: `UNAVAILABLE` | `cfw_http1*`, `cfw_server` (implemented; Windows pending IOCP) |
 | Threads/mutexes | deferred | deferred | deferred | deferred | single-threaded per server; deferred |
 
 ## Portability rules
