@@ -157,6 +157,11 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   gained 200 connection-churn cycles
 - API contract comments added to previously undocumented public headers
   (span, status, version, platform, checked arithmetic, buffer)
+- Server regression tests for previously uncovered paths: upload abort
+  on mid-body protocol errors, stream callback failure and empty-chunk
+  contract violation, warn logging on rejected requests, the blocking
+  `cfw_server_run` loop with `drain_timeout`, and exhaustive
+  method/status enum round-trips
 
 ### Fixed
 
