@@ -3339,6 +3339,55 @@ static int test_server_reuse_port(void)
     return 0;
 }
 
+/* Several keep-alive clients spread across two reuse-port instances;
+ * aggregate counters must account for every request exactly once. */
+static int test_server_reuse_port_cluster(void)
+{
+    cfw_test_rp_server a;
+    cfw_test_rp_server b;
+    cfw_fd_t clients[4];
+    char response[8192];
+    uint16_t port;
+    int c;
+    int r;
+
+    CFW_TEST_ASSERT_EQ(cfw_test_rp_init(&a, 0, 1), 0);
+    port = cfw_server_port(&a.server);
+    CFW_TEST_ASSERT_TRUE(port != 0);
+    CFW_TEST_ASSERT_EQ(cfw_test_rp_init(&b, port, 1), 0);
+
+    for (c = 0; c < 4; c++) {
+        cfw_fd_init(&clients[c]);
+        CFW_TEST_ASSERT_EQ(cfw_test_connect(&clients[c], port), CFW_OK);
+    }
+    for (r = 0; r < 5; r++) {
+        for (c = 0; c < 4; c++) {
+            CFW_TEST_ASSERT_EQ(cfw_test_send(&clients[c],
+                                             "GET /hello HTTP/1.1\r\n"
+                                             "Host: t\r\n\r\n"),
+                               0);
+            memset(response, 0, sizeof(response));
+            CFW_TEST_ASSERT_TRUE(cfw_test_rp_recv(
+                &a, &b, &clients[c], response, sizeof(response),
+                "srv-ok"));
+        }
+    }
+
+    CFW_TEST_ASSERT_EQ(cfw_server_requests_total(&a.server) +
+                           cfw_server_requests_total(&b.server),
+                       20);
+    CFW_TEST_ASSERT_EQ(cfw_server_accepted_total(&a.server) +
+                           cfw_server_accepted_total(&b.server),
+                       4);
+
+    for (c = 0; c < 4; c++) {
+        cfw_fd_close(&clients[c]);
+    }
+    cfw_test_rp_teardown(&a);
+    cfw_test_rp_teardown(&b);
+    return 0;
+}
+
 #else /* !CFW_HAVE_SO_REUSEPORT */
 
 static int test_server_reuse_port(void)
@@ -3384,6 +3433,13 @@ static int test_server_reuse_port(void)
     st = cfw_server_init(&a.server, &options);
     CFW_TEST_ASSERT_EQ(st, CFW_ERROR_UNAVAILABLE);
     cfw_arena_destroy(arena);
+    return 0;
+}
+
+static int test_server_reuse_port_cluster(void)
+{
+    /* Cluster serving requires SO_REUSEPORT; unsupported platforms are
+     * covered by test_server_reuse_port's UNAVAILABLE assertions. */
     return 0;
 }
 
@@ -3510,6 +3566,7 @@ const cfw_test_case cfw_test_server_cases[] = {
     {"server_request_audit_upgrade", test_server_request_audit_upgrade},
     {"server_request_audit_abort", test_server_request_audit_abort},
     {"server_reuse_port", test_server_reuse_port},
+    {"server_reuse_port_cluster", test_server_reuse_port_cluster},
     {"server_ipv6", test_server_ipv6},
     {NULL, NULL},
 };
