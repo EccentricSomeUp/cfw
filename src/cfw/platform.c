@@ -57,6 +57,22 @@ static cfw_arch_t cfw_detect_arch(void)
 #endif
 }
 
+/* Runtime endianness probe, expanded only on targets where no
+ * compile-time answer is available (see cfw_detect_endian). Every path
+ * returns, so the do-while wrapper is only for statement hygiene. */
+#define CFW_ENDIAN_FALLBACK()                                             \
+    do {                                                                  \
+        const uint32_t value = UINT32_C(1);                               \
+        const unsigned char *bytes = (const unsigned char *)&value;       \
+        if (bytes[0] == 1) {                                              \
+            return CFW_ENDIAN_LITTLE;                                     \
+        }                                                                 \
+        if (bytes[sizeof(value) - 1] == 1) {                              \
+            return CFW_ENDIAN_BIG;                                        \
+        }                                                                 \
+        return CFW_ENDIAN_UNKNOWN;                                        \
+    } while (0)
+
 static cfw_endian_t cfw_detect_endian(void)
 {
 #if defined(__BYTE_ORDER__)
@@ -64,24 +80,17 @@ static cfw_endian_t cfw_detect_endian(void)
         return CFW_ENDIAN_LITTLE;
     #elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
         return CFW_ENDIAN_BIG;
+    #else
+        /* __BYTE_ORDER__ defined with an unrecognized value. */
+        CFW_ENDIAN_FALLBACK();
     #endif
 #elif CFW_PLATFORM_WINDOWS || defined(__i386__) || defined(__x86_64__) || \
     defined(__aarch64__) || defined(_M_ARM64)
     /* All currently supported Windows and common little-endian targets. */
     return CFW_ENDIAN_LITTLE;
+#else
+    CFW_ENDIAN_FALLBACK();
 #endif
-
-    {
-        const uint32_t value = UINT32_C(1);
-        const unsigned char *bytes = (const unsigned char *)&value;
-        if (bytes[0] == 1) {
-            return CFW_ENDIAN_LITTLE;
-        }
-        if (bytes[sizeof(value) - 1] == 1) {
-            return CFW_ENDIAN_BIG;
-        }
-    }
-    return CFW_ENDIAN_UNKNOWN;
 }
 
 static uint32_t cfw_pointer_bits(void)

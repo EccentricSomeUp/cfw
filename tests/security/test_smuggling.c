@@ -384,39 +384,6 @@ const cfw_test_case cfw_test_security_cases[] = {
 
 #else /* Windows */
 
-static int test_sec_response_framing_headers(void)
-{
-    cfw_sec_server ss;
-    cfw_fd_t client;
-    char response[4096];
-    size_t len = 0;
-    ssize_t n;
-
-    CFW_TEST_ASSERT_EQ(cfw_sec_setup(&ss), 0);
-    cfw_fd_init(&client);
-    CFW_TEST_ASSERT_EQ(cfw_sec_connect(&client,
-                                       cfw_server_port(&ss.server)),
-                       0);
-    n = cfw_sec_roundtrip(
-        &ss, &client,
-        "GET /evil HTTP/1.1\r\nHost: x\r\n\r\n",
-        response, sizeof(response), &len);
-    CFW_TEST_ASSERT_TRUE(n > 0);
-    /* Transfer-Encoding must be stripped entirely. */
-    CFW_TEST_ASSERT_TRUE(!cfw_sec_contains(response, len,
-                                           "Transfer-Encoding"));
-    /* The bogus Content-Length must not survive; the server emits the
-     * correct one for the 6-byte body. */
-    CFW_TEST_ASSERT_TRUE(!cfw_sec_contains(response, len, "999999"));
-    CFW_TEST_ASSERT_TRUE(cfw_sec_contains(response, len,
-                                          "Content-Length: 6"));
-    CFW_TEST_ASSERT_TRUE(cfw_sec_contains(response, len, "routed"));
-
-    cfw_fd_close(&client);
-    cfw_sec_teardown(&ss);
-    return 0;
-}
-
 const cfw_test_case cfw_test_security_cases[] = {
     {NULL, NULL},
 };

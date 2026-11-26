@@ -17,6 +17,11 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   performs a compile-only check (configure + build, no tests) to catch
   POSIX-isms leaking into shared code while the Windows socket/pollset
   stubs remain `CFW_STATUS_UNAVAILABLE` (ADR 0011).
+- Portable maximum-alignment type (ADR 0054): new public header
+  `cfw/max_align.h` defining `cfw_max_align_t`, a C11-portable union
+  that replaces `max_align_t` (a POSIX extension absent from MSVC) in
+  the inline-storage alignment padding of `cfw_mutex_t`, `cfw_cond_t`,
+  and `cfw_thread_t`. No layout or ABI change.
 
 ### Changed
 
@@ -80,6 +85,31 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   binary still exercised kqueue and the `poll()` backend was never
   compiled there. The override now takes precedence on every POSIX
   platform.
+- macOS build: the static-file mount's slot and scratch-pointer casts
+  from `unsigned char *` tripped Clang `-Wcast-align`. The casts now
+  go through `void *`; alignment is still guaranteed by the arena's
+  `cfw_max_align_t` allocation alignment and the slot stride.
+- Windows build: `max_align_t` is a POSIX extension, not ISO C11, and
+  is absent from MSVC — it broke `cfw_mutex_t`, `cfw_cond_t`,
+  `cfw_thread_t`, and the arena alignment constant. The new portable
+  `cfw_max_align_t` (ADR 0054) replaces it everywhere.
+- Windows build: MSVC only exposes C11 library features such as
+  `<stdatomic.h>` in `/std:c11` mode. C sources in strict-flag targets
+  now compile with `/std:c11`, scoped by a `COMPILE_LANGUAGE`
+  generator expression so C++ consumers are unaffected.
+- Windows build: `fs.c` used the POSIX-only `S_ISREG`/`S_ISDIR` mode
+  tests (now defined over `_S_IFMT` for MSVC), referenced an
+  undefined `CFW_FILE_FSTAT_FUNC` (typo for `CFW_FILE_STAT_FUNC`,
+  `_fstat64`), and drew `_CRT_SECURE_NO_WARNINGS`-gated deprecation
+  warnings for `_open`/`_read`/`_close`/`_lseeki64`.
+- Windows build: the endianness runtime probe in `platform.c` was
+  unreachable code on known little-endian targets (MSVC C4702 under
+  `/W4`). It is now a macro expanded only where no compile-time
+  answer exists.
+- Windows build: `cfw_multipart_parse` could read `next`
+  uninitialized when MSVC's flow analysis could not prove
+  `cfw_mp_delim_trailer` had set it (C4701); it is now initialized,
+  matching the first delimiter loop.
 
 ## [0.3.0] - 2026-11-26
 

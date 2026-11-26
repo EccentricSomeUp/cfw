@@ -16,7 +16,8 @@ extern "C" {
  * internally managed blocks and are never individually freed; all storage is
  * released by cfw_arena_destroy or reclaimed for reuse by cfw_arena_reset.
  *
- * Every allocation is aligned to _Alignof(max_align_t). There is no supported
+ * Every allocation is aligned to the maximum fundamental alignment
+ * (cfw_max_align_t in cfw/max_align.h). There is no supported
  * way to free or realloc an individual allocation; design call sites so
  * arena lifetimes match request/parse lifetimes.
  *

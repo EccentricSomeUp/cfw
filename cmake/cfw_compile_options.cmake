@@ -7,6 +7,9 @@ function(cfw_apply_strict_flags target)
             /permissive-
             /utf-8
             /Zc:preprocessor
+            # MSVC only enables C11 library features such as <stdatomic.h>
+            # in /std:c11 mode; the default C dialect leaves them disabled.
+            $<$<COMPILE_LANGUAGE:C>:/std:c11>
         )
     else()
         target_compile_options(${target} PRIVATE

@@ -466,7 +466,7 @@ cfw_status_t cfw_multipart_parse(
         int hdone = 0;
         size_t dpos;
         int trailer;
-        size_t next;
+        size_t next = 0;
         cfw_status_t st;
 
         memset(&part, 0, sizeof(part));

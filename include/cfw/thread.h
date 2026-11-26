@@ -4,6 +4,7 @@
 #define CFW_THREAD_H
 
 #include <cfw/export.h>
+#include <cfw/max_align.h>
 #include <cfw/status.h>
 
 #include <stddef.h>
@@ -49,7 +50,7 @@ typedef struct cfw_thread {
     union {
         /* Guarantees alignment for any platform thread handle stored
          * in `storage` (pthread_t, HANDLE, ...). */
-        max_align_t align;
+        cfw_max_align_t align;
         unsigned char storage[64];
     } u;
 } cfw_thread_t;

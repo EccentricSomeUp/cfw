@@ -176,8 +176,9 @@ static cfw_status_t cfw_static_set_type(cfw_response_t *res,
  * so the base stays suitably aligned). */
 static cfw_static_scratch_t *cfw_static_scratch(cfw_static_mount_t *mount)
 {
-    return (cfw_static_scratch_t *)(mount->slots +
-                                    mount->slot_count * mount->slot_stride);
+    return (cfw_static_scratch_t *)(void *)(mount->slots +
+                                           mount->slot_count *
+                                               mount->slot_stride);
 }
 
 static cfw_static_scratch_slot_t *cfw_static_scratch_acquire(
@@ -238,7 +239,7 @@ cfw_status_t cfw_static_mount_init(cfw_static_mount_t *mount,
 
     for (i = 0; i < mount->slot_count; i++) {
         unsigned char *slot = mount->slots + i * stride;
-        cfw_static_stream_t *stream = (cfw_static_stream_t *)slot;
+        cfw_static_stream_t *stream = (cfw_static_stream_t *)(void *)slot;
         cfw_file_init(&stream->file);
         stream->buffer = slot + sizeof(cfw_static_stream_t);
         stream->buffer_size = mount->buffer_size;
@@ -257,7 +258,7 @@ static unsigned char *cfw_static_acquire(cfw_static_mount_t *mount)
 
     for (i = 0; i < mount->slot_count; i++) {
         unsigned char *slot = mount->slots + i * mount->slot_stride;
-        cfw_static_stream_t *stream = (cfw_static_stream_t *)slot;
+        cfw_static_stream_t *stream = (cfw_static_stream_t *)(void *)slot;
         if (!cfw_file_valid(&stream->file)) {
             return slot;
         }
@@ -987,7 +988,7 @@ cfw_status_t cfw_static_serve(cfw_request_t *req, cfw_response_t *res,
                 cfw_static_respond(res, CFW_HTTP_STATUS_SERVICE_UNAVAILABLE);
                 return CFW_OK;
             }
-            stream = (cfw_static_stream_t *)slot;
+            stream = (cfw_static_stream_t *)(void *)slot;
             stream->buffer = slot + sizeof(cfw_static_stream_t);
             stream->buffer_size = mount->buffer_size;
             stream->remaining = plan.action == CFW_STATIC_PLAN_RANGE

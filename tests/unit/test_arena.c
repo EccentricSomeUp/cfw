@@ -8,7 +8,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#define CFW_TEST_ARENA_ALIGN _Alignof(max_align_t)
+#define CFW_TEST_ARENA_ALIGN _Alignof(cfw_max_align_t)
 
 static int test_arena_create_destroy(void)
 {

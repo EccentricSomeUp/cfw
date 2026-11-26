@@ -3,6 +3,7 @@
 #include <cfw/arena.h>
 
 #include <cfw/checked_arithmetic.h>
+#include <cfw/max_align.h>
 
 #include <stddef.h>
 #include <stdint.h>
@@ -10,7 +11,7 @@
 #include <string.h>
 
 #define CFW_ARENA_DEFAULT_BLOCK_SIZE ((size_t)65536)
-#define CFW_ARENA_ALIGN _Alignof(max_align_t)
+#define CFW_ARENA_ALIGN _Alignof(cfw_max_align_t)
 #define CFW_ARENA_ALIGN_MASK (CFW_ARENA_ALIGN - 1)
 
 _Static_assert((CFW_ARENA_ALIGN & CFW_ARENA_ALIGN_MASK) == 0,

@@ -16,6 +16,7 @@
 #include <cfw/dispatch.h>
 #include <cfw/http1_conn.h>
 #include <cfw/log.h>
+#include <cfw/max_align.h>
 #include <cfw/multipart.h>
 #include <cfw/platform.h>
 #include <cfw/query.h>

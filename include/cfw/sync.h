@@ -4,6 +4,7 @@
 #define CFW_SYNC_H
 
 #include <cfw/export.h>
+#include <cfw/max_align.h>
 #include <cfw/status.h>
 #include <cfw/time.h>
 
@@ -62,14 +63,14 @@ typedef struct cfw_mutex {
     union {
         /* Guarantees alignment for any platform primitive stored in
          * `storage` (pthread_mutex_t, SRWLOCK, ...). */
-        max_align_t align;
+        cfw_max_align_t align;
         unsigned char storage[256];
     } u;
 } cfw_mutex_t;
 
 typedef struct cfw_cond {
     union {
-        max_align_t align;
+        cfw_max_align_t align;
         unsigned char storage[256];
     } u;
 } cfw_cond_t;

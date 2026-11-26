@@ -10,6 +10,9 @@
 #include <string.h>
 
 #if CFW_PLATFORM_WINDOWS
+    #ifndef _CRT_SECURE_NO_WARNINGS
+        #define _CRT_SECURE_NO_WARNINGS
+    #endif
     #include <fcntl.h>
     #include <io.h>
     #include <sys/stat.h>
@@ -21,6 +24,9 @@
     #define CFW_FILE_READ_FUNC _read
     #define CFW_FILE_CLOSE_FUNC _close
     #define CFW_FILE_SEEK_FUNC _lseeki64
+    /* POSIX mode-test macros are not provided by the MSVC CRT headers. */
+    #define S_ISREG(m) (((m) & _S_IFMT) == _S_IFREG)
+    #define S_ISDIR(m) (((m) & _S_IFMT) == _S_IFDIR)
 #else
     #include <fcntl.h>
     #include <sys/stat.h>
@@ -212,8 +218,8 @@ cfw_status_t cfw_file_open_confined(cfw_file_t *file, const char *root,
         if (handle < 0) {
             return CFW_ERROR_IO;
         }
-        if (CFW_FILE_FSTAT_FUNC((int)handle, &st) != 0 ||
-            (st.st_mode & _S_IFMT) != _S_IFREG) {
+        if (CFW_FILE_STAT_FUNC((int)handle, &st) != 0 ||
+            !S_ISREG(st.st_mode)) {
             CFW_FILE_CLOSE_FUNC((int)handle);
             return CFW_ERROR_INVALID_ARGUMENT;
         }
