@@ -148,6 +148,14 @@ semantic versioning once a stable release policy is adopted.
   leg covers the `poll()` backend)
 - `examples/minimal_server.c`: compilable quickstart server built by
   default (`CFW_BUILD_EXAMPLES`), keeping the README example honest
+- `cfw_pollset_poll_tests`: pollset suite compiled against the `poll()`
+  fallback via a test-only `CFW_POLLF_FORCE_POLL` override, verifying the
+  non-epoll backend on Linux
+- Fuzz suite extended to the dispatch pipeline (routing, scratch arrays,
+  error mapping) and mutation iterations raised to 100k; `server_soak`
+  gained 200 connection-churn cycles
+- API contract comments added to previously undocumented public headers
+  (span, status, version, platform, checked arithmetic, buffer)
 
 ### Fixed
 
