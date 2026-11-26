@@ -108,7 +108,8 @@ Satisfiable were added to `cfw_http_status_t` with reason strings and
   downloads (206/416); metadata is race-free; conditional and HEAD
   responses cost no slot; still zero per-request allocation.
 - Negative: entity-tag conditionals are ignored (documented
-  limitation); single-range only; `If-Modified-Since` depends on the
+  limitation; subsequently implemented by ADR 0040); single-range
+  only; `If-Modified-Since` depends on the
   wall clock for RFC 850 forms (IMF-fixdate, the common case, does
   not).
 - Compatibility: additive API (`cfw_file_fstat`, `cfw_file_seek`,

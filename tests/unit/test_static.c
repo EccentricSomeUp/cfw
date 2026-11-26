@@ -889,6 +889,221 @@ static int test_static_range_requests(void)
     CFW_TEST_ASSERT_EQ(cfw_test_static_teardown(&mount, arena), 0);
     return 0;
 }
+
+static int test_static_etag_conditionals(void)
+{
+    cfw_static_mount_t mount;
+    cfw_arena_t *arena;
+    cfw_http_header_t hdrs[8];
+    cfw_http_header_t req_hdrs[2];
+    cfw_response_t res;
+    cfw_http_status_t status;
+    int nexted;
+    const char *etag;
+    const char *lm;
+    char weak_etag[96];
+    char inm_list[128];
+    char body[64];
+    size_t len = 0;
+
+    CFW_TEST_ASSERT_EQ(cfw_test_static_setup(&mount, &arena, 4), 0);
+
+    /* The response carries a quoted ETag validator alongside
+     * Last-Modified. */
+    CFW_TEST_ASSERT_EQ(cfw_test_serve(&mount, CFW_HTTP_METHOD_GET,
+                                      "/static/hello.txt", &res, hdrs,
+                                      8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_OK);
+    etag = cfw_test_header(&res, "ETag");
+    CFW_TEST_ASSERT_TRUE(etag != NULL);
+    CFW_TEST_ASSERT_EQ(etag[0], '"');
+    lm = cfw_test_header(&res, "Last-Modified");
+    CFW_TEST_ASSERT_TRUE(lm != NULL);
+    CFW_TEST_ASSERT_EQ(cfw_test_pull_body(&res, body, sizeof(body),
+                                          &len),
+                       0);
+    snprintf(weak_etag, sizeof(weak_etag), "W/%s", etag);
+
+    /* If-None-Match with the exact tag yields 304 for GET and HEAD;
+     * the 304 still carries both validators. */
+    cfw_test_req_header(&req_hdrs[0], "If-None-Match", etag);
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 1, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_NOT_MODIFIED);
+    CFW_TEST_ASSERT_TRUE(res.stream == NULL);
+    CFW_TEST_ASSERT_TRUE(cfw_test_header(&res, "ETag") != NULL);
+    CFW_TEST_ASSERT_TRUE(cfw_test_header(&res, "Last-Modified") !=
+                         NULL);
+
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_HEAD,
+                           "/static/hello.txt", req_hdrs, 1, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_NOT_MODIFIED);
+    CFW_TEST_ASSERT_TRUE(res.stream == NULL);
+
+    /* "*" matches any current representation. */
+    cfw_test_req_header(&req_hdrs[0], "If-None-Match", "*");
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 1, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_NOT_MODIFIED);
+
+    /* The weak form and multi-member lists match under weak
+     * comparison. */
+    cfw_test_req_header(&req_hdrs[0], "If-None-Match", weak_etag);
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 1, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_NOT_MODIFIED);
+
+    snprintf(inm_list, sizeof(inm_list), "\"bogus\", %s , \"other\"",
+             etag);
+    cfw_test_req_header(&req_hdrs[0], "If-None-Match", inm_list);
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 1, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_NOT_MODIFIED);
+
+    /* A non-matching tag serves the full body. */
+    cfw_test_req_header(&req_hdrs[0], "If-None-Match", "\"bogus\"");
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 1, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_pull_body(&res, body, sizeof(body),
+                                          &len),
+                       0);
+    CFW_TEST_ASSERT_EQ(len, 18);
+
+    /* If-Match: exact tag and "*" pass; a wrong tag or a weak tag
+     * fail strong comparison with 412. */
+    cfw_test_req_header(&req_hdrs[0], "If-Match", etag);
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 1, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_pull_body(&res, body, sizeof(body),
+                                          &len),
+                       0);
+
+    cfw_test_req_header(&req_hdrs[0], "If-Match", "*");
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 1, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_pull_body(&res, body, sizeof(body),
+                                          &len),
+                       0);
+
+    cfw_test_req_header(&req_hdrs[0], "If-Match", "\"bogus\"");
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 1, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_PRECONDITION_FAILED);
+    CFW_TEST_ASSERT_TRUE(res.stream == NULL);
+
+    cfw_test_req_header(&req_hdrs[0], "If-Match", weak_etag);
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 1, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_PRECONDITION_FAILED);
+
+    /* If-None-Match present suppresses If-Modified-Since: a
+     * non-matching tag plus a satisfied date still serves 200. */
+    cfw_test_req_header(&req_hdrs[0], "If-None-Match", "\"bogus\"");
+    cfw_test_req_header(&req_hdrs[1], "If-Modified-Since", lm);
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 2, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_pull_body(&res, body, sizeof(body),
+                                          &len),
+                       0);
+    CFW_TEST_ASSERT_EQ(len, 18);
+
+    /* If-Match present suppresses If-Unmodified-Since: a matching
+     * tag plus a stale date still serves 200. */
+    cfw_test_req_header(&req_hdrs[0], "If-Match", etag);
+    cfw_test_req_header(&req_hdrs[1], "If-Unmodified-Since",
+                        "Sun, 06 Nov 1994 08:49:37 GMT");
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 2, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_pull_body(&res, body, sizeof(body),
+                                          &len),
+                       0);
+    CFW_TEST_ASSERT_EQ(len, 18);
+
+    /* Range + If-Range with the matching etag honors the range; a
+     * mismatch or a weak tag falls back to the full body. */
+    cfw_test_req_header(&req_hdrs[0], "Range", "bytes=0-4");
+    cfw_test_req_header(&req_hdrs[1], "If-Range", etag);
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 2, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_PARTIAL_CONTENT);
+    CFW_TEST_ASSERT_EQ(cfw_test_pull_body(&res, body, sizeof(body),
+                                          &len),
+                       0);
+    CFW_TEST_ASSERT_EQ(len, 5);
+    CFW_TEST_ASSERT_TRUE(cfw_test_header(&res, "ETag") != NULL);
+
+    cfw_test_req_header(&req_hdrs[1], "If-Range", "\"bogus\"");
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 2, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_pull_body(&res, body, sizeof(body),
+                                          &len),
+                       0);
+    CFW_TEST_ASSERT_EQ(len, 18);
+
+    cfw_test_req_header(&req_hdrs[1], "If-Range", weak_etag);
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 2, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_pull_body(&res, body, sizeof(body),
+                                          &len),
+                       0);
+    CFW_TEST_ASSERT_EQ(len, 18);
+
+    CFW_TEST_ASSERT_EQ(cfw_test_static_teardown(&mount, arena), 0);
+    return 0;
+}
 #endif /* !_WIN32 */
 
 const cfw_test_case cfw_test_static_cases[] = {
@@ -904,6 +1119,8 @@ const cfw_test_case cfw_test_static_cases[] = {
     {"static_slot_exhaustion", test_static_slot_exhaustion},
     {"static_conditional_requests",
      test_static_conditional_requests},
+    {"static_etag_conditionals",
+     test_static_etag_conditionals},
     {"static_range_requests", test_static_range_requests},
 #endif
     {NULL, NULL},

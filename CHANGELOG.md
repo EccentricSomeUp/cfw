@@ -72,7 +72,11 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   206/`Content-Range` (416 when unsatisfiable). New fs primitives
   `cfw_file_fstat` and `cfw_file_seek` provide handle-relative
   metadata and positioned reads; new status codes 206, 412, 416.
-  Entity-tag conditionals remain unsupported.
+- Static entity-tag validators (ADR 0040): the static middleware now
+  emits a strong `ETag` (`"<mtime>-<size>"`) and honors the full
+  RFC 9110 conditional model — `If-Match` (strong), `If-None-Match`
+  (weak, →304), `If-Range` entity-tags (strong → range gating) — with
+  correct precedence over the date-based validators from ADR 0039.
 
 ## [0.1.0] - 2026-11-26
 

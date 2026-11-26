@@ -504,60 +504,6 @@ static int cfw_static_parse_range(const cfw_strview_t *value,
     return 1;
 }
 
-/* Evaluates the conditional headers (RFC 9110 section 13.2.2 order,
- * restricted to the validators this mount emits: Last-Modified only)
- * and the Range header gated by If-Range. Entity-tag conditionals
- * (If-Match, If-None-Match, If-Range entity-tags) are not supported
- * yet and are ignored; see ADR 0039. */
-static void cfw_static_plan(cfw_request_t *req, int64_t mtime,
-                            uint64_t size, cfw_static_plan_t *plan)
-{
-    cfw_strview_t hn;
-    cfw_strview_t range_value;
-    cfw_strview_t if_range_value;
-    int64_t date;
-    int pr;
-
-    plan->action = CFW_STATIC_PLAN_FULL;
-    plan->start = 0;
-    plan->end = 0;
-
-    if (cfw_static_header_date(req, "If-Unmodified-Since", &date) &&
-        mtime > date) {
-        plan->action = CFW_STATIC_PLAN_PRECONDITION_FAILED;
-        return;
-    }
-    if (cfw_static_header_date(req, "If-Modified-Since", &date) &&
-        mtime <= date) {
-        plan->action = CFW_STATIC_PLAN_NOT_MODIFIED;
-        return;
-    }
-
-    cfw_strview_from_cstr(&hn, "Range");
-    if (cfw_request_header(req, &hn, &range_value) != CFW_OK) {
-        return;
-    }
-    cfw_strview_from_cstr(&hn, "If-Range");
-    if (cfw_request_header(req, &hn, &if_range_value) == CFW_OK) {
-        /* If-Range carries either an HTTP-date or an entity-tag. A
-         * date honors the range only when the file is unchanged since
-         * then; anything else (including every entity-tag, which this
-         * mount never emits) fails validation and yields the full
-         * representation. */
-        if (cfw_http_date_parse(&if_range_value, &date) != CFW_OK ||
-            mtime > date) {
-            return;
-        }
-    }
-    pr = cfw_static_parse_range(&range_value, size, &plan->start,
-                                &plan->end);
-    if (pr < 0) {
-        plan->action = CFW_STATIC_PLAN_RANGE_UNSATISFIABLE;
-    } else if (pr > 0) {
-        plan->action = CFW_STATIC_PLAN_RANGE;
-    }
-}
-
 static size_t cfw_static_u64_dec(uint64_t value, char *out)
 {
     char digits[20];
@@ -613,6 +559,235 @@ static cfw_status_t cfw_static_header(cfw_response_t *res,
         return CFW_ERROR_INVALID_ARGUMENT;
     }
     return cfw_response_header_add(res, &hn, &hv);
+}
+
+/* ------------------------------------------------------------------ */
+/* Entity-tag validators (ADR 0040)                                    */
+/* ------------------------------------------------------------------ */
+
+/* The mount emits a strong entity-tag "<mtime>-<size>" — a heuristic
+ * validator in the same family as common static servers: it changes
+ * whenever the modification time or size does. */
+
+static size_t cfw_static_i64_dec(int64_t value, char *out)
+{
+    uint64_t u;
+    size_t n;
+
+    if (value < 0) {
+        *out++ = '-';
+        u = ~(uint64_t)value + 1u;
+    } else {
+        u = (uint64_t)value;
+    }
+    n = cfw_static_u64_dec(u, out);
+    return n + (value < 0 ? 1u : 0u);
+}
+
+/* Writes "<mtime>-<size>" (with surrounding quotes) into out, which
+ * must hold at least 45 bytes. */
+static void cfw_static_format_etag(char *out, int64_t mtime,
+                                   uint64_t size)
+{
+    char *w = out;
+
+    *w++ = '"';
+    w += cfw_static_i64_dec(mtime, w);
+    *w++ = '-';
+    w += cfw_static_u64_dec(size, w);
+    *w++ = '"';
+    *w = '\0';
+}
+
+static void cfw_static_trim(cfw_strview_t *view)
+{
+    while (view->size != 0 &&
+           (view->data[0] == ' ' || view->data[0] == '\t')) {
+        view->data++;
+        view->size--;
+    }
+    while (view->size != 0 &&
+           (view->data[view->size - 1] == ' ' ||
+            view->data[view->size - 1] == '\t')) {
+        view->size--;
+    }
+}
+
+/* Extracts the opaque-tag (the quoted string, quotes included) from
+ * one entity-tag list member, skipping an optional "W/" prefix.
+ * Returns 1 on success; *weak reports the prefix. Members that are
+ * not well-formed entity-tags return 0. */
+static int cfw_static_etag_opaque(const cfw_strview_t *item,
+                                  cfw_strview_t *opaque, int *weak)
+{
+    size_t i = 0;
+    size_t j;
+
+    *weak = 0;
+    if (item->size >= 2 && item->data[0] == 'W' && item->data[1] == '/') {
+        *weak = 1;
+        i = 2;
+    }
+    if (item->size - i < 2 || item->data[i] != '"') {
+        return 0;
+    }
+    j = i + 1;
+    while (j < item->size && item->data[j] != '"') {
+        unsigned char c = (unsigned char)item->data[j];
+        /* etagc: %x21 / %x23-7E / obs-text — no CTLs, no space. */
+        if (c < 0x21 || c == 0x7f) {
+            return 0;
+        }
+        j++;
+    }
+    if (j >= item->size || j + 1 != item->size) {
+        return 0;
+    }
+    return cfw_strview_init(opaque, item->data + i,
+                            j - i + 1) == CFW_OK;
+}
+
+/* Evaluates an If-Match/If-None-Match style header list against the
+ * mount's etag (the full quoted opaque-tag). weak=1 applies weak
+ * comparison (W/ prefixes ignored on both sides — our etag has none);
+ * weak=0 requires strong comparison (W/ members never match).
+ * "*" matches any current representation. Returns 1 on match, 0 when
+ * the header is a valid list with no match, and -1 when the header is
+ * absent or contains no usable member (treated as ignorable). */
+static int cfw_static_etag_list_match(const cfw_request_t *req,
+                                      const char *name,
+                                      const cfw_strview_t *etag,
+                                      int weak)
+{
+    cfw_strview_t hn;
+    cfw_strview_t value;
+    size_t pos = 0;
+    int saw_item = 0;
+
+    cfw_strview_from_cstr(&hn, name);
+    if (cfw_request_header(req, &hn, &value) != CFW_OK ||
+        value.size == 0 || value.data == NULL) {
+        return -1;
+    }
+    for (;;) {
+        size_t start = pos;
+        size_t end;
+        cfw_strview_t item;
+        cfw_strview_t opaque;
+        int item_weak;
+        int last;
+
+        while (pos < value.size && value.data[pos] != ',') {
+            pos++;
+        }
+        end = pos;
+        last = pos >= value.size;
+        if (!last) {
+            pos++;
+        }
+        cfw_strview_init(&item, value.data + start, end - start);
+        cfw_static_trim(&item);
+        if (item.size == 1 && item.data[0] == '*') {
+            return 1;
+        }
+        if (cfw_static_etag_opaque(&item, &opaque, &item_weak)) {
+            saw_item = 1;
+            if (opaque.size == etag->size &&
+                memcmp(opaque.data, etag->data, opaque.size) == 0 &&
+                (weak || !item_weak)) {
+                return 1;
+            }
+        }
+        if (last) {
+            break;
+        }
+    }
+    return saw_item ? 0 : -1;
+}
+
+/* Evaluates the conditional headers in RFC 9110 section 13.2.2 order
+ * (If-Match, If-Unmodified-Since, If-None-Match, If-Modified-Since)
+ * restricted to the validators this mount emits, then the Range
+ * header gated by If-Range. `etag` is the mount's current entity-tag
+ * (opaque-tag form, quotes included). */
+static void cfw_static_plan(cfw_request_t *req, int64_t mtime,
+                            uint64_t size,
+                            const cfw_strview_t *etag,
+                            cfw_static_plan_t *plan)
+{
+    cfw_strview_t hn;
+    cfw_strview_t range_value;
+    cfw_strview_t if_range_value;
+    int64_t date;
+    int pr;
+    int im;
+    int inm;
+
+    plan->action = CFW_STATIC_PLAN_FULL;
+    plan->start = 0;
+    plan->end = 0;
+
+    /* If-Match (strong comparison): a valid non-match rejects with
+     * 412; a match satisfies the precondition and skips
+     * If-Unmodified-Since. */
+    im = cfw_static_etag_list_match(req, "If-Match", etag, 0);
+    if (im == 0) {
+        plan->action = CFW_STATIC_PLAN_PRECONDITION_FAILED;
+        return;
+    }
+    if (im != 1 &&
+        cfw_static_header_date(req, "If-Unmodified-Since", &date) &&
+        mtime > date) {
+        plan->action = CFW_STATIC_PLAN_PRECONDITION_FAILED;
+        return;
+    }
+
+    /* If-None-Match (weak comparison for GET/HEAD): a match yields
+     * 304; a valid list without a match suppresses
+     * If-Modified-Since. */
+    inm = cfw_static_etag_list_match(req, "If-None-Match", etag, 1);
+    if (inm == 1) {
+        plan->action = CFW_STATIC_PLAN_NOT_MODIFIED;
+        return;
+    }
+    if (inm != 0 &&
+        cfw_static_header_date(req, "If-Modified-Since", &date) &&
+        mtime <= date) {
+        plan->action = CFW_STATIC_PLAN_NOT_MODIFIED;
+        return;
+    }
+
+    cfw_strview_from_cstr(&hn, "Range");
+    if (cfw_request_header(req, &hn, &range_value) != CFW_OK) {
+        return;
+    }
+    cfw_strview_from_cstr(&hn, "If-Range");
+    if (cfw_request_header(req, &hn, &if_range_value) == CFW_OK) {
+        /* If-Range carries either an HTTP-date or a single
+         * entity-tag. A date honors the range only when the file is
+         * unchanged since then; an entity-tag must match strongly
+         * (weak tags never do). Anything else yields the full
+         * representation. */
+        if (cfw_http_date_parse(&if_range_value, &date) == CFW_OK) {
+            if (mtime > date) {
+                return;
+            }
+        } else {
+            cfw_strview_t tag = if_range_value;
+            cfw_static_trim(&tag);
+            if (tag.size != etag->size ||
+                memcmp(tag.data, etag->data, tag.size) != 0) {
+                return;
+            }
+        }
+    }
+    pr = cfw_static_parse_range(&range_value, size, &plan->start,
+                                &plan->end);
+    if (pr < 0) {
+        plan->action = CFW_STATIC_PLAN_RANGE_UNSATISFIABLE;
+    } else if (pr > 0) {
+        plan->action = CFW_STATIC_PLAN_RANGE;
+    }
 }
 
 cfw_status_t cfw_static_serve(cfw_request_t *req, cfw_response_t *res,
@@ -730,6 +905,7 @@ cfw_status_t cfw_static_serve(cfw_request_t *req, cfw_response_t *res,
         cfw_static_plan_t plan;
         cfw_static_scratch_slot_t *scratch;
         cfw_http_status_t http_status;
+        cfw_strview_t etag;
         int serve_body;
 
         cfw_file_init(&file);
@@ -747,7 +923,13 @@ cfw_status_t cfw_static_serve(cfw_request_t *req, cfw_response_t *res,
             return CFW_OK;
         }
 
-        cfw_static_plan(req, fstat.mtime_seconds, fstat.size, &plan);
+        scratch = cfw_static_scratch_acquire(mount);
+        cfw_static_format_etag(scratch->spare, fstat.mtime_seconds,
+                              fstat.size);
+        cfw_strview_init(&etag, scratch->spare,
+                         strlen(scratch->spare));
+        cfw_static_plan(req, fstat.mtime_seconds, fstat.size, &etag,
+                        &plan);
         switch (plan.action) {
         case CFW_STATIC_PLAN_NOT_MODIFIED:
             http_status = CFW_HTTP_STATUS_NOT_MODIFIED;
@@ -778,7 +960,6 @@ cfw_status_t cfw_static_serve(cfw_request_t *req, cfw_response_t *res,
             return CFW_OK;
         }
 
-        scratch = cfw_static_scratch_acquire(mount);
         if ((plan.action == CFW_STATIC_PLAN_FULL ||
              plan.action == CFW_STATIC_PLAN_RANGE ||
              plan.action == CFW_STATIC_PLAN_NOT_MODIFIED) &&
@@ -797,6 +978,10 @@ cfw_status_t cfw_static_serve(cfw_request_t *req, cfw_response_t *res,
                     CFW_OK &&
                 cfw_static_header(res, "Last-Modified",
                                   scratch->last_modified, 29) != CFW_OK) {
+                goto header_error;
+            }
+            if (cfw_static_header(res, "ETag", scratch->spare,
+                                  strlen(scratch->spare)) != CFW_OK) {
                 goto header_error;
             }
             if (cfw_static_header(res, "Accept-Ranges", "bytes", 5) !=

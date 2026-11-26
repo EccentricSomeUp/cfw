@@ -15,13 +15,14 @@ extern "C" {
 
 /*
  * Static file serving (ADR 0036, conditional requests and Range per
- * ADR 0039). cfw_static_serve is a dispatch middleware that intercepts
- * GET/HEAD requests under a configured URL prefix and streams the
- * matching file from a document root. It emits Last-Modified and
- * Accept-Ranges, honors If-Modified-Since (304), If-Unmodified-Since
- * (412), If-Range, and single-range Range requests (206/416); entity-tag
- * conditionals are not yet supported. All other requests pass through
- * to the router.
+ * ADR 0039, entity-tag validators per ADR 0040). cfw_static_serve is
+ * a dispatch middleware that intercepts GET/HEAD requests under a
+ * configured URL prefix and streams the matching file from a document
+ * root. It emits Last-Modified, an ETag validator, and
+ * Accept-Ranges, and honors the full RFC 9110 conditional model
+ * (If-Match, If-Unmodified-Since, If-None-Match, If-Modified-Since,
+ * If-Range) plus single-range Range requests (206/416). All other
+ * requests pass through to the router.
  *
  * Install once per dispatch:
  *

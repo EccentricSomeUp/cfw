@@ -67,7 +67,8 @@ abstraction exists.
 - `static`: static file serving middleware with lexical path validation,
   directory index resolution, MIME mapping, bounded stream slots,
   confined no-follow file opens on POSIX, and conditional/Range request
-  support (implemented; see `cfw/static.h`, ADRs 0036/0037/0039)
+  support with entity-tag validators (implemented; see `cfw/static.h`,
+  ADRs 0036/0037/0039/0040)
 - `tls`: out of scope for the core library (ADR 0030); a future optional
   module would sit below `http1_conn`/`server` behind its own dependency ADR
 - `log`: structured, rate-limited, non-blocking-friendly logging
