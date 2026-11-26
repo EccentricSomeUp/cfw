@@ -10,7 +10,9 @@ randomness), platform abstractions (sockets, pollset, filesystem), a
 strict HTTP/1.1 parser with smuggling-resistant framing, a route table
 with path parameters, an onion-model middleware dispatch pipeline, and a
 single-threaded `cfw_server_t` event-loop server with connection limits,
-timeouts, and graceful stop. TLS is out of scope (ADR 0030).
+timeouts, graceful stop/drain, automatic Date headers, RFC 9112 Host
+enforcement, `Expect: 100-continue`, and pull-style streaming response
+bodies (chunked or close-delimited). TLS is out of scope (ADR 0030).
 
 ## Priorities
 
