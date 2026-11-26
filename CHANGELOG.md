@@ -119,6 +119,10 @@ semantic versioning once a stable release policy is adopted.
   with chunked transfer-encoding for HTTP/1.1 and close-delimited framing
   for older versions, bounded output backpressure, and keep-alive
   preservation (ADR 0031)
+- Peer address exposure: `cfw_request_t.remote_addr` carries the
+  formatted "ip:port" peer address ("[v6]:port" for IPv6) for IP-based
+  middleware, logging, and rate limiting; supplied via the new
+  `cfw_dispatch_request_ex` variant (ADR 0032)
 - End-to-end request-smuggling security suite (tests/security):
   CL/TE conflicts, duplicate Content-Length, non-chunked and
   multi-coding Transfer-Encoding, obs-fold, malformed request lines,

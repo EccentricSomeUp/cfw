@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 */
 
 #include <cfw/server.h>
+#include <cfw/strview.h>
 
 #if defined(_WIN32)
 
@@ -66,6 +67,7 @@ uint64_t cfw_server_errors_total(const cfw_server_t *server)
 #include "private/pollset.h"
 
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -91,6 +93,10 @@ struct cfw_server_conn {
     int have_head;
     int rejecting;
     int dead;
+    /* Peer address formatted "ip:port" at accept time; exposed to
+     * handlers via cfw_request_t.remote_addr. */
+    char remote_addr_buf[72];
+    cfw_strview_t remote_addr;
     cfw_timepoint_t deadline;
     int deadline_set;
     intptr_t handle;
@@ -331,10 +337,11 @@ static void cfw_server_handle_done(cfw_server_t *server,
     res.headers = conn->headers;
     res.header_capacity = server->options.max_headers;
 
-    st = cfw_dispatch_request(server->options.dispatch, &conn->head,
-                              &body, conn->headers,
-                              server->options.max_headers, conn->params,
-                              server->options.max_params, &res);
+    st = cfw_dispatch_request_ex(server->options.dispatch, &conn->head,
+                                 &body, conn->headers,
+                                 server->options.max_headers, conn->params,
+                                 server->options.max_params, &res,
+                                 &conn->remote_addr);
     if (st != CFW_OK) {
         conn->dead = 1;
         return;
@@ -814,6 +821,38 @@ static void cfw_server_service_conn(cfw_server_t *server,
     cfw_server_update_conn_interest(server, conn);
 }
 
+/* Formats the peer address as "ip:port" ("[v6]:port" for IPv6) into
+ * conn->remote_addr_buf and points conn->remote_addr at it. Failure
+ * leaves remote_addr empty — non-fatal. */
+static void cfw_server_format_peer(cfw_server_conn_t *conn,
+                                   const cfw_sockaddr_t *peer)
+{
+    char ip[48];
+    uint16_t port = 0;
+    int is6;
+    int n;
+
+    conn->remote_addr.data = NULL;
+    conn->remote_addr.size = 0;
+    is6 = cfw_addr_is_ipv6(peer);
+    if (cfw_addr_to_str(peer, ip, sizeof(ip)) != CFW_OK ||
+        cfw_addr_port(peer, &port) != CFW_OK) {
+        return;
+    }
+    n = is6 ? snprintf(conn->remote_addr_buf,
+                       sizeof(conn->remote_addr_buf), "[%s]:%u", ip,
+                       (unsigned)port)
+            : snprintf(conn->remote_addr_buf,
+                       sizeof(conn->remote_addr_buf), "%s:%u", ip,
+                       (unsigned)port);
+    if (n <= 0 || (size_t)n >= sizeof(conn->remote_addr_buf)) {
+        conn->remote_addr_buf[0] = '\0';
+        return;
+    }
+    conn->remote_addr.data = conn->remote_addr_buf;
+    conn->remote_addr.size = (size_t)n;
+}
+
 static void cfw_server_accept(cfw_server_t *server)
 {
     cfw_http1_conn_options_t conn_options;
@@ -868,6 +907,8 @@ static void cfw_server_accept(cfw_server_t *server)
             free(conn);
             continue;
         }
+
+        cfw_server_format_peer(conn, &peer);
 
         conn->handle = cfw_fd_get(&conn->http.fd);
         conn->next = server->conns;

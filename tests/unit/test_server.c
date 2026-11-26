@@ -63,6 +63,29 @@ static cfw_status_t cfw_test_ok_handler(cfw_request_t *req,
     return CFW_OK;
 }
 
+static char cfw_test_remote_addr[80];
+static size_t cfw_test_remote_addr_len;
+
+static cfw_status_t cfw_test_addr_handler(cfw_request_t *req,
+                                          cfw_response_t *res, void *user)
+{
+    static const char body[] = "addr-ok";
+    (void)user;
+    res->status = CFW_HTTP_STATUS_OK;
+    res->body.data = (const uint8_t *)body;
+    res->body.size = sizeof(body) - 1;
+    /* The strview is only valid during dispatch — copy it out. */
+    cfw_test_remote_addr_len = 0;
+    if (req->remote_addr.size > 0 &&
+        req->remote_addr.size < sizeof(cfw_test_remote_addr)) {
+        memcpy(cfw_test_remote_addr, req->remote_addr.data,
+               req->remote_addr.size);
+        cfw_test_remote_addr[req->remote_addr.size] = '\0';
+        cfw_test_remote_addr_len = req->remote_addr.size;
+    }
+    return CFW_OK;
+}
+
 static cfw_status_t cfw_test_mw(cfw_request_t *req, cfw_response_t *res,
                                 cfw_dispatch_next_t next,
                                 cfw_dispatch_frame_t *frame, void *user)
@@ -282,6 +305,62 @@ static int test_server_post_body(void)
     response[n] = '\0';
     CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
                                            "HTTP/1.1 200 OK"));
+
+    cfw_fd_close(&client);
+    cfw_test_server_teardown(&ts);
+    return 0;
+}
+
+static int test_server_remote_addr(void)
+{
+    cfw_test_server ts;
+    cfw_fd_t client;
+    char response[4096];
+    ssize_t n;
+    cfw_strview_t pattern;
+    const char prefix[] = "127.0.0.1:";
+    size_t i;
+    int digits = 0;
+
+    CFW_TEST_ASSERT_EQ(cfw_test_server_setup(&ts, (cfw_duration_t){0},
+                                             (cfw_duration_t){0}, 8),
+                       0);
+    cfw_strview_from_cstr(&pattern, "/who");
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(&ts.dispatch,
+                                              CFW_HTTP_METHOD_GET,
+                                              &pattern, cfw_test_addr_handler,
+                                              NULL),
+                       CFW_OK);
+
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /who HTTP/1.1\r\n"
+                                     "Host: test\r\n\r\n"),
+                       0);
+    n = cfw_test_serve_recv(&ts.server, &client, response,
+                            sizeof(response) - 1);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    response[n] = '\0';
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                           "HTTP/1.1 200 OK"));
+
+    /* Peer address must be "127.0.0.1:<port>" with a nonzero port. */
+    CFW_TEST_ASSERT_TRUE(cfw_test_remote_addr_len > 0);
+    CFW_TEST_ASSERT_TRUE(cfw_test_remote_addr_len <
+                         sizeof(cfw_test_remote_addr));
+    CFW_TEST_ASSERT_TRUE(cfw_test_remote_addr_len > sizeof(prefix) - 1);
+    CFW_TEST_ASSERT_TRUE(memcmp(cfw_test_remote_addr, prefix,
+                                sizeof(prefix) - 1) == 0);
+    for (i = sizeof(prefix) - 1; i < cfw_test_remote_addr_len; i++) {
+        if (cfw_test_remote_addr[i] >= '0' &&
+            cfw_test_remote_addr[i] <= '9') {
+            digits++;
+        }
+    }
+    CFW_TEST_ASSERT_TRUE(digits > 0);
 
     cfw_fd_close(&client);
     cfw_test_server_teardown(&ts);
@@ -1114,6 +1193,7 @@ const cfw_test_case cfw_test_server_cases[] = {
     {"server_streaming_http10", test_server_streaming_http10},
     {"server_request_response", test_server_request_response},
     {"server_post_body", test_server_post_body},
+    {"server_remote_addr", test_server_remote_addr},
     {"server_request_timeout", test_server_request_timeout},
     {"server_stop", test_server_stop},
     {"server_max_connections", test_server_max_connections},

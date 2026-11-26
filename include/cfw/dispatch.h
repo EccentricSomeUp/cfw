@@ -106,6 +106,10 @@ typedef struct cfw_request {
     size_t params_written;
     /* Application data registered with the matched route. */
     void *route_user;
+    /* Peer address as formatted "ip:port" text ("[v6]:port" for IPv6),
+     * valid for the duration of the dispatch call. Empty when the
+     * transport does not supply peer information. */
+    cfw_strview_t remote_addr;
 } cfw_request_t;
 
 typedef struct cfw_response {
@@ -208,6 +212,17 @@ CFW_API cfw_status_t cfw_dispatch_request(
     const cfw_span_t *body, cfw_http_header_t *headers,
     size_t header_capacity, cfw_route_param_t *params,
     size_t param_capacity, cfw_response_t *res);
+
+/* Extended variant of cfw_dispatch_request that additionally supplies
+ * transport metadata. `remote_addr` is an optional "ip:port" formatted
+ * peer address copied into req.remote_addr; pass NULL or an empty
+ * strview when unknown. */
+CFW_API cfw_status_t cfw_dispatch_request_ex(
+    const cfw_dispatch_t *dispatch, const cfw_http_request_head_t *head,
+    const cfw_span_t *body, cfw_http_header_t *headers,
+    size_t header_capacity, cfw_route_param_t *params,
+    size_t param_capacity, cfw_response_t *res,
+    const cfw_strview_t *remote_addr);
 
 /* Appends a header to a response; fails with CFW_ERROR_NOMEM when
  * header_capacity is reached. */

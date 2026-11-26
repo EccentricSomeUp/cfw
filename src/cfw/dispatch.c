@@ -173,6 +173,18 @@ cfw_status_t cfw_dispatch_request(
     size_t header_capacity, cfw_route_param_t *params,
     size_t param_capacity, cfw_response_t *res)
 {
+    return cfw_dispatch_request_ex(dispatch, head, body, headers,
+                                   header_capacity, params, param_capacity,
+                                   res, NULL);
+}
+
+cfw_status_t cfw_dispatch_request_ex(
+    const cfw_dispatch_t *dispatch, const cfw_http_request_head_t *head,
+    const cfw_span_t *body, cfw_http_header_t *headers,
+    size_t header_capacity, cfw_route_param_t *params,
+    size_t param_capacity, cfw_response_t *res,
+    const cfw_strview_t *remote_addr)
+{
     cfw_request_t req;
     cfw_http_message_framing_t framing;
     cfw_strview_t path;
@@ -200,6 +212,9 @@ cfw_status_t cfw_dispatch_request(
     req.version = head->request_line.version;
     req.headers = headers;
     req.body = body != NULL ? *body : (cfw_span_t){0};
+    if (remote_addr != NULL) {
+        req.remote_addr = *remote_addr;
+    }
 
     /* Transport-independent validation: framing rules and body size. */
     if (cfw_http_request_framing(head, &framing) != CFW_OK ||
