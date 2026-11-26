@@ -1485,6 +1485,46 @@ static int test_server_upload_abort(void)
     return 0;
 }
 
+static int test_server_upload_protocol_error(void)
+{
+    cfw_test_server ts;
+    cfw_test_upload_state st;
+    cfw_fd_t client;
+    char response[4096];
+    ssize_t n;
+
+    /* A malformed chunk after a valid one aborts the request mid-body:
+     * the upload must be reported incomplete and a 400 sent. */
+    CFW_TEST_ASSERT_EQ(cfw_test_setup_upload(&ts, &st), 0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(
+                           &client,
+                           "POST /up HTTP/1.1\r\n"
+                           "Host: test\r\n"
+                           "Transfer-Encoding: chunked\r\n\r\n"
+                           "5\r\nhello\r\n"
+                           "Z\r\n\r\n"),
+                       0);
+    n = cfw_test_serve_recv(&ts.server, &client, response,
+                            sizeof(response) - 1);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    response[n] = '\0';
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                           "400"));
+
+    CFW_TEST_ASSERT_EQ(st.begin_calls, 1);
+    CFW_TEST_ASSERT_EQ(st.end_calls, 1);
+    CFW_TEST_ASSERT_EQ(st.end_completed, 0);
+
+    cfw_fd_close(&client);
+    cfw_test_upload_reset(&st);
+    cfw_test_server_teardown(&ts);
+    return 0;
+}
+
 static int test_server_upload_write_error(void)
 {
     cfw_test_server ts;
@@ -1561,6 +1601,8 @@ const cfw_test_case cfw_test_server_cases[] = {
     {"server_upload_content_length", test_server_upload_content_length},
     {"server_upload_chunked", test_server_upload_chunked},
     {"server_upload_abort", test_server_upload_abort},
+    {"server_upload_protocol_error",
+     test_server_upload_protocol_error},
     {"server_upload_write_error", test_server_upload_write_error},
     {"server_upload_begin_error", test_server_upload_begin_error},
     {"server_streaming_conn_close", test_server_streaming_conn_close},
