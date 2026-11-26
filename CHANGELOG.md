@@ -9,6 +9,14 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ## [Unreleased]
 
+### Fixed
+
+- macOS build: `cfw_file_open_mode` was compiled whenever `O_NOFOLLOW`
+  was visible, but macOS hides that BSD extension under
+  `_POSIX_C_SOURCE 200809L`, leaving the helper unused and failing
+  `-Werror` builds. The helper is now guarded on `defined(O_NOFOLLOW)`
+  so it only exists where it is actually used.
+
 ## [0.3.0] - 2026-11-26
 
 ### Added

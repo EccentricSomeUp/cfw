@@ -166,7 +166,7 @@ static cfw_status_t cfw_file_confined_normalize(const char *path,
     return CFW_OK;
 }
 
-#if !defined(_WIN32)
+#if !defined(_WIN32) && defined(O_NOFOLLOW)
 static int cfw_file_open_mode(int extra)
 {
     int flags = O_RDONLY | extra;
