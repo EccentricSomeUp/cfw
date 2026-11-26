@@ -27,3 +27,47 @@ jobs:
 
       - name: Test ${{ matrix.preset }}
         run: ctest --preset ${{ matrix.preset }} --output-on-failure
+
+  # GitHub-hosted runners have no BSD image, so FreeBSD runs in a QEMU VM
+  # via vmactions/freebsd-vm. Debug preset only: the goal is end-to-end
+  # verification of the kqueue pollset backend (ADR 0052), not to multiply
+  # runner time. The action syncs the checkout into the VM, runs `run`
+  # under sh, and `prepare` installs packages with pkg(8).
+  freebsd:
+    name: freebsd debug (${{ matrix.release }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        release: ["14", "15"]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure, build, and test in FreeBSD ${{ matrix.release }}
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: ${{ matrix.release }}
+          copyback: false
+          prepare: |
+            pkg install -y cmake
+          run: |
+            cmake --preset debug
+            cmake --build --preset debug
+            ctest --preset debug --output-on-failure
+
+  # Windows sockets/pollset/server/fd-close are stubs returning
+  # CFW_STATUS_UNAVAILABLE (IOCP pending, ADR 0011), so the test suite
+  # cannot pass at runtime yet. This job is compile-only: it verifies
+  # that no POSIX-isms leak into shared code and that the MSVC
+  # /W4 /permissive- /WX build stays clean.
+  windows:
+    name: windows compile check
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure debug
+        run: cmake --preset debug
+
+      - name: Build debug
+        run: cmake --build --preset debug --config Debug

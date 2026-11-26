@@ -11,10 +11,10 @@ not yet implemented; "planned" means no contract exists yet.
 
 | Platform | Status | Notes |
 | --- | --- | --- |
-| Linux (glibc/musl) | Primary | `clock_gettime`, `getrandom`, `epoll`; the only CI/dev-verified target |
+| Linux (glibc/musl) | Primary | `clock_gettime`, `getrandom`, `epoll`; the primary CI/dev-verified target |
 | macOS | POSIX-compatible | `clock_gettime`, `arc4random_buf`, `kqueue` backend (ADR 0052); verified on macOS CI |
-| FreeBSD/OpenBSD/NetBSD | POSIX-compatible | `clock_gettime`, `arc4random_buf`, `kqueue` backend (ADR 0052); not yet verified on a BSD host |
-| Windows (MSVC/MinGW) | Not supported | core primitives compile where portable, but sockets/pollset/server/fd-close are stubs returning `CFW_STATUS_UNAVAILABLE`; IOCP pending (ADR 0011) |
+| FreeBSD/OpenBSD/NetBSD | POSIX-compatible | `clock_gettime`, `arc4random_buf`, `kqueue` backend (ADR 0052); FreeBSD verified on CI (debug preset via `vmactions/freebsd-vm`); OpenBSD/NetBSD not yet verified on a BSD host |
+| Windows (MSVC/MinGW) | Not supported | core primitives compile where portable, but sockets/pollset/server/fd-close are stubs returning `CFW_STATUS_UNAVAILABLE`; IOCP pending (ADR 0011); compile-checked on Windows CI (MSVC `/W4 /WX`, configure+build only, no test run) |
 
 ## Compiler and language requirements
 

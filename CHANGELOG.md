@@ -9,6 +9,15 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ## [Unreleased]
 
+### Added
+
+- CI coverage for additional platforms: a FreeBSD job runs the `debug`
+  preset inside a QEMU VM (`vmactions/freebsd-vm`, releases 14 and 15),
+  exercising the kqueue pollset backend end-to-end, and a Windows job
+  performs a compile-only check (configure + build, no tests) to catch
+  POSIX-isms leaking into shared code while the Windows socket/pollset
+  stubs remain `CFW_STATUS_UNAVAILABLE` (ADR 0011).
+
 ### Changed
 
 - Internal platform and feature detection (ADR 0053): raw compiler/OS
