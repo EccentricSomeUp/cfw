@@ -110,6 +110,27 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   uninitialized when MSVC's flow analysis could not prove
   `cfw_mp_delim_trailer` had set it (C4701); it is now initialized,
   matching the first delimiter loop.
+- FreeBSD build: the configure-time `accept4` probe compiled despite
+  the function being undeclared (implicit declarations are only
+  warnings in the probe's default dialect), so `CFW_HAVE_ACCEPT4` was
+  wrongly enabled and the strict `-Werror` build failed. Feature probes
+  now compile with `-Werror=implicit-function-declaration`, and the
+  accept path falls back to `accept` + `fcntl` on the BSDs.
+- macOS build: `cfw_sync_to_abstime` passed `&abstime->tv_sec` /
+  `&abstime->tv_nsec` (`long *` on Darwin) to `cfw_checked_add_i64`
+  (`int64_t *`), and every pthread mutex/cond cast from
+  `unsigned char *` storage tripped Clang `-Wcast-align`. The deadline
+  arithmetic now uses `int64_t` temporaries assigned to the `timespec`
+  fields, and the primitive pointers are formed through the union's
+  `cfw_max_align_t` member so no cast increases required alignment.
+- Windows build: MSVC's `<stdatomic.h>` additionally requires
+  `/experimental:c11atomics` on top of `/std:c11`; C sources in
+  strict-flag targets now pass both. `InitConditionVariable` and the
+  SRWLOCK APIs were undeclared because nothing pinned
+  `_WIN32_WINNT >= 0x0600`; `platform_detect.h` now defines a modern
+  floor. `_CRT_SECURE_NO_WARNINGS` in `fs.c` was defined after
+  `<stdio.h>`/`<string.h>` had already pulled in the CRT headers, so it
+  is now defined before any include.
 
 ## [0.3.0] - 2026-11-26
 

@@ -2,6 +2,14 @@
 
 #include "private/platform_detect.h"
 
+#if CFW_PLATFORM_WINDOWS
+    /* Must precede every CRT header: <stdio.h>/<string.h> below pull in
+     * the CRT declarations that honor this macro. */
+    #ifndef _CRT_SECURE_NO_WARNINGS
+        #define _CRT_SECURE_NO_WARNINGS
+    #endif
+#endif
+
 #include <cfw/fs.h>
 #include "private/fs_confined.h"
 
@@ -10,9 +18,6 @@
 #include <string.h>
 
 #if CFW_PLATFORM_WINDOWS
-    #ifndef _CRT_SECURE_NO_WARNINGS
-        #define _CRT_SECURE_NO_WARNINGS
-    #endif
     #include <fcntl.h>
     #include <io.h>
     #include <sys/stat.h>

@@ -13,7 +13,14 @@
 
 #include <cfw/cfw_platform_internal.h>
 
-#if CFW_PLATFORM_LINUX
+#if CFW_PLATFORM_WINDOWS
+    /* SRWLOCK and the condition-variable APIs used by sync.c require
+     * _WIN32_WINNT >= 0x0600; pin a modern floor so SDK defaults cannot
+     * silently hide their declarations. */
+    #ifndef _WIN32_WINNT
+        #define _WIN32_WINNT 0x0A00
+    #endif
+#elif CFW_PLATFORM_LINUX
     #ifndef _GNU_SOURCE
         #define _GNU_SOURCE
     #endif

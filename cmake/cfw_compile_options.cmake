@@ -9,7 +9,9 @@ function(cfw_apply_strict_flags target)
             /Zc:preprocessor
             # MSVC only enables C11 library features such as <stdatomic.h>
             # in /std:c11 mode; the default C dialect leaves them disabled.
+            # C11 atomics additionally require the experimental switch.
             $<$<COMPILE_LANGUAGE:C>:/std:c11>
+            $<$<COMPILE_LANGUAGE:C>:/experimental:c11atomics>
         )
     else()
         target_compile_options(${target} PRIVATE

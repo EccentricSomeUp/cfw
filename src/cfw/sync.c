@@ -24,6 +24,12 @@
     _Static_assert(sizeof(pthread_cond_t) <=
                        sizeof(((cfw_cond_t *)NULL)->u.storage),
                    "cfw_cond_t storage is too small for pthread_cond_t");
+    /* The pthread pointers below are formed through u.align (not
+     * u.storage) so the cast never increases the required alignment. */
+    _Static_assert(_Alignof(pthread_mutex_t) <= _Alignof(cfw_max_align_t),
+                   "cfw_max_align_t does not cover pthread_mutex_t");
+    _Static_assert(_Alignof(pthread_cond_t) <= _Alignof(cfw_max_align_t),
+                   "cfw_max_align_t does not cover pthread_cond_t");
 #endif
 
 #define CFW_NS_PER_SECOND_I64 INT64_C(1000000000)
@@ -61,6 +67,8 @@ static cfw_status_t cfw_sync_to_abstime(const cfw_timepoint_t *deadline,
     int64_t rem_ns;
     int64_t dsec;
     int64_t dnsec;
+    int64_t sec;
+    int64_t nsec;
     struct timespec rt;
     cfw_status_t status;
 
@@ -90,21 +98,25 @@ static cfw_status_t cfw_sync_to_abstime(const cfw_timepoint_t *deadline,
     dsec = rem_ns / CFW_NS_PER_SECOND_I64;
     dnsec = rem_ns % CFW_NS_PER_SECOND_I64;
 
-    status = cfw_checked_add_i64(rt.tv_sec, dsec, &abstime->tv_sec);
+    /* timespec fields are `long` on some platforms (macOS) and `long
+     * long` on others; compute in int64_t and assign at the end. */
+    status = cfw_checked_add_i64((int64_t)rt.tv_sec, dsec, &sec);
     if (status != CFW_OK) {
         return CFW_ERROR_OVERFLOW;
     }
-    status = cfw_checked_add_i64(rt.tv_nsec, dnsec, &abstime->tv_nsec);
+    status = cfw_checked_add_i64((int64_t)rt.tv_nsec, dnsec, &nsec);
     if (status != CFW_OK) {
         return status;
     }
-    if (abstime->tv_nsec >= CFW_NS_PER_SECOND_I64) {
-        abstime->tv_nsec -= CFW_NS_PER_SECOND_I64;
-        if (abstime->tv_sec == INT64_MAX) {
+    if (nsec >= CFW_NS_PER_SECOND_I64) {
+        nsec -= CFW_NS_PER_SECOND_I64;
+        if (sec == INT64_MAX) {
             return CFW_ERROR_OVERFLOW;
         }
-        abstime->tv_sec++;
+        sec++;
     }
+    abstime->tv_sec = (time_t)sec;
+    abstime->tv_nsec = (long)nsec;
     return CFW_OK;
 }
 #endif /* POSIX */
@@ -120,7 +132,7 @@ cfw_status_t cfw_mutex_init(cfw_mutex_t *mutex)
     return CFW_OK;
 #else
     return cfw_sync_map_error(pthread_mutex_init(
-        (pthread_mutex_t *)mutex->u.storage, NULL));
+        (pthread_mutex_t *)&mutex->u.align, NULL));
 #endif
 }
 
@@ -135,7 +147,7 @@ cfw_status_t cfw_mutex_destroy(cfw_mutex_t *mutex)
     return CFW_OK;
 #else
     return cfw_sync_map_error(pthread_mutex_destroy(
-        (pthread_mutex_t *)mutex->u.storage));
+        (pthread_mutex_t *)&mutex->u.align));
 #endif
 }
 
@@ -149,7 +161,7 @@ cfw_status_t cfw_mutex_lock(cfw_mutex_t *mutex)
     return CFW_OK;
 #else
     return cfw_sync_map_error(pthread_mutex_lock(
-        (pthread_mutex_t *)mutex->u.storage));
+        (pthread_mutex_t *)&mutex->u.align));
 #endif
 }
 
@@ -164,7 +176,7 @@ cfw_status_t cfw_mutex_try_lock(cfw_mutex_t *mutex)
                : CFW_ERROR_WOULDBLOCK;
 #else
     return cfw_sync_map_error(pthread_mutex_trylock(
-        (pthread_mutex_t *)mutex->u.storage));
+        (pthread_mutex_t *)&mutex->u.align));
 #endif
 }
 
@@ -178,7 +190,7 @@ cfw_status_t cfw_mutex_unlock(cfw_mutex_t *mutex)
     return CFW_OK;
 #else
     return cfw_sync_map_error(pthread_mutex_unlock(
-        (pthread_mutex_t *)mutex->u.storage));
+        (pthread_mutex_t *)&mutex->u.align));
 #endif
 }
 
@@ -193,7 +205,7 @@ cfw_status_t cfw_cond_init(cfw_cond_t *cond)
     return CFW_OK;
 #else
     return cfw_sync_map_error(pthread_cond_init(
-        (pthread_cond_t *)cond->u.storage, NULL));
+        (pthread_cond_t *)&cond->u.align, NULL));
 #endif
 }
 
@@ -207,7 +219,7 @@ cfw_status_t cfw_cond_destroy(cfw_cond_t *cond)
     return CFW_OK;
 #else
     return cfw_sync_map_error(pthread_cond_destroy(
-        (pthread_cond_t *)cond->u.storage));
+        (pthread_cond_t *)&cond->u.align));
 #endif
 }
 
@@ -267,8 +279,8 @@ cfw_status_t cfw_cond_wait(cfw_cond_t *cond, cfw_mutex_t *mutex,
 #else
     if (deadline == NULL) {
         status = cfw_sync_map_error(pthread_cond_wait(
-            (pthread_cond_t *)cond->u.storage,
-            (pthread_mutex_t *)mutex->u.storage));
+            (pthread_cond_t *)&cond->u.align,
+            (pthread_mutex_t *)&mutex->u.align));
     } else {
         struct timespec abstime;
         status = cfw_sync_to_abstime(deadline, &abstime);
@@ -278,8 +290,8 @@ cfw_status_t cfw_cond_wait(cfw_cond_t *cond, cfw_mutex_t *mutex,
             return status;
         }
         status = cfw_sync_map_error(pthread_cond_timedwait(
-            (pthread_cond_t *)cond->u.storage,
-            (pthread_mutex_t *)mutex->u.storage, &abstime));
+            (pthread_cond_t *)&cond->u.align,
+            (pthread_mutex_t *)&mutex->u.align, &abstime));
     }
     return status;
 #endif
@@ -295,7 +307,7 @@ cfw_status_t cfw_cond_signal(cfw_cond_t *cond)
     return CFW_OK;
 #else
     return cfw_sync_map_error(pthread_cond_signal(
-        (pthread_cond_t *)cond->u.storage));
+        (pthread_cond_t *)&cond->u.align));
 #endif
 }
 
@@ -309,6 +321,6 @@ cfw_status_t cfw_cond_broadcast(cfw_cond_t *cond)
     return CFW_OK;
 #else
     return cfw_sync_map_error(pthread_cond_broadcast(
-        (pthread_cond_t *)cond->u.storage));
+        (pthread_cond_t *)&cond->u.align));
 #endif
 }

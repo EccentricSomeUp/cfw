@@ -92,6 +92,10 @@ macro(cfw_detect_platform)
         endif()
 
         set(CMAKE_REQUIRED_DEFINITIONS "${CFW_PLATFORM_CHECK_DEFINITIONS}")
+        # Probes must fail on implicit function declarations: without this,
+        # a missing libc function (e.g. accept4 on the BSDs) still "compiles"
+        # and the feature is wrongly enabled, breaking the -Werror build.
+        set(CMAKE_REQUIRED_FLAGS "-Werror=implicit-function-declaration")
 
         check_c_source_compiles([==[
 #include <sys/epoll.h>
@@ -230,6 +234,7 @@ int main(void)
 ]==] CFW_CHECK_HAVE_SC_PAGE_SIZE)
 
         unset(CMAKE_REQUIRED_DEFINITIONS)
+        unset(CMAKE_REQUIRED_FLAGS)
     endif()
 
     foreach(_cfw_feature

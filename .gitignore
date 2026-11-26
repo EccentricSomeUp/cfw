@@ -27,6 +27,9 @@
 *.profraw
 *.profdata
 
+# Locally pasted CI/logs for debugging (never commit)
+/agent-logs/
+
 # Editor and operating system files
 .*.swp
 *~
