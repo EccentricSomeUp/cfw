@@ -7,6 +7,7 @@
 #include <cfw/buffer.h>
 #include <cfw/checked_arithmetic.h>
 #include <cfw/cookie.h>
+#include <cfw/crypto.h>
 #include <cfw/fd.h>
 #include <cfw/fs.h>
 #include <cfw/http.h>

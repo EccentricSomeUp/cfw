@@ -33,6 +33,7 @@ set(CFW_SOURCES
     src/cfw/buffer.c
     src/cfw/checked_arithmetic.c
     src/cfw/cookie.c
+    src/cfw/crypto.c
     src/cfw/fd.c
     src/cfw/dispatch.c
     src/cfw/fs.c

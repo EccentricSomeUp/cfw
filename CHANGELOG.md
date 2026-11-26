@@ -72,6 +72,13 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   206/`Content-Range` (416 when unsatisfiable). New fs primitives
   `cfw_file_fstat` and `cfw_file_seek` provide handle-relative
   metadata and positioned reads; new status codes 206, 412, 416.
+- Cryptographic primitives (ADR 0046): new `cfw/crypto.h` module with
+  SHA-256 (`cfw_sha256_init`/`update`/`final` streaming API and
+  one-shot `cfw_sha256`), HMAC-SHA256 (`cfw_hmac_sha256`, RFC 2104),
+  and `cfw_secure_equal` constant-time comparison. Intended for
+  integrity tags, MACs (signed cookies, tokens, webhook signatures),
+  and non-adversarial checksums — explicitly not a password-hashing
+  function (memory-hard KDFs remain out of scope).
 - Cookie parsing and serialization (ADR 0045): new `cfw/cookie.h`
   module — `cfw_cookie_parse` splits a Cookie header into zero-copy
   name/value pairs (token names, cookie-octet values, DQUOTE
