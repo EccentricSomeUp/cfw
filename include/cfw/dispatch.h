@@ -97,7 +97,8 @@ typedef struct cfw_request {
     /* Complete decoded body (may be empty). */
     cfw_span_t body;
     /* Route match result; match.route == NULL means no route matched
-     * (dispatch then invoked the error handler with 404). */
+     * (dispatch then invoked the error handler with 404, or 405 when
+     * the path matched under other methods — see allowed_methods). */
     cfw_route_match_t match;
     /* Extracted route parameters (views into the request target);
      * look up by name with cfw_route_match_param. */
@@ -127,6 +128,10 @@ typedef struct cfw_response {
     /* Application data for the terminal handler/error handler. */
     void *user;
 } cfw_response_t;
+
+/* Protocol upgrades (e.g. WebSocket via 101 Switching Protocols) are
+ * not supported: after the response the connection remains an HTTP/1.1
+ * connection. Handlers must not return 101 expecting raw takeover. */
 
 typedef struct cfw_dispatch_options {
     cfw_router_t *router;
