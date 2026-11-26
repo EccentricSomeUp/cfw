@@ -1,8 +1,10 @@
 /* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 */
 
+#include "private/platform_detect.h"
+
 #include <cfw/fd.h>
 
-#if !defined(_WIN32)
+#if CFW_PLATFORM_POSIX
     #include <unistd.h>
 #endif
 
@@ -54,7 +56,7 @@ cfw_status_t cfw_fd_close(cfw_fd_t *fd)
         return CFW_OK;
     }
 
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     /* Windows sockets require closesocket(); that backend arrives with the
      * socket layer. The wrapper is left untouched so the descriptor is not
      * lost. */

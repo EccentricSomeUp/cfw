@@ -1,30 +1,32 @@
 /* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 */
 
+#include "private/platform_detect.h"
+
 #include <cfw/platform.h>
 
 #include <stdint.h>
 
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     #include <windows.h>
-#elif defined(__unix__) || defined(__APPLE__)
+#elif CFW_PLATFORM_POSIX
     #include <unistd.h>
 #endif
 
 static cfw_os_t cfw_detect_os(void)
 {
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     return CFW_OS_WINDOWS;
-#elif defined(__APPLE__)
+#elif CFW_PLATFORM_MACOS
     return CFW_OS_MACOS;
-#elif defined(__linux__)
+#elif CFW_PLATFORM_LINUX
     return CFW_OS_LINUX;
-#elif defined(__FreeBSD__)
+#elif CFW_PLATFORM_FREEBSD
     return CFW_OS_FREEBSD;
-#elif defined(__OpenBSD__)
+#elif CFW_PLATFORM_OPENBSD
     return CFW_OS_OPENBSD;
-#elif defined(__NetBSD__)
+#elif CFW_PLATFORM_NETBSD
     return CFW_OS_NETBSD;
-#elif defined(__unix__)
+#elif CFW_PLATFORM_POSIX
     return CFW_OS_OTHER_POSIX;
 #else
     return CFW_OS_UNKNOWN;
@@ -48,7 +50,7 @@ static cfw_arch_t cfw_detect_arch(void)
     return CFW_ARCH_PPC64;
 #elif defined(__s390x__)
     return CFW_ARCH_S390X;
-#elif defined(__unix__) || defined(_WIN32)
+#elif CFW_PLATFORM_POSIX || CFW_PLATFORM_WINDOWS
     return CFW_ARCH_OTHER;
 #else
     return CFW_ARCH_UNKNOWN;
@@ -63,7 +65,7 @@ static cfw_endian_t cfw_detect_endian(void)
     #elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
         return CFW_ENDIAN_BIG;
     #endif
-#elif defined(_WIN32) || defined(__i386__) || defined(__x86_64__) || \
+#elif CFW_PLATFORM_WINDOWS || defined(__i386__) || defined(__x86_64__) || \
     defined(__aarch64__) || defined(_M_ARM64)
     /* All currently supported Windows and common little-endian targets. */
     return CFW_ENDIAN_LITTLE;
@@ -165,7 +167,7 @@ cfw_status_t cfw_platform_page_size(size_t *page_size)
         return CFW_ERROR_INVALID_ARGUMENT;
     }
 
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     {
         SYSTEM_INFO system_info;
         GetSystemInfo(&system_info);
@@ -175,10 +177,10 @@ cfw_status_t cfw_platform_page_size(size_t *page_size)
         *page_size = (size_t)system_info.dwPageSize;
         return CFW_OK;
     }
-#elif defined(_SC_PAGESIZE) || defined(_SC_PAGE_SIZE)
+#elif CFW_HAVE_SC_PAGESIZE || CFW_HAVE_SC_PAGE_SIZE
     {
         long result;
-        #if defined(_SC_PAGESIZE)
+        #if CFW_HAVE_SC_PAGESIZE
             result = sysconf(_SC_PAGESIZE);
         #else
             result = sysconf(_SC_PAGE_SIZE);

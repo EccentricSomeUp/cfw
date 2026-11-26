@@ -4,7 +4,7 @@
 
 #include "test_harness.h"
 
-#if !defined(_WIN32)
+#if CFW_PLATFORM_POSIX
     #include "private/net.h"
 
     #include <errno.h>

@@ -4,7 +4,7 @@
 
 #include "test_harness.h"
 
-#if !defined(_WIN32)
+#if CFW_PLATFORM_POSIX
     #include "private/net.h"
 
     #include <arpa/inet.h>
@@ -160,7 +160,7 @@ static int test_net_argument_validation(void)
 #endif
 
 const cfw_test_case cfw_test_net_cases[] = {
-#if !defined(_WIN32)
+#if CFW_PLATFORM_POSIX
     {"addr_from_str_and_back", test_addr_from_str_and_back},
     {"addr_any", test_addr_any},
     {"tcp_loopback_connect_accept", test_tcp_loopback_connect_accept},

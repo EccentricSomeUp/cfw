@@ -2,7 +2,7 @@
 
 /*
  * Minimal runner for the pollset suite compiled against the poll()
- * backend (CFW_POLLF_FORCE_POLL). Mirrors the runner loop in
+ * backend (CFW_POLLF_BACKEND=poll). Mirrors the runner loop in
  * test_main.c but executes only cfw_test_pollset_cases.
  */
 

@@ -3,6 +3,8 @@
 #ifndef CFW_TEST_HARNESS_H
 #define CFW_TEST_HARNESS_H
 
+#include "private/platform_detect.h"
+
 #include <stdio.h>
 #include <string.h>
 

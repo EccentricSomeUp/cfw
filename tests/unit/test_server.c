@@ -4,7 +4,7 @@
 
 #include "test_harness.h"
 
-#if !defined(_WIN32)
+#if CFW_PLATFORM_POSIX
     #include "private/net.h"
 
     #include <errno.h>
@@ -2810,7 +2810,7 @@ const cfw_test_case cfw_test_server_cases[] = {
     {NULL, NULL},
 };
 
-#else /* _WIN32 */
+#else /* Windows */
 
 
 static int test_server_soak(void)
@@ -3084,4 +3084,4 @@ const cfw_test_case cfw_test_server_cases[] = {
     {NULL, NULL},
 };
 
-#endif /* !_WIN32 */
+#endif /* POSIX */

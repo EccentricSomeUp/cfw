@@ -1,16 +1,8 @@
 /* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 */
 
-#if defined(__linux__) || defined(__ANDROID__)
-    #define _GNU_SOURCE
-#endif
-#define _POSIX_C_SOURCE 200809L
-#if defined(__APPLE__)
-    /* _POSIX_C_SOURCE hides Darwin socket extensions such as
-     * SO_NOSIGPIPE; _DARWIN_C_SOURCE exposes them again. */
-    #define _DARWIN_C_SOURCE
-#endif
+#include "platform_detect.h"
 
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
 
 /* Winsock adapter is a later phase; provide unavailable stubs so the
  * translation unit still builds on Windows. */
@@ -53,7 +45,7 @@ cfw_status_t cfw_net_connect(cfw_fd_t *f, const cfw_sockaddr_t *a)
 cfw_status_t cfw_net_local_addr(cfw_fd_t *f, cfw_sockaddr_t *a)
 { (void)f; (void)a; return CFW_ERROR_UNAVAILABLE; }
 
-#else /* !_WIN32 */
+#else /* POSIX */
 
 #include "net.h"
 
@@ -72,7 +64,7 @@ cfw_status_t cfw_net_local_addr(cfw_fd_t *f, cfw_sockaddr_t *a)
  * send() then reports EPIPE instead of killing the process. */
 static void cfw_net_set_nosigpipe(int raw)
 {
-#if !defined(MSG_NOSIGNAL) && defined(SO_NOSIGPIPE)
+#if !CFW_HAVE_MSG_NOSIGNAL && CFW_HAVE_SO_NOSIGPIPE
     int one = 1;
     (void)setsockopt(raw, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one));
 #endif
@@ -149,38 +141,48 @@ cfw_status_t cfw_addr_from_str(cfw_sockaddr_t *addr, const char *text,
 cfw_status_t cfw_addr_resolve(cfw_sockaddr_t *addr, const char *host,
                               uint16_t port, int family)
 {
-    struct addrinfo hints;
-    struct addrinfo *res = NULL;
-    struct addrinfo *it;
-    char port_str[8];
-    int rc;
-
     if (addr == NULL || host == NULL || host[0] == '\0' ||
         (family != AF_INET && family != AF_INET6)) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
 
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family = family;
-    hints.ai_socktype = SOCK_STREAM;
-    snprintf(port_str, sizeof(port_str), "%u", (unsigned)port);
+#if CFW_HAVE_GETADDRINFO
+    {
+        struct addrinfo hints;
+        struct addrinfo *res = NULL;
+        struct addrinfo *it;
+        char port_str[8];
+        int rc;
 
-    rc = getaddrinfo(host, port_str, &hints, &res);
-    if (rc != 0) {
-        return rc == EAI_NONAME ? CFW_ERROR_INVALID_ARGUMENT
-                                : CFW_ERROR_IO;
-    }
-    for (it = res; it != NULL; it = it->ai_next) {
-        if (it->ai_addrlen <= sizeof(addr->storage) &&
-            it->ai_family == family) {
-            memcpy(&addr->storage, it->ai_addr, it->ai_addrlen);
-            addr->len = (socklen_t)it->ai_addrlen;
-            freeaddrinfo(res);
-            return CFW_OK;
+        memset(&hints, 0, sizeof(hints));
+        hints.ai_family = family;
+        hints.ai_socktype = SOCK_STREAM;
+        snprintf(port_str, sizeof(port_str), "%u", (unsigned)port);
+
+        rc = getaddrinfo(host, port_str, &hints, &res);
+        if (rc != 0) {
+            return rc == EAI_NONAME ? CFW_ERROR_INVALID_ARGUMENT
+                                    : CFW_ERROR_IO;
         }
+        for (it = res; it != NULL; it = it->ai_next) {
+            if (it->ai_addrlen <= sizeof(addr->storage) &&
+                it->ai_family == family) {
+                memcpy(&addr->storage, it->ai_addr, it->ai_addrlen);
+                addr->len = (socklen_t)it->ai_addrlen;
+                freeaddrinfo(res);
+                return CFW_OK;
+            }
+        }
+        freeaddrinfo(res);
+        return CFW_ERROR_IO;
     }
-    freeaddrinfo(res);
-    return CFW_ERROR_IO;
+#else
+    (void)addr;
+    (void)host;
+    (void)port;
+    (void)family;
+    return CFW_ERROR_UNAVAILABLE;
+#endif
 }
 
 cfw_status_t cfw_addr_to_str(const cfw_sockaddr_t *addr, char *buffer,
@@ -282,10 +284,10 @@ cfw_status_t cfw_net_socket(int domain, int type, int protocol,
         return CFW_ERROR_INVALID_ARGUMENT;
     }
 
-#ifdef SOCK_NONBLOCK
+#if CFW_HAVE_SOCK_NONBLOCK
     flags |= SOCK_NONBLOCK;
 #endif
-#ifdef SOCK_CLOEXEC
+#if CFW_HAVE_SOCK_CLOEXEC
     flags |= SOCK_CLOEXEC;
 #endif
 
@@ -294,7 +296,7 @@ cfw_status_t cfw_net_socket(int domain, int type, int protocol,
         return cfw_net_errno(errno);
     }
 
-#ifndef SOCK_CLOEXEC
+#if !CFW_HAVE_SOCK_CLOEXEC
     if (fcntl(raw, F_SETFD, FD_CLOEXEC) != 0) {
         int saved = errno;
         close(raw);
@@ -303,7 +305,7 @@ cfw_status_t cfw_net_socket(int domain, int type, int protocol,
     }
 #endif
 
-#ifdef SOCK_NONBLOCK
+#if CFW_HAVE_SOCK_NONBLOCK
     fd->handle = raw;
 #else
     {
@@ -379,12 +381,21 @@ cfw_status_t cfw_net_accept(cfw_fd_t *fd, cfw_sockaddr_t *peer,
         return CFW_ERROR_INVALID_ARGUMENT;
     }
 
-#if defined(__linux__) || defined(__ANDROID__)
+#if CFW_HAVE_ACCEPT4
+    int accept_flags = 0;
+#if CFW_HAVE_SOCK_NONBLOCK
+    accept_flags |= SOCK_NONBLOCK;
+#endif
+#if CFW_HAVE_SOCK_CLOEXEC
+    accept_flags |= SOCK_CLOEXEC;
+#endif
     raw = accept4((int)fd->handle, (struct sockaddr *)&ss, &len,
-                  SOCK_NONBLOCK | SOCK_CLOEXEC);
+                  accept_flags);
 #else
     raw = accept((int)fd->handle, (struct sockaddr *)&ss, &len);
+#endif
     if (raw >= 0) {
+#if !CFW_HAVE_ACCEPT4 || !CFW_HAVE_SOCK_NONBLOCK || !CFW_HAVE_SOCK_CLOEXEC
         int fl = fcntl(raw, F_GETFL, 0);
         int fdfl = fcntl(raw, F_GETFD, 0);
         if (fl < 0 || fdfl < 0 ||
@@ -393,8 +404,8 @@ cfw_status_t cfw_net_accept(cfw_fd_t *fd, cfw_sockaddr_t *peer,
             close(raw);
             return cfw_net_errno(errno);
         }
-    }
 #endif
+    }
     if (raw < 0) {
         return cfw_net_errno(errno);
     }
@@ -439,4 +450,4 @@ cfw_status_t cfw_net_local_addr(cfw_fd_t *fd, cfw_sockaddr_t *addr)
     return CFW_OK;
 }
 
-#endif /* !_WIN32 */
+#endif /* POSIX */

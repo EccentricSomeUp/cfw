@@ -7,7 +7,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#if !defined(_WIN32)
+#if CFW_PLATFORM_POSIX
 #include <dirent.h>
 #endif
 
@@ -292,7 +292,7 @@ static int test_http_fuzz_mutation(void)
  */
 static int test_http_fuzz_corpus(void)
 {
-#if defined(CFW_FUZZ_CORPUS_DIR) && !defined(_WIN32)
+#if defined(CFW_FUZZ_CORPUS_DIR) && CFW_PLATFORM_POSIX
     enum { MAX_CORPUS_INPUT = 8192 };
     DIR *dir;
     struct dirent *entry;

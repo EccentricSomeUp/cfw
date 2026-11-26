@@ -9,6 +9,18 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ## [Unreleased]
 
+### Changed
+
+- Internal platform and feature detection (ADR 0053): raw compiler/OS
+  macros are no longer scattered through the sources. CMake now probes
+  capabilities at configure time and generates an internal
+  `CFW_PLATFORM_*`/`CFW_HAVE_*` header; a single private
+  `platform_detect.h` owns feature-test macro defaults and normalized
+  selection. Pollset backend selection is explicit and compile-fixture
+  targets now exercise the epoll, kqueue (via a stub header on
+  non-kqueue hosts), poll, and none paths on every build. No public API
+  or behavioral change.
+
 ### Fixed
 
 - macOS/BSD polling: kqueue readiness was gated on BSD `NOTE_*`

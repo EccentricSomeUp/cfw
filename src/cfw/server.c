@@ -1,9 +1,11 @@
 /* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 */
 
+#include "private/platform_detect.h"
+
 #include <cfw/server.h>
 #include <cfw/strview.h>
 
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
 
 cfw_status_t cfw_server_init(cfw_server_t *server,
                              const cfw_server_options_t *options)
@@ -100,7 +102,7 @@ void cfw_upgraded_set_user(cfw_upgraded_conn_t *conn, void *user)
     (void)user;
 }
 
-#else /* !_WIN32 */
+#else /* POSIX */
 
 #include "private/net.h"
 #include "private/pollset.h"
@@ -1327,7 +1329,7 @@ cfw_status_t cfw_server_step(cfw_server_t *server,
         if (handle == cfw_fd_get(&server->wakeup[0])) {
             char drain[64];
             int drain_flags = 0;
-#ifdef MSG_DONTWAIT
+#if CFW_HAVE_MSG_DONTWAIT
             drain_flags = MSG_DONTWAIT;
 #endif
             while (recv((int)handle, drain, sizeof(drain),
@@ -1440,7 +1442,7 @@ cfw_status_t cfw_server_init(cfw_server_t *server,
                 server->pollset = NULL;
                 return CFW_ERROR_IO;
             }
-#if !defined(MSG_NOSIGNAL) && defined(SO_NOSIGPIPE)
+#if !CFW_HAVE_MSG_NOSIGNAL && CFW_HAVE_SO_NOSIGPIPE
             {
                 int one = 1;
                 (void)setsockopt(sv[i], SOL_SOCKET, SO_NOSIGPIPE, &one,
@@ -1708,4 +1710,4 @@ void cfw_upgraded_set_user(cfw_upgraded_conn_t *conn, void *user)
     }
 }
 
-#endif /* !_WIN32 */
+#endif /* POSIX */

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 */
 
-#define _POSIX_C_SOURCE 200809L
+#include "private/platform_detect.h"
 
 #include <cfw/thread.h>
 
@@ -9,13 +9,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     #include <windows.h>
 #else
     #include <pthread.h>
 #endif
 
-#if !defined(_WIN32)
+#if CFW_PLATFORM_POSIX
     _Static_assert(sizeof(pthread_t) <= sizeof(((cfw_thread_t *)NULL)->u.storage),
                    "cfw_thread_t storage is too small for pthread_t");
 #endif
@@ -30,7 +30,7 @@ typedef struct cfw_thread_start {
     void *arg;
 } cfw_thread_start_t;
 
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
 static DWORD WINAPI cfw_thread_trampoline(LPVOID parameter)
 {
     cfw_thread_start_t *start = (cfw_thread_start_t *)parameter;
@@ -72,7 +72,7 @@ cfw_status_t cfw_thread_create(cfw_thread_t *thread, cfw_thread_fn fn,
     start->fn = fn;
     start->arg = arg;
 
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     {
         HANDLE handle = CreateThread(NULL, 0, cfw_thread_trampoline, start, 0,
                                      NULL);
@@ -101,7 +101,7 @@ cfw_status_t cfw_thread_join(cfw_thread_t *thread, int *exit_code)
         return CFW_ERROR_INVALID_ARGUMENT;
     }
 
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     {
         HANDLE handle;
         DWORD code = 0;
@@ -146,7 +146,7 @@ cfw_status_t cfw_thread_detach(cfw_thread_t *thread)
         return CFW_ERROR_INVALID_ARGUMENT;
     }
 
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     {
         HANDLE handle;
         memcpy(&handle, thread->u.storage, sizeof(handle));

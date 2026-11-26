@@ -4,7 +4,7 @@
 
 #include "test_harness.h"
 
-#if !defined(_WIN32)
+#if CFW_PLATFORM_POSIX
 
 #include <errno.h>
 #include <stdio.h>
@@ -1108,10 +1108,10 @@ static int test_static_etag_conditionals(void)
     CFW_TEST_ASSERT_EQ(cfw_test_static_teardown(&mount, arena), 0);
     return 0;
 }
-#endif /* !_WIN32 */
+#endif /* POSIX */
 
 const cfw_test_case cfw_test_static_cases[] = {
-#if !defined(_WIN32)
+#if CFW_PLATFORM_POSIX
     {"static_mount_init_validation",
      test_static_mount_init_validation},
     {"static_get_file", test_static_get_file},

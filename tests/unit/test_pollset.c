@@ -7,7 +7,7 @@
 #include "test_harness.h"
 
 #include <string.h>
-#if !defined(_WIN32)
+#if CFW_PLATFORM_POSIX
     #include <unistd.h>
 #endif
 
@@ -15,7 +15,7 @@ static int test_pollset_create_destroy(void)
 {
     cfw_pollset_t *pollset = NULL;
 
-#if defined(_WIN32)
+#if !CFW_PLATFORM_POSIX
     return 0; /* pollset backend is POSIX-only for now. */
 #else
     CFW_TEST_ASSERT_EQ(cfw_pollset_create(NULL), CFW_ERROR_INVALID_ARGUMENT);
@@ -38,7 +38,7 @@ static int test_pollset_wait_reports_readable(void)
     int fds[2];
     char byte = 'x';
 
-#if defined(_WIN32)
+#if !CFW_PLATFORM_POSIX
     return 0; /* pollset backend is POSIX-only for now. */
 #else
     CFW_TEST_ASSERT_EQ(pipe(fds), 0);
@@ -93,7 +93,7 @@ static int test_pollset_modify_and_remove(void)
     int token_b = 2;
     int fds[2];
 
-#if defined(_WIN32)
+#if !CFW_PLATFORM_POSIX
     return 0;
 #else
     CFW_TEST_ASSERT_EQ(pipe(fds), 0);
@@ -135,7 +135,7 @@ static int test_pollset_invalid_arguments(void)
     cfw_duration_t wait_time;
     size_t count;
 
-#if defined(_WIN32)
+#if !CFW_PLATFORM_POSIX
     return 0;
 #else
     CFW_TEST_ASSERT_EQ(cfw_pollset_create(&pollset), CFW_OK);

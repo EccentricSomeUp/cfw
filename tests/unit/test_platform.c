@@ -19,11 +19,11 @@ static int test_platform_detect_consistent(void)
 #elif defined(__aarch64__) || defined(_M_ARM64)
     CFW_TEST_ASSERT_EQ(info.arch, CFW_ARCH_AARCH64);
 #endif
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     CFW_TEST_ASSERT_EQ(info.os, CFW_OS_WINDOWS);
-#elif defined(__APPLE__)
+#elif CFW_PLATFORM_MACOS
     CFW_TEST_ASSERT_EQ(info.os, CFW_OS_MACOS);
-#elif defined(__linux__)
+#elif CFW_PLATFORM_LINUX
     CFW_TEST_ASSERT_EQ(info.os, CFW_OS_LINUX);
 #endif
 #if defined(SIZE_MAX) && SIZE_MAX > UINT32_MAX

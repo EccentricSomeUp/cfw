@@ -93,7 +93,7 @@ cfw_apply_sanitizer_flags(cfw_security_tests)
 add_test(NAME cfw_security COMMAND cfw_security_tests)
 
 # Poll-backend variant: compiles the pollset suite against the poll()
-# fallback (CFW_POLLF_FORCE_POLL) so the non-epoll/kqueue path is
+# fallback (CFW_POLLF_BACKEND=poll) so the non-epoll/kqueue path is
 # verified on every POSIX CI host.
 if(NOT WIN32)
     add_executable(cfw_pollset_poll_tests
@@ -108,7 +108,7 @@ if(NOT WIN32)
     )
     target_link_libraries(cfw_pollset_poll_tests PRIVATE cfw)
     target_compile_definitions(cfw_pollset_poll_tests PRIVATE
-        CFW_POLLF_FORCE_POLL=1
+        CFW_POLLF_BACKEND=poll
     )
 
     cfw_apply_strict_flags(cfw_pollset_poll_tests)
@@ -117,6 +117,65 @@ if(NOT WIN32)
 
     add_test(NAME cfw_pollset_poll COMMAND cfw_pollset_poll_tests)
 endif()
+
+# Backend compile fixtures: these object targets verify that each backend
+# selection still compiles when forced, without requiring the host to provide
+# every platform's runtime headers. kqueue uses a minimal stub header on
+# hosts without <sys/event.h>; real kqueue coverage remains on macOS/BSD CI.
+if(CFW_HAVE_EPOLL)
+    add_library(cfw_pollset_epoll_compile OBJECT
+        ../src/cfw/private/pollset.c
+    )
+    target_include_directories(cfw_pollset_epoll_compile PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_BINARY_DIR}/include
+    )
+    target_compile_definitions(cfw_pollset_epoll_compile PRIVATE
+        CFW_POLLF_BACKEND=epoll
+    )
+    cfw_apply_strict_flags(cfw_pollset_epoll_compile)
+endif()
+
+if(NOT WIN32)
+    add_library(cfw_pollset_poll_compile OBJECT
+        ../src/cfw/private/pollset.c
+    )
+    target_include_directories(cfw_pollset_poll_compile PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_BINARY_DIR}/include
+    )
+    target_compile_definitions(cfw_pollset_poll_compile PRIVATE
+        CFW_POLLF_BACKEND=poll
+    )
+    cfw_apply_strict_flags(cfw_pollset_poll_compile)
+endif()
+
+if(NOT WIN32 AND NOT CFW_HAVE_KQUEUE)
+    add_library(cfw_pollset_kqueue_compile OBJECT
+        ../src/cfw/private/pollset.c
+    )
+    target_include_directories(cfw_pollset_kqueue_compile PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/stubs
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_BINARY_DIR}/include
+    )
+    target_compile_definitions(cfw_pollset_kqueue_compile PRIVATE
+        CFW_POLLF_BACKEND=kqueue
+    )
+    cfw_apply_strict_flags(cfw_pollset_kqueue_compile)
+endif()
+
+add_library(cfw_pollset_none_compile OBJECT
+    ../src/cfw/private/pollset.c
+)
+target_include_directories(cfw_pollset_none_compile PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_BINARY_DIR}/include
+)
+target_compile_definitions(cfw_pollset_none_compile PRIVATE
+    CFW_POLLF_BACKEND=none
+)
+cfw_apply_strict_flags(cfw_pollset_none_compile)
 
 # C++ consumer smoke test: all public headers must compile as C++ and the
 # exported symbols must link. Only built when a C++ compiler is available.

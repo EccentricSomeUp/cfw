@@ -4,7 +4,7 @@
 
 #include "test_harness.h"
 
-#if !defined(_WIN32)
+#if CFW_PLATFORM_POSIX
     #include <unistd.h>
 #endif
 
@@ -34,7 +34,7 @@ static int test_fd_close_empty_is_ok(void)
     return 0;
 }
 
-#if !defined(_WIN32)
+#if CFW_PLATFORM_POSIX
 static int test_fd_close_real_descriptor(void)
 {
     int fds[2];
@@ -86,7 +86,7 @@ static int test_fd_release_transfers_ownership(void)
 const cfw_test_case cfw_test_fd_cases[] = {
     {"fd_init_and_valid", test_fd_init_and_valid},
     {"fd_close_empty_is_ok", test_fd_close_empty_is_ok},
-#if !defined(_WIN32)
+#if CFW_PLATFORM_POSIX
     {"fd_close_real_descriptor", test_fd_close_real_descriptor},
     {"fd_release_transfers_ownership", test_fd_release_transfers_ownership},
 #endif

@@ -12,6 +12,9 @@ include(CTest)
 include(CMakePackageConfigHelpers)
 include(GNUInstallDirs)
 include(cmake/cfw_compile_options.cmake)
+include(cmake/cfw_platform_detection.cmake)
+
+cfw_detect_platform()
 
 set(CFW_ABI_VERSION 1 CACHE STRING "Stable public ABI version")
 

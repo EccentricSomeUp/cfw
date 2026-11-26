@@ -1,16 +1,6 @@
 /* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 */
 
-#if !defined(_WIN32)
-    #define _POSIX_C_SOURCE 200809L
-    #if defined(__APPLE__)
-        /* _POSIX_C_SOURCE hides Darwin extensions such as O_NOFOLLOW
-         * needed by the confined-open path below. */
-        #define _DARWIN_C_SOURCE
-    #endif
-    #if !defined(_FILE_OFFSET_BITS)
-        #define _FILE_OFFSET_BITS 64
-    #endif
-#endif
+#include "private/platform_detect.h"
 
 #include <cfw/fs.h>
 #include "private/fs_confined.h"
@@ -19,7 +9,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     #include <fcntl.h>
     #include <io.h>
     #include <sys/stat.h>
@@ -171,11 +161,11 @@ static cfw_status_t cfw_file_confined_normalize(const char *path,
     return CFW_OK;
 }
 
-#if !defined(_WIN32) && defined(O_NOFOLLOW)
+#if CFW_PLATFORM_POSIX && CFW_HAVE_OPENAT && CFW_HAVE_O_NOFOLLOW
 static int cfw_file_open_mode(int extra)
 {
     int flags = O_RDONLY | extra;
-#ifdef O_CLOEXEC
+#if CFW_HAVE_O_CLOEXEC
     flags |= O_CLOEXEC;
 #endif
     return flags;
@@ -200,7 +190,7 @@ cfw_status_t cfw_file_open_confined(cfw_file_t *file, const char *root,
     }
     (void)norm_len;
 
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     {
         char full[CFW_FS_CONFINED_PATH_CAP];
         size_t rootlen = strlen(root);
@@ -231,7 +221,7 @@ cfw_status_t cfw_file_open_confined(cfw_file_t *file, const char *root,
         return CFW_OK;
     }
 #else
-    #if defined(O_NOFOLLOW)
+    #if CFW_HAVE_OPENAT && CFW_HAVE_O_NOFOLLOW
     {
         CFW_STAT_STRUCT st;
         int dirfd;
@@ -312,7 +302,7 @@ cfw_status_t cfw_file_open_confined(cfw_file_t *file, const char *root,
 cfw_status_t cfw_file_read(cfw_file_t *file, void *buffer,
                            size_t capacity, size_t *out_size)
 {
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     int got;
 #else
     ssize_t got;
@@ -323,7 +313,7 @@ cfw_status_t cfw_file_read(cfw_file_t *file, void *buffer,
         return CFW_ERROR_INVALID_ARGUMENT;
     }
 
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     if (capacity > 0xFFFFFFFFu) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }

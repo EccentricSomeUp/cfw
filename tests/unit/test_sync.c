@@ -6,7 +6,7 @@
 
 #include <stdlib.h>
 
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     #include <windows.h>
 #else
     #include <pthread.h>
@@ -19,7 +19,7 @@ typedef void *(*cfw_test_thread_fn)(void *arg);
 
 static void cfw_test_sleep_ms(int milliseconds)
 {
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     Sleep((DWORD)milliseconds);
 #else
     struct timespec ts;
@@ -29,7 +29,7 @@ static void cfw_test_sleep_ms(int milliseconds)
 #endif
 }
 
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
 typedef HANDLE cfw_test_thread_t;
 
 typedef struct cfw_test_thread_start {

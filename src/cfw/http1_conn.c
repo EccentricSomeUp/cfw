@@ -1,8 +1,10 @@
 /* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 */
 
+#include "private/platform_detect.h"
+
 #include <cfw/http1_conn.h>
 
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
 
 cfw_status_t cfw_http1_conn_init(cfw_http1_conn_t *conn, cfw_fd_t *fd,
                                  const cfw_http1_conn_options_t *options)
@@ -225,7 +227,7 @@ cfw_status_t cfw_http1_conn_flush(cfw_http1_conn_t *conn)
 
     while (conn->out_pos < conn->out.size) {
         ssize_t n;
-#ifdef MSG_NOSIGNAL
+#if CFW_HAVE_MSG_NOSIGNAL
         n = send((int)conn->fd.handle, conn->out.data + conn->out_pos,
                  conn->out.size - conn->out_pos, MSG_NOSIGNAL);
 #else
@@ -281,4 +283,4 @@ void cfw_http1_conn_close(cfw_http1_conn_t *conn)
     cfw_http1_conn_do_close(conn);
 }
 
-#endif /* _WIN32 */
+#endif /* POSIX */

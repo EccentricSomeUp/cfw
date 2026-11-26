@@ -1,8 +1,6 @@
 /* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 */
 
-#if defined(__linux__) || defined(__ANDROID__)
-    #define _GNU_SOURCE
-#endif
+#include "platform_detect.h"
 
 #include "pollset.h"
 
@@ -14,38 +12,83 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* CFW_POLLF_FORCE_POLL is a test-only override that selects the poll()
- * fallback backend on every platform, so the fallback path is exercised
- * in CI on Linux and macOS alike. It is never defined by the build. */
-#if defined(CFW_POLLF_FORCE_POLL) && !defined(_WIN32)
-    #include <poll.h>
-    #include <unistd.h>
-    #define CFW_POLLF_HAVE_POLL 1
-#elif defined(__linux__) || defined(__ANDROID__)
+/* CFW_POLLF_BACKEND is a test-only override accepting epoll, kqueue, poll,
+ * or none. It is never defined by the build; backend fixtures use it to
+ * compile paths that are not selected by capability detection on the host. */
+#if defined(CFW_POLLF_BACKEND)
+    #define CFW_POLLF_BACKEND_epoll 1
+    #define CFW_POLLF_BACKEND_kqueue 2
+    #define CFW_POLLF_BACKEND_poll 3
+    #define CFW_POLLF_BACKEND_none 4
+    #define CFW_POLLF_BACKEND_CAT_I(a, b) a##b
+    #define CFW_POLLF_BACKEND_CAT(a, b) CFW_POLLF_BACKEND_CAT_I(a, b)
+    #define CFW_POLLF_BACKEND_VALUE \
+        CFW_POLLF_BACKEND_CAT(CFW_POLLF_BACKEND_, CFW_POLLF_BACKEND)
+    #if CFW_POLLF_BACKEND_VALUE != CFW_POLLF_BACKEND_epoll && \
+        CFW_POLLF_BACKEND_VALUE != CFW_POLLF_BACKEND_kqueue && \
+        CFW_POLLF_BACKEND_VALUE != CFW_POLLF_BACKEND_poll && \
+        CFW_POLLF_BACKEND_VALUE != CFW_POLLF_BACKEND_none
+        #error "CFW_POLLF_BACKEND must be one of: epoll, kqueue, poll, none"
+    #endif
+#endif
+
+#if defined(CFW_POLLF_BACKEND)
+    #if CFW_POLLF_BACKEND_VALUE == CFW_POLLF_BACKEND_epoll
+        #include <sys/epoll.h>
+        #include <unistd.h>
+        #define CFW_POLLF_HAVE_EPOLL 1
+    #elif CFW_POLLF_BACKEND_VALUE == CFW_POLLF_BACKEND_kqueue
+        #include <fcntl.h>
+        #include <sys/event.h>
+        #include <sys/time.h>
+        #include <time.h>
+        #include <unistd.h>
+        #define CFW_POLLF_HAVE_KQUEUE 1
+    #elif CFW_POLLF_BACKEND_VALUE == CFW_POLLF_BACKEND_poll
+        #include <poll.h>
+        #include <unistd.h>
+        #define CFW_POLLF_HAVE_POLL 1
+    #else
+        #define CFW_POLLF_HAVE_NONE 1
+    #endif
+#elif CFW_HAVE_EPOLL
     #include <sys/epoll.h>
     #include <unistd.h>
     #define CFW_POLLF_HAVE_EPOLL 1
-#elif defined(_WIN32)
-    /* IOCP backend is designed but not implemented (ADR 0011). */
-    #define CFW_POLLF_HAVE_NONE 1
-#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || \
-    defined(__NetBSD__) || defined(__DragonFly__)
+#elif CFW_HAVE_KQUEUE
     #include <fcntl.h>
     #include <sys/event.h>
     #include <sys/time.h>
     #include <time.h>
     #include <unistd.h>
     #define CFW_POLLF_HAVE_KQUEUE 1
-#else
+#elif CFW_HAVE_POLL
     #include <poll.h>
     #include <unistd.h>
     #define CFW_POLLF_HAVE_POLL 1
+#else
+    /* IOCP backend is designed but not implemented (ADR 0011). */
+    #define CFW_POLLF_HAVE_NONE 1
+#endif
+
+#if defined(CFW_POLLF_BACKEND)
+    #undef CFW_POLLF_BACKEND_epoll
+    #undef CFW_POLLF_BACKEND_kqueue
+    #undef CFW_POLLF_BACKEND_poll
+    #undef CFW_POLLF_BACKEND_none
+    #undef CFW_POLLF_BACKEND_CAT_I
+    #undef CFW_POLLF_BACKEND_CAT
+    #undef CFW_POLLF_BACKEND_VALUE
 #endif
 
 /* ------------------------------------------------------------------ */
 /* Shared helpers                                                      */
 /* ------------------------------------------------------------------ */
 
+/* The none backend validates nothing; these helpers serve the real
+ * backends only. */
+#if defined(CFW_POLLF_HAVE_EPOLL) || defined(CFW_POLLF_HAVE_KQUEUE) || \
+    defined(CFW_POLLF_HAVE_POLL)
 static int cfw_pollset_level_is_valid(uint32_t events)
 {
     const uint32_t known = CFW_POLL_IN | CFW_POLL_OUT | CFW_POLL_ERR |
@@ -57,7 +100,11 @@ static int cfw_pollset_handle_is_valid(intptr_t handle)
 {
     return handle >= 0 && handle <= INT32_MAX;
 }
+#endif /* real backends */
 
+/* epoll and poll() wait on millisecond timeouts; kqueue computes its own
+ * relative timespec and the none backend never waits. */
+#if defined(CFW_POLLF_HAVE_EPOLL) || defined(CFW_POLLF_HAVE_POLL)
 static cfw_status_t cfw_pollset_timeout_ms(const cfw_timepoint_t *deadline,
                                            int *timeout_ms)
 {
@@ -93,6 +140,7 @@ static cfw_status_t cfw_pollset_timeout_ms(const cfw_timepoint_t *deadline,
     *timeout_ms = (int)millis;
     return CFW_OK;
 }
+#endif /* epoll || poll */
 
 /* ------------------------------------------------------------------ */
 /* epoll backend (Linux/Android)                                       */

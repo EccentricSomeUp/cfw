@@ -1,39 +1,29 @@
 /* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 */
 
-#define _POSIX_C_SOURCE 200809L
-#if defined(__APPLE__)
-    /* _POSIX_C_SOURCE hides arc4random_buf in <stdlib.h>; _DARWIN_C_SOURCE
-     * exposes it again. */
-    #define _DARWIN_C_SOURCE
-#endif
+#include "private/platform_detect.h"
 
 #include <cfw/random.h>
 
 #include <string.h>
 
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     #include <windows.h>
     #include <bcrypt.h>
-#elif defined(__linux__) || defined(__ANDROID__)
-    #include <errno.h>
-    #include <fcntl.h>
-    #include <sys/random.h>
-    #include <unistd.h>
-#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || \
-    defined(__NetBSD__)
-    #include <stdlib.h>
 #else
     #include <errno.h>
     #include <fcntl.h>
     #include <unistd.h>
+    #if CFW_HAVE_GETRANDOM
+        #include <sys/random.h>
+    #endif
+    #if CFW_HAVE_ARC4RANDOM_BUF
+        #include <stdlib.h>
+    #endif
 #endif
 
 static cfw_status_t cfw_random_read(void *buffer, size_t size)
 {
-    size_t offset = 0;
-    (void)offset;
-
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     if (size == 0) {
         return CFW_OK;
     }
@@ -45,7 +35,15 @@ static cfw_status_t cfw_random_read(void *buffer, size_t size)
         return CFW_ERROR_UNAVAILABLE;
     }
     return CFW_OK;
-#elif defined(__linux__) || defined(__ANDROID__)
+#elif CFW_HAVE_ARC4RANDOM_BUF
+    if (size != 0) {
+        arc4random_buf(buffer, size);
+    }
+    return CFW_OK;
+#else
+    size_t offset = 0;
+
+    #if CFW_HAVE_GETRANDOM
     while (offset < size) {
         ssize_t got = getrandom((uint8_t *)buffer + offset, size - offset, 0);
         if (got < 0) {
@@ -64,12 +62,19 @@ static cfw_status_t cfw_random_read(void *buffer, size_t size)
     if (offset == size) {
         return CFW_OK;
     }
-#endif
+    #endif
 
-#if !defined(_WIN32) && !(defined(__APPLE__) || defined(__FreeBSD__) || \
-                           defined(__OpenBSD__) || defined(__NetBSD__))
+    #if CFW_PLATFORM_POSIX
     {
-        int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+        int fd;
+#if CFW_HAVE_O_CLOEXEC
+        fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+#else
+        fd = open("/dev/urandom", O_RDONLY);
+        if (fd >= 0) {
+            (void)fcntl(fd, F_SETFD, FD_CLOEXEC);
+        }
+#endif
         if (fd < 0) {
             return CFW_ERROR_UNAVAILABLE;
         }
@@ -91,15 +96,11 @@ static cfw_status_t cfw_random_read(void *buffer, size_t size)
         close(fd);
         return CFW_OK;
     }
-#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || \
-    defined(__NetBSD__)
-    if (size != 0) {
-        arc4random_buf(buffer, size);
-    }
-    return CFW_OK;
-#else
+    #endif
+
     (void)buffer;
     (void)size;
+    (void)offset;
     return CFW_ERROR_UNAVAILABLE;
 #endif
 }

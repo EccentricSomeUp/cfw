@@ -180,7 +180,7 @@ static int test_ws_handshake_accept_extract(void)
 /* Integration: handshake + framed data path over a live connection    */
 /* ------------------------------------------------------------------ */
 
-#if !defined(_WIN32)
+#if CFW_PLATFORM_POSIX
     #include "private/net.h"
 
     #include <stdio.h>
@@ -1481,7 +1481,7 @@ static int test_ws_drip_feed(void)
     cfw_test_ws_teardown(st);
     return 0;
 }
-#endif /* !_WIN32 */
+#endif /* POSIX */
 
 const cfw_test_case cfw_test_ws_cases[] = {
     {"ws_accept_key_rfc_vector", test_ws_accept_key_rfc_vector},
@@ -1489,7 +1489,7 @@ const cfw_test_case cfw_test_ws_cases[] = {
     {"ws_handshake_validate_ok", test_ws_handshake_validate_ok},
     {"ws_handshake_validate_rejects", test_ws_handshake_validate_rejects},
     {"ws_handshake_accept_extract", test_ws_handshake_accept_extract},
-#if !defined(_WIN32)
+#if CFW_PLATFORM_POSIX
     {"ws_text_echo", test_ws_text_echo},
     {"ws_fragmented_message", test_ws_fragmented_message},
     {"ws_ping_auto_pong", test_ws_ping_auto_pong},

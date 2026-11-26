@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 */
 
-#define _POSIX_C_SOURCE 200809L
+#include "private/platform_detect.h"
 
 #include <cfw/sync.h>
 
@@ -11,13 +11,13 @@
 #include <string.h>
 #include <time.h>
 
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     #include <windows.h>
 #else
     #include <pthread.h>
 #endif
 
-#if !defined(_WIN32)
+#if CFW_PLATFORM_POSIX
     _Static_assert(sizeof(pthread_mutex_t) <=
                        sizeof(((cfw_mutex_t *)NULL)->u.storage),
                    "cfw_mutex_t storage is too small for pthread_mutex_t");
@@ -28,7 +28,7 @@
 
 #define CFW_NS_PER_SECOND_I64 INT64_C(1000000000)
 
-#if !defined(_WIN32)
+#if CFW_PLATFORM_POSIX
 static cfw_status_t cfw_sync_map_error(int error)
 {
     switch (error) {
@@ -107,7 +107,7 @@ static cfw_status_t cfw_sync_to_abstime(const cfw_timepoint_t *deadline,
     }
     return CFW_OK;
 }
-#endif /* !_WIN32 */
+#endif /* POSIX */
 
 cfw_status_t cfw_mutex_init(cfw_mutex_t *mutex)
 {
@@ -115,7 +115,7 @@ cfw_status_t cfw_mutex_init(cfw_mutex_t *mutex)
         return CFW_ERROR_INVALID_ARGUMENT;
     }
     memset(mutex->u.storage, 0, sizeof(mutex->u.storage));
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     InitializeSRWLock((PSRWLOCK)mutex->u.storage);
     return CFW_OK;
 #else
@@ -129,7 +129,7 @@ cfw_status_t cfw_mutex_destroy(cfw_mutex_t *mutex)
     if (mutex == NULL) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     /* SRWLOCK needs no destroy. */
     (void)mutex;
     return CFW_OK;
@@ -144,7 +144,7 @@ cfw_status_t cfw_mutex_lock(cfw_mutex_t *mutex)
     if (mutex == NULL) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     AcquireSRWLockExclusive((PSRWLOCK)mutex->u.storage);
     return CFW_OK;
 #else
@@ -158,7 +158,7 @@ cfw_status_t cfw_mutex_try_lock(cfw_mutex_t *mutex)
     if (mutex == NULL) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     return TryAcquireSRWLockExclusive((PSRWLOCK)mutex->u.storage)
                ? CFW_OK
                : CFW_ERROR_WOULDBLOCK;
@@ -173,7 +173,7 @@ cfw_status_t cfw_mutex_unlock(cfw_mutex_t *mutex)
     if (mutex == NULL) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     ReleaseSRWLockExclusive((PSRWLOCK)mutex->u.storage);
     return CFW_OK;
 #else
@@ -188,7 +188,7 @@ cfw_status_t cfw_cond_init(cfw_cond_t *cond)
         return CFW_ERROR_INVALID_ARGUMENT;
     }
     memset(cond->u.storage, 0, sizeof(cond->u.storage));
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     InitConditionVariable((PCONDITION_VARIABLE)cond->u.storage);
     return CFW_OK;
 #else
@@ -202,7 +202,7 @@ cfw_status_t cfw_cond_destroy(cfw_cond_t *cond)
     if (cond == NULL) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     (void)cond;
     return CFW_OK;
 #else
@@ -220,7 +220,7 @@ cfw_status_t cfw_cond_wait(cfw_cond_t *cond, cfw_mutex_t *mutex,
         return CFW_ERROR_INVALID_ARGUMENT;
     }
 
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     DWORD ms;
     BOOL woke;
 
@@ -290,7 +290,7 @@ cfw_status_t cfw_cond_signal(cfw_cond_t *cond)
     if (cond == NULL) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     WakeConditionVariable((PCONDITION_VARIABLE)cond->u.storage);
     return CFW_OK;
 #else
@@ -304,7 +304,7 @@ cfw_status_t cfw_cond_broadcast(cfw_cond_t *cond)
     if (cond == NULL) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     WakeAllConditionVariable((PCONDITION_VARIABLE)cond->u.storage);
     return CFW_OK;
 #else

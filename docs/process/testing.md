@@ -105,15 +105,19 @@ ctest --preset sanitizers --output-on-failure
 `cfw_install_smoke` CTest case installs into a scratch prefix and builds a
 `find_package(cfw)` consumer against it. `cfw_pollset_poll_tests` runs the
 pollset suite against the `poll()` fallback backend on every non-Windows
-build via the test-only `CFW_POLLF_FORCE_POLL` override, so the non-epoll
-path is verified even on Linux.
+build via the test-only `CFW_POLLF_BACKEND=poll` override, so the non-epoll
+path is verified even on Linux. Object-only compile fixtures additionally
+force the `epoll`, `kqueue` (against a stub `<sys/event.h>` on hosts
+without one), `poll`, and `none` backend selections so every `#if` branch
+in `pollset.c` is compiled on every host (ADR 0053).
 
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs every configure preset (debug, release,
-sanitizers, shared) on Ubuntu and macOS. The macOS leg is intentional: it
-exercises the `poll()` pollset fallback that the Linux `epoll` backend never
-touches.
+sanitizers, shared) on Ubuntu and macOS. The macOS leg exercises the
+native `kqueue` backend that Linux's `epoll` selection never touches;
+the `poll()` fallback is covered on every POSIX host by
+`cfw_pollset_poll_tests`.
 
 ## Coverage and sanitizer expectations
 

@@ -3,6 +3,8 @@
 #ifndef CFW_PRIVATE_NET_H
 #define CFW_PRIVATE_NET_H
 
+#include "platform_detect.h"
+
 /*
  * Internal socket and address abstraction (POSIX). Not part of the public
  * API; see docs/decisions/0011 and the Phase 2/3 records. Sockets are
@@ -13,7 +15,7 @@
 #include <cfw/fd.h>
 #include <cfw/status.h>
 
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     /* Winsock adapter is a later phase; this header is POSIX-only. */
     #error "cfw private net.h is POSIX-only"
 #endif

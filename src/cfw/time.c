@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 */
 
-#define _POSIX_C_SOURCE 200809L
+#include "private/platform_detect.h"
 
 #include <cfw/time.h>
 
@@ -9,7 +9,7 @@
 #include <stdint.h>
 #include <time.h>
 
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     #include <windows.h>
 #endif
 
@@ -38,7 +38,7 @@ static cfw_status_t cfw_time_store_ns(int64_t nanoseconds, cfw_timepoint_t *out)
 
 static cfw_status_t cfw_time_monotonic_ns(int64_t *nanoseconds)
 {
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     LARGE_INTEGER counts;
     LARGE_INTEGER frequency;
     uint64_t count_value;
@@ -73,7 +73,7 @@ static cfw_status_t cfw_time_monotonic_ns(int64_t *nanoseconds)
 
     *nanoseconds = (int64_t)result;
     return CFW_OK;
-#elif defined(CLOCK_MONOTONIC)
+#elif CFW_HAVE_CLOCK_MONOTONIC
     struct timespec ts;
     uint64_t seconds;
     uint64_t result;
@@ -284,7 +284,7 @@ cfw_status_t cfw_time_wall_now(int64_t *unix_seconds)
     if (unix_seconds == NULL) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
-#if defined(_WIN32)
+#if CFW_PLATFORM_WINDOWS
     FILETIME file_time;
     uint64_t ticks;
     GetSystemTimePreciseAsFileTime(&file_time);
@@ -297,7 +297,7 @@ cfw_status_t cfw_time_wall_now(int64_t *unix_seconds)
     }
     *unix_seconds = (int64_t)((ticks - 116444736000000000ULL) / 10000000ULL);
     return CFW_OK;
-#elif defined(CLOCK_REALTIME)
+#elif CFW_HAVE_CLOCK_REALTIME
     struct timespec ts;
     if (clock_gettime(CLOCK_REALTIME, &ts) != 0 || ts.tv_sec < 0) {
         return CFW_ERROR_UNAVAILABLE;
