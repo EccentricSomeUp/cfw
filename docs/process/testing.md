@@ -84,7 +84,9 @@ The harness lives in `tests/unit/test_harness.h` and is shared by three
 test binaries: `cfw_unit_tests` (unit suites, registered in
 `tests/unit/test_main.c`), `cfw_integration_tests` (end-to-end pipeline
 over real loopback TCP), and `cfw_security_tests` (request-smuggling and
-framing-abuse regressions).
+framing-abuse regressions). A fourth binary, `cfw_cpp_consumer`, is a
+standalone C++ header/link smoke test built when a C++ compiler is
+available.
 
 Useful commands:
 
@@ -96,6 +98,19 @@ Useful commands:
 ctest --preset debug --output-on-failure
 ctest --preset sanitizers --output-on-failure
 ```
+
+`cfw_unit_tests` also replays the adversarial corpus in `tests/fuzz/corpus`
+(see `tests/fuzz/README.md`) and, when a C++ compiler is available, builds a
+`cfw_cpp_consumer` test proving the public headers compile as C++. The
+`cfw_install_smoke` CTest case installs into a scratch prefix and builds a
+`find_package(cfw)` consumer against it.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs every configure preset (debug, release,
+sanitizers, shared) on Ubuntu and macOS. The macOS leg is intentional: it
+exercises the `poll()` pollset fallback that the Linux `epoll` backend never
+touches.
 
 ## Coverage and sanitizer expectations
 

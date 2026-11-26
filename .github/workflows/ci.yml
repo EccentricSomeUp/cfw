@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  presets:
+    name: ${{ matrix.preset }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        preset: [debug, release, sanitizers, shared]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure ${{ matrix.preset }}
+        run: cmake --preset ${{ matrix.preset }}
+
+      - name: Build ${{ matrix.preset }}
+        run: cmake --build --preset ${{ matrix.preset }}
+
+      - name: Test ${{ matrix.preset }}
+        run: ctest --preset ${{ matrix.preset }} --output-on-failure
