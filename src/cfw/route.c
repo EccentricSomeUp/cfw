@@ -445,6 +445,22 @@ cfw_status_t cfw_route_match_param(const cfw_route_param_t *params,
     return CFW_ERROR_INVALID_ARGUMENT;
 }
 
+cfw_status_t cfw_route_param_decode(const cfw_route_param_t *params,
+                                    size_t params_written,
+                                    const cfw_strview_t *name, char *dst,
+                                    size_t cap, size_t *out_len,
+                                    uint32_t flags)
+{
+    cfw_strview_t raw;
+    cfw_status_t st;
+
+    st = cfw_route_match_param(params, params_written, name, &raw);
+    if (st != CFW_OK) {
+        return st;
+    }
+    return cfw_uri_decode(raw.data, raw.size, dst, cap, out_len, flags);
+}
+
 cfw_status_t cfw_router_add(cfw_router_t *router, cfw_http_method_t method,
                             const cfw_strview_t *pattern, void *user,
                             const cfw_route_t **out_route)

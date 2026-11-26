@@ -38,8 +38,8 @@ typedef struct cfw_query_pair {
 /* Parses `query` into up to `pair_capacity` pairs stored in `pairs`.
  *
  * `scratch` receives the decoded bytes and must be at least
- * `query->size` bytes — decoding never produces more bytes than the
- * input consumed them from. Pass a buffer of query->size (or larger)
+ * `query->size + 1` bytes (one spare byte covers the decoder's
+ * transient terminator). Pass a buffer of query->size + 1 (or larger)
  * to guarantee success; a smaller buffer fails with
  * CFW_ERROR_INVALID_ARGUMENT before any pair is stored.
  *

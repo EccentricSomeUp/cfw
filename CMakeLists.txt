@@ -52,6 +52,7 @@ set(CFW_SOURCES
     src/cfw/status.c
     src/cfw/strview.c
     src/cfw/time.c
+    src/cfw/uri.c
     src/cfw/version.c
     src/cfw/ws.c
 )

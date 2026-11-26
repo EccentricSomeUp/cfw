@@ -76,6 +76,9 @@ abstraction exists.
   ADRs 0036/0037/0039/0040)
 - `tls`: out of scope for the core library (ADR 0030); a future optional
   module would sit below `http1_conn`/`server` behind its own dependency ADR
+- `uri`: shared percent-decoding primitive with per-use flags
+  (implemented; see `cfw/uri.h`, ADR 0044); also backs query parsing,
+  static-file path decoding, and route-parameter decoding
 - `log`: structured, rate-limited, non-blocking-friendly logging
 
 ## Security invariants

@@ -353,6 +353,100 @@ static int test_http_target_path(void)
     return 0;
 }
 
+static int test_route_param_decode(void)
+{
+    cfw_arena_t *arena = cfw_arena_create(4096);
+    cfw_router_t router;
+    cfw_route_match_t match;
+    cfw_route_param_t params[4];
+    cfw_strview_t path;
+    cfw_strview_t name;
+    char dst[64];
+    size_t out_len = 0;
+    cfw_strview_t raw;
+
+    CFW_TEST_ASSERT_TRUE(arena != NULL);
+    CFW_TEST_ASSERT_EQ(cfw_router_init(&router, arena), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_router_add(&router, CFW_HTTP_METHOD_GET,
+                                           "/files/:name", NULL, NULL),
+                       CFW_OK);
+
+    path = cfw_test_sv("/files/report%20final%21.txt");
+    CFW_TEST_ASSERT_EQ(cfw_router_match(&router, CFW_HTTP_METHOD_GET,
+                                        &path, params, 4, &match),
+                       CFW_OK);
+    CFW_TEST_ASSERT_TRUE(match.route != NULL);
+
+    /* Raw value stays percent-encoded. */
+    name = cfw_test_sv("name");
+    CFW_TEST_ASSERT_EQ(cfw_route_match_param(params, match.params_written,
+                                             &name, &raw),
+                       CFW_OK);
+    CFW_TEST_ASSERT_TRUE(raw.size == strlen("report%20final%21.txt"));
+
+    /* Decoded value via the convenience helper. */
+    CFW_TEST_ASSERT_EQ(cfw_route_param_decode(
+                           params, match.params_written, &name, dst,
+                           sizeof(dst), &out_len, 0),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(out_len, strlen("report final!.txt"));
+    CFW_TEST_ASSERT_TRUE(memcmp(dst, "report final!.txt",
+                                out_len + 1) == 0);
+
+    /* '+' stays literal for path params (no form semantics). */
+    path = cfw_test_sv("/files/a+b");
+    CFW_TEST_ASSERT_EQ(cfw_router_match(&router, CFW_HTTP_METHOD_GET,
+                                        &path, params, 4, &match),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_route_param_decode(
+                           params, match.params_written, &name, dst,
+                           sizeof(dst), &out_len, 0),
+                       CFW_OK);
+    CFW_TEST_ASSERT_TRUE(memcmp(dst, "a+b", 4) == 0);
+
+    /* Flags are honored: backslash rejected. */
+    path = cfw_test_sv("/files/a%5Cb");
+    CFW_TEST_ASSERT_EQ(cfw_router_match(&router, CFW_HTTP_METHOD_GET,
+                                        &path, params, 4, &match),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_route_param_decode(
+                           params, match.params_written, &name, dst,
+                           sizeof(dst), &out_len,
+                           CFW_URI_DECODE_REJECT_BACKSLASH),
+                       CFW_ERROR_INVALID_ARGUMENT);
+
+    /* Malformed escape propagates as an error. */
+    path = cfw_test_sv("/files/a%2");
+    CFW_TEST_ASSERT_EQ(cfw_router_match(&router, CFW_HTTP_METHOD_GET,
+                                        &path, params, 4, &match),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_route_param_decode(
+                           params, match.params_written, &name, dst,
+                           sizeof(dst), &out_len, 0),
+                       CFW_ERROR_INVALID_ARGUMENT);
+
+    /* Unknown param name → error. */
+    name = cfw_test_sv("missing");
+    CFW_TEST_ASSERT_EQ(cfw_route_param_decode(
+                           params, match.params_written, &name, dst,
+                           sizeof(dst), &out_len, 0),
+                       CFW_ERROR_INVALID_ARGUMENT);
+
+    /* Undersized dst → error. */
+    name = cfw_test_sv("name");
+    path = cfw_test_sv("/files/abc");
+    CFW_TEST_ASSERT_EQ(cfw_router_match(&router, CFW_HTTP_METHOD_GET,
+                                        &path, params, 4, &match),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_route_param_decode(
+                           params, match.params_written, &name, dst, 3,
+                           &out_len, 0),
+                       CFW_ERROR_INVALID_ARGUMENT);
+
+    cfw_arena_destroy(arena);
+    return 0;
+}
+
 const cfw_test_case cfw_test_route_cases[] = {
     {"route_basic_match", test_route_basic_match},
     {"route_root_and_wildcard", test_route_root_and_wildcard},
@@ -360,6 +454,7 @@ const cfw_test_case cfw_test_route_cases[] = {
     {"route_capacity_truncation", test_route_capacity_truncation},
     {"route_registration_validation", test_route_registration_validation},
     {"route_match_param_edge", test_route_match_param_edge},
+    {"route_param_decode", test_route_param_decode},
     {"http_target_path", test_http_target_path},
     {NULL, NULL},
 };

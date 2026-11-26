@@ -7,6 +7,7 @@
 #include <cfw/fs.h>
 #include <cfw/http.h>
 #include <cfw/strview.h>
+#include <cfw/uri.h>
 
 #include <string.h>
 
@@ -56,64 +57,17 @@ static size_t cfw_static_align_up(size_t n, size_t a)
     return (n + a - 1u) / a * a;
 }
 
-static int cfw_static_hexval(char c, unsigned int *out)
-{
-    if (c >= '0' && c <= '9') {
-        *out = (unsigned int)(c - '0');
-        return 1;
-    }
-    if (c >= 'a' && c <= 'f') {
-        *out = (unsigned int)(c - 'a' + 10);
-        return 1;
-    }
-    if (c >= 'A' && c <= 'F') {
-        *out = (unsigned int)(c - 'A' + 10);
-        return 1;
-    }
-    return 0;
-}
-
-/* Percent-decodes src[0..len) into dst (NUL-terminated, capacity cap).
- * Rejects malformed escapes, NUL bytes, and backslashes. Returns
- * CFW_OK or CFW_ERROR_INVALID_ARGUMENT. */
+/* Percent-decodes the request path suffix into a NUL-terminated fs
+ * path. Rejects malformed escapes, NUL bytes, and backslashes —
+ * '\\' is a separator on Windows, and NUL would truncate the path.
+ * Thin wrapper over cfw_uri_decode with the filesystem flags. */
 static cfw_status_t cfw_static_decode(const char *src, size_t len,
                                       char *dst, size_t cap,
                                       size_t *out_len)
 {
-    size_t i = 0;
-    size_t o = 0;
-
-    while (i < len) {
-        unsigned int hi, lo;
-        char c = src[i];
-        if (c == '\\') {
-            return CFW_ERROR_INVALID_ARGUMENT;
-        }
-        if (c == '%') {
-            if (i + 2 >= len ||
-                !cfw_static_hexval(src[i + 1], &hi) ||
-                !cfw_static_hexval(src[i + 2], &lo)) {
-                return CFW_ERROR_INVALID_ARGUMENT;
-            }
-            c = (char)((hi << 4) | lo);
-            /* Reject NUL and backslash even when percent-encoded:
-             * NUL would truncate the fs path, and '\\' is a separator
-             * on Windows. */
-            if (c == '\0' || c == '\\') {
-                return CFW_ERROR_INVALID_ARGUMENT;
-            }
-            i += 3;
-        } else {
-            i += 1;
-        }
-        if (o + 1 >= cap) {
-            return CFW_ERROR_INVALID_ARGUMENT;
-        }
-        dst[o++] = c;
-    }
-    dst[o] = '\0';
-    *out_len = o;
-    return CFW_OK;
+    return cfw_uri_decode(
+        src, len, dst, cap, out_len,
+        CFW_URI_DECODE_REJECT_NUL | CFW_URI_DECODE_REJECT_BACKSLASH);
 }
 
 /* Rejects any "/"-separated segment equal to ".." in the decoded

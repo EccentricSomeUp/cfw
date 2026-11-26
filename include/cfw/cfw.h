@@ -24,6 +24,7 @@
 #include <cfw/status.h>
 #include <cfw/strview.h>
 #include <cfw/time.h>
+#include <cfw/uri.h>
 #include <cfw/version.h>
 #include <cfw/ws.h>
 

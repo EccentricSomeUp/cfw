@@ -7,6 +7,7 @@
 #include <cfw/http.h>
 #include <cfw/status.h>
 #include <cfw/strview.h>
+#include <cfw/uri.h>
 
 #include <stddef.h>
 #include <stdint.h>
@@ -25,6 +26,8 @@ extern "C" {
  *
  * Path inputs must be the raw path portion of a request target (use
  * cfw_http_target_path to extract it); percent-encoding is preserved.
+ * Parameter values stay percent-encoded — decode them with
+ * cfw_route_param_decode (or cfw_uri_decode directly).
  */
 
 typedef struct cfw_route_param {
@@ -104,6 +107,18 @@ CFW_API cfw_status_t cfw_router_match(const cfw_router_t *router,
 CFW_API cfw_status_t cfw_route_match_param(
     const cfw_route_param_t *params, size_t params_written,
     const cfw_strview_t *name, cfw_strview_t *value);
+
+/* Convenience wrapper: looks up `name` via cfw_route_match_param, then
+ * percent-decodes the raw (still encoded) value into `dst` with
+ * cfw_uri_decode. `flags` selects the decode rules — pass 0 for
+ * generic values or CFW_URI_DECODE_REJECT_BACKSLASH etc. for
+ * filesystem-bound values. Returns CFW_ERROR_INVALID_ARGUMENT when the
+ * parameter is absent, arguments are invalid, the value is malformed,
+ * or `dst` is too small (decoded length + 1). */
+CFW_API cfw_status_t cfw_route_param_decode(
+    const cfw_route_param_t *params, size_t params_written,
+    const cfw_strview_t *name, char *dst, size_t cap, size_t *out_len,
+    uint32_t flags);
 
 CFW_API size_t cfw_router_count(const cfw_router_t *router);
 

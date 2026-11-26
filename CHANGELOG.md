@@ -72,6 +72,15 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   206/`Content-Range` (416 when unsatisfiable). New fs primitives
   `cfw_file_fstat` and `cfw_file_seek` provide handle-relative
   metadata and positioned reads; new status codes 206, 412, 416.
+- URI percent-decoding primitive (ADR 0044): new `cfw/uri.h` module
+  with `cfw_uri_decode` — strict `%XX` decoding, NUL-terminated
+  output, and flags for `+`→SP (form components), NUL rejection, and
+  backslash rejection (filesystem paths). `cfw_query_parse` and the
+  static-file path decoder now share it; new
+  `cfw_route_param_decode` helper decodes route parameter values on
+  demand. Route matching still operates on the raw encoded path, so
+  `%2F` cannot fabricate segments. `cfw_query_parse` scratch
+  requirement is now `query->size + 1`.
 - multipart/form-data parsing (ADR 0043): new `cfw/multipart.h`
   module — `cfw_multipart_boundary` extracts the boundary parameter
   from Content-Type, `cfw_multipart_parse` splits a buffered body
