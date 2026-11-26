@@ -41,6 +41,8 @@ semantic versioning once a stable release policy is adopted.
   status for nonblocking I/O
 - HTTP/1.x token primitives: method, version, and status enums with strict
   bounded parsers and canonical names
+- Allocation-free HTTP header-block iterator with strict token grammar,
+  OWS trimming, and obs-fold/bare-CRLF rejection
 - CMake build, presets, sanitizer configuration, install rules, and CMake
   package config
 - Custom unit-test harness with debug, release, and sanitizer verification

@@ -257,3 +257,145 @@ cfw_status_t cfw_http_status_parse(uint32_t code, cfw_http_status_t *status)
         return CFW_ERROR_INVALID_ARGUMENT;
     }
 }
+
+/* ------------------------------------------------------------------ */
+/* Header block parsing                                                */
+/* ------------------------------------------------------------------ */
+
+static int cfw_http_is_tchar(unsigned char c)
+{
+    if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+        (c >= '0' && c <= '9')) {
+        return 1;
+    }
+    return strchr("!#$%&'*+-.^_`|~", (int)c) != NULL;
+}
+
+static int cfw_http_is_ows(unsigned char c)
+{
+    return c == ' ' || c == '\t';
+}
+
+static cfw_status_t cfw_http_parse_header_line(const cfw_strview_t *line,
+                                               cfw_http_header_t *header)
+{
+    size_t i;
+    size_t colon = line->size;
+    size_t name_end;
+    size_t value_start;
+    size_t value_end;
+
+    for (i = 0; i < line->size; i++) {
+        if (line->data[i] == ':') {
+            colon = i;
+            break;
+        }
+        if (!cfw_http_is_tchar((unsigned char)line->data[i])) {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+    }
+    if (colon == 0 || colon == line->size) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    name_end = colon;
+    value_start = colon + 1;
+    value_end = line->size;
+
+    while (value_start < value_end &&
+           cfw_http_is_ows((unsigned char)line->data[value_start])) {
+        value_start++;
+    }
+    while (value_end > value_start &&
+           cfw_http_is_ows((unsigned char)line->data[value_end - 1])) {
+        value_end--;
+    }
+
+    header->name.data = line->data;
+    header->name.size = name_end;
+    header->value.data = line->data + value_start;
+    header->value.size = value_end - value_start;
+    return CFW_OK;
+}
+
+cfw_status_t cfw_http_headers_next(const cfw_strview_t *block,
+                                   size_t *cursor,
+                                   cfw_http_header_t *header, int *done)
+{
+    size_t pos;
+    size_t line_end;
+    cfw_strview_t line;
+    cfw_status_t status;
+
+    if (block == NULL || cursor == NULL || header == NULL || done == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (block->size != 0 && block->data == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (*cursor > block->size) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    *done = 0;
+    pos = *cursor;
+
+    if (pos >= block->size) {
+        *done = 1;
+        return CFW_OK;
+    }
+
+    /* An empty line terminates the header section. */
+    if (pos + 1 < block->size && block->data[pos] == '\r' &&
+        block->data[pos + 1] == '\n') {
+        *done = 1;
+        return CFW_OK;
+    }
+
+    /* Find the CRLF terminating this header line. Bare CR or LF inside the
+     * block is malformed; obs-fold (leading SP/HT) is rejected. A line not
+     * terminated by CRLF within the block is incomplete input. */
+    line_end = block->size;
+    {
+        size_t i;
+        int terminated = 0;
+        for (i = pos; i < block->size; i++) {
+            unsigned char c = (unsigned char)block->data[i];
+            if (c == '\r') {
+                if (i + 1 >= block->size || block->data[i + 1] != '\n') {
+                    return CFW_ERROR_INVALID_ARGUMENT;
+                }
+                line_end = i;
+                terminated = 1;
+                break;
+            }
+            if (c == '\n') {
+                return CFW_ERROR_INVALID_ARGUMENT;
+            }
+        }
+        if (!terminated) {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+    }
+
+    /* Reject obs-fold: a header line must not start with SP/HT. */
+    if (cfw_http_is_ows((unsigned char)block->data[pos])) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    line.data = block->data + pos;
+    line.size = line_end - pos;
+
+    status = cfw_http_parse_header_line(&line, header);
+    if (status != CFW_OK) {
+        return status;
+    }
+
+    /* Advance past the CRLF. */
+    if (line_end + 2 <= block->size) {
+        *cursor = line_end + 2;
+    } else {
+        *cursor = line_end;
+    }
+    return CFW_OK;
+}

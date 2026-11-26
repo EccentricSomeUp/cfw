@@ -105,9 +105,133 @@ static int test_http_status_reason_and_parse(void)
     return 0;
 }
 
+static cfw_strview_t cfw_test_view_n(const char *text, size_t size)
+{
+    cfw_strview_t view;
+    cfw_strview_init(&view, text, size);
+    return view;
+}
+
+static int test_http_headers_next_basic(void)
+{
+    static const char block[] =
+        "Host: example.com\r\n"
+        "Content-Type: text/html\r\n"
+        "X-Empty:\r\n"
+        "X-Spaces:   padded value  \r\n";
+    cfw_strview_t view = cfw_test_view_n(block, sizeof(block) - 1);
+    cfw_http_header_t header;
+    size_t cursor = 0;
+    int done = 0;
+
+    CFW_TEST_ASSERT_EQ(cfw_http_headers_next(&view, &cursor, &header, &done),
+                       CFW_OK);
+    CFW_TEST_ASSERT_FALSE(done);
+    CFW_TEST_ASSERT_EQ(header.name.size, 4);
+    CFW_TEST_ASSERT(memcmp(header.name.data, "Host", 4) == 0);
+    CFW_TEST_ASSERT_EQ(header.value.size, 11);
+    CFW_TEST_ASSERT(memcmp(header.value.data, "example.com", 11) == 0);
+
+    CFW_TEST_ASSERT_EQ(cfw_http_headers_next(&view, &cursor, &header, &done),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(header.name.size, 12);
+    CFW_TEST_ASSERT(memcmp(header.name.data, "Content-Type", 12) == 0);
+
+    CFW_TEST_ASSERT_EQ(cfw_http_headers_next(&view, &cursor, &header, &done),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(header.name.size, 7);
+    CFW_TEST_ASSERT_EQ(header.value.size, 0);
+
+    CFW_TEST_ASSERT_EQ(cfw_http_headers_next(&view, &cursor, &header, &done),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(header.value.size, 12);
+    CFW_TEST_ASSERT(memcmp(header.value.data, "padded value", 12) == 0);
+
+    CFW_TEST_ASSERT_EQ(cfw_http_headers_next(&view, &cursor, &header, &done),
+                       CFW_OK);
+    CFW_TEST_ASSERT_TRUE(done);
+    CFW_TEST_ASSERT_EQ(cursor, sizeof(block) - 1);
+    return 0;
+}
+
+static int test_http_headers_next_empty_block(void)
+{
+    cfw_strview_t view = cfw_test_view_n("", 0);
+    cfw_http_header_t header;
+    size_t cursor = 0;
+    int done = 0;
+
+    CFW_TEST_ASSERT_EQ(cfw_http_headers_next(&view, &cursor, &header, &done),
+                       CFW_OK);
+    CFW_TEST_ASSERT_TRUE(done);
+
+    /* A block that is only the header terminator also reports done. */
+    view = cfw_test_view("\r\n");
+    cursor = 0;
+    done = 0;
+    CFW_TEST_ASSERT_EQ(cfw_http_headers_next(&view, &cursor, &header, &done),
+                       CFW_OK);
+    CFW_TEST_ASSERT_TRUE(done);
+    return 0;
+}
+
+static int test_http_headers_next_rejects_malformed(void)
+{
+    static const char *bad[] = {
+        "NoColon\r\n",
+        "Bad Name: v\r\n",
+        "Name:value\nNext: v\r\n",   /* bare LF */
+        "Name: v\rX\r\n",            /* bare CR */
+        " Name: v\r\n",              /* obs-fold leading space */
+        "\tName: v\r\n",             /* obs-fold leading tab */
+        "Name: v",                   /* unterminated line */
+        ": v\r\n",                   /* empty name */
+        "Name\x01: v\r\n",           /* invalid tchar */
+    };
+    size_t i;
+
+    for (i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        cfw_strview_t view = cfw_test_view(bad[i]);
+        cfw_http_header_t header;
+        size_t cursor = 0;
+        int done = 0;
+        cfw_status_t status =
+            cfw_http_headers_next(&view, &cursor, &header, &done);
+        CFW_TEST_ASSERT_EQ(status, CFW_ERROR_INVALID_ARGUMENT);
+    }
+    return 0;
+}
+
+static int test_http_headers_next_invalid_args(void)
+{
+    cfw_strview_t view = cfw_test_view("A: b\r\n");
+    cfw_http_header_t header;
+    size_t cursor = 0;
+    int done = 0;
+
+    CFW_TEST_ASSERT_EQ(cfw_http_headers_next(NULL, &cursor, &header, &done),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_http_headers_next(&view, NULL, &header, &done),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_http_headers_next(&view, &cursor, NULL, &done),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_http_headers_next(&view, &cursor, &header, NULL),
+                       CFW_ERROR_INVALID_ARGUMENT);
+
+    cursor = view.size + 1;
+    CFW_TEST_ASSERT_EQ(cfw_http_headers_next(&view, &cursor, &header, &done),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    return 0;
+}
+
 const cfw_test_case cfw_test_http_cases[] = {
     {"http_method_names_and_parse", test_http_method_names_and_parse},
     {"http_version_parse_and_format", test_http_version_parse_and_format},
     {"http_status_reason_and_parse", test_http_status_reason_and_parse},
+    {"http_headers_next_basic", test_http_headers_next_basic},
+    {"http_headers_next_empty_block", test_http_headers_next_empty_block},
+    {"http_headers_next_rejects_malformed",
+     test_http_headers_next_rejects_malformed},
+    {"http_headers_next_invalid_args", test_http_headers_next_invalid_args},
     {NULL, NULL},
 };

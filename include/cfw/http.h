@@ -66,6 +66,16 @@ typedef enum cfw_http_status {
     CFW_HTTP_STATUS_GATEWAY_TIMEOUT = 504
 } cfw_http_status_t;
 
+typedef struct cfw_http_header {
+    cfw_strview_t name;
+    cfw_strview_t value;
+} cfw_http_header_t;
+
+CFW_API cfw_status_t cfw_http_headers_next(const cfw_strview_t *block,
+                                           size_t *cursor,
+                                           cfw_http_header_t *header,
+                                           int *done);
+
 CFW_API const char *cfw_http_method_name(cfw_http_method_t method);
 CFW_API cfw_status_t cfw_http_method_parse(const cfw_strview_t *token,
                                            cfw_http_method_t *method);
