@@ -868,7 +868,82 @@ static int test_server_streaming_http10(void)
     return 0;
 }
 
+
+static int test_server_host_required(void)
+{
+    cfw_test_server ts;
+    char response[4096];
+    ssize_t n;
+
+    CFW_TEST_ASSERT_EQ(cfw_test_server_setup(&ts, (cfw_duration_t){0},
+                                             (cfw_duration_t){0}, 8),
+                       0);
+
+    /* HTTP/1.1 without Host must be rejected with 400. */
+    {
+        cfw_fd_t client;
+        cfw_fd_init(&client);
+        CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                            cfw_server_port(&ts.server)),
+                           CFW_OK);
+        CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                         "GET /hello HTTP/1.1\r\n"
+                                         "X-Test: 1\r\n\r\n"),
+                           0);
+        n = cfw_test_serve_recv(&ts.server, &client, response,
+                                sizeof(response) - 1);
+        CFW_TEST_ASSERT_TRUE(n > 0);
+        response[n] = '\0';
+        CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                               "400"));
+        cfw_fd_close(&client);
+    }
+
+    /* Empty Host value is also rejected. */
+    {
+        cfw_fd_t client;
+        cfw_fd_init(&client);
+        CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                            cfw_server_port(&ts.server)),
+                           CFW_OK);
+        CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                         "GET /hello HTTP/1.1\r\n"
+                                         "Host:\r\n\r\n"),
+                           0);
+        n = cfw_test_serve_recv(&ts.server, &client, response,
+                                sizeof(response) - 1);
+        CFW_TEST_ASSERT_TRUE(n > 0);
+        response[n] = '\0';
+        CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                               "400"));
+        cfw_fd_close(&client);
+    }
+
+    /* HTTP/1.0 does not require Host. */
+    {
+        cfw_fd_t client10;
+        cfw_fd_init(&client10);
+        CFW_TEST_ASSERT_EQ(cfw_test_connect(&client10,
+                                            cfw_server_port(&ts.server)),
+                           CFW_OK);
+        CFW_TEST_ASSERT_EQ(cfw_test_send(&client10,
+                                         "GET /hello HTTP/1.0\r\n\r\n"),
+                           0);
+        n = cfw_test_serve_recv(&ts.server, &client10, response,
+                                sizeof(response) - 1);
+        CFW_TEST_ASSERT_TRUE(n > 0);
+        response[n] = '\0';
+        CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                               "srv-ok"));
+        cfw_fd_close(&client10);
+    }
+
+    cfw_test_server_teardown(&ts);
+    return 0;
+}
+
 const cfw_test_case cfw_test_server_cases[] = {
+    {"server_host_required", test_server_host_required},
     {"server_streaming_response", test_server_streaming_response},
     {"server_streaming_http10", test_server_streaming_http10},
     {"server_request_response", test_server_request_response},

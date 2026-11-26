@@ -90,9 +90,11 @@ struct cfw_server_conn {
     int stream_chunked;
     int stream_hold_close;
     int have_head;
+    int rejecting;
     int dead;
     cfw_timepoint_t deadline;
     int deadline_set;
+    intptr_t handle;
     cfw_server_conn_t *next;
 };
 
@@ -113,7 +115,7 @@ static void cfw_server_conn_deadline(cfw_server_conn_t *conn,
 static void cfw_server_close_conn(cfw_server_t *server,
                                   cfw_server_conn_t *conn)
 {
-    cfw_pollset_remove(server->pollset, cfw_fd_get(&conn->http.fd));
+    cfw_pollset_remove(server->pollset, conn->handle);
     cfw_http1_conn_free(&conn->http);
     cfw_buffer_free(&conn->body);
     cfw_buffer_free(&conn->head_scratch);
@@ -183,6 +185,14 @@ static void cfw_server_update_conn_interest(cfw_server_t *server,
     if (conn->dead) {
         return;
     }
+    /* The http1 layer may have closed the fd (close-after-write drain);
+     * the cached handle still identifies the pollset registration, which
+     * close_conn removes. Reap now so a recycled fd number cannot be
+     * hijacked by a modify on a stale registration. */
+    if (!cfw_fd_valid(&conn->http.fd)) {
+        conn->dead = 1;
+        return;
+    }
     if (!conn->http.input_closed) {
         events |= CFW_POLL_IN;
     }
@@ -193,8 +203,7 @@ static void cfw_server_update_conn_interest(cfw_server_t *server,
         conn->dead = 1;
         return;
     }
-    cfw_pollset_modify(server->pollset, cfw_fd_get(&conn->http.fd), events,
-                       conn);
+    cfw_pollset_modify(server->pollset, conn->handle, events, conn);
 }
 
 static cfw_server_conn_t *cfw_server_find_conn(cfw_server_t *server,
@@ -202,7 +211,7 @@ static cfw_server_conn_t *cfw_server_find_conn(cfw_server_t *server,
 {
     cfw_server_conn_t *conn;
     for (conn = server->conns; conn != NULL; conn = conn->next) {
-        if (cfw_fd_get(&conn->http.fd) == handle) {
+        if (conn->handle == handle) {
             return conn;
         }
     }
@@ -574,6 +583,37 @@ static void cfw_server_stream_pump(cfw_server_t *server,
     }
 }
 
+/* RFC 9112 section 3.2: an HTTP/1.1 request must carry a Host field
+ * with a non-empty value. Returns 1 when a valid Host is present. */
+static int cfw_server_head_has_host(const cfw_http_request_head_t *head)
+{
+    cfw_strview_t block;
+    size_t cursor = 0;
+    int done = 0;
+
+    if (head == NULL) {
+        return 0;
+    }
+    block = head->headers;
+    for (;;) {
+        cfw_http_header_t header;
+        cfw_strview_t host;
+        int eq;
+        cfw_status_t st;
+
+        memset(&header, 0, sizeof(header));
+        st = cfw_http_headers_next(&block, &cursor, &header, &done);
+        if (st != CFW_OK || done) {
+            return 0;
+        }
+        cfw_strview_from_cstr(&host, "Host");
+        st = cfw_strview_equal_nocase(&header.name, &host, &eq);
+        if (st == CFW_OK && eq && header.value.size != 0) {
+            return 1;
+        }
+    }
+}
+
 static void cfw_server_service_read(cfw_server_t *server,
                                     cfw_server_conn_t *conn)
 {
@@ -594,6 +634,16 @@ static void cfw_server_service_read(cfw_server_t *server,
             conn->head = event.head;
             conn->have_head = 1;
             cfw_buffer_clear(&conn->body);
+            if ((conn->head.request_line.version.major > 1 ||
+                 (conn->head.request_line.version.major == 1 &&
+                  conn->head.request_line.version.minor >= 1)) &&
+                !cfw_server_head_has_host(&conn->head)) {
+                cfw_server_send_error(server, conn,
+                                      CFW_HTTP1_ERR_PROTOCOL);
+                cfw_http1_conn_close_after_write(&conn->http);
+                conn->rejecting = 1;
+                break;
+            }
             cfw_server_expect_continue(server, conn);
             cfw_server_conn_deadline(conn,
                                      server->options.request_timeout);
@@ -613,7 +663,7 @@ static void cfw_server_service_read(cfw_server_t *server,
             cfw_server_send_error(server, conn, event.error_kind);
             break;
         }
-        if (conn->dead || conn->stream_fn != NULL) {
+        if (conn->dead || conn->stream_fn != NULL || conn->rejecting) {
             break;
         }
     }
@@ -625,7 +675,7 @@ static void cfw_server_service_conn(cfw_server_t *server,
     if (conn == NULL || conn->dead) {
         return;
     }
-    if (conn->stream_fn == NULL &&
+    if (!conn->rejecting && conn->stream_fn == NULL &&
         (events & (CFW_POLL_IN | CFW_POLL_ERR | CFW_POLL_HUP))) {
         if (!conn->http.input_closed) {
             cfw_server_service_read(server, conn);
@@ -697,6 +747,7 @@ static void cfw_server_accept(cfw_server_t *server)
             continue;
         }
 
+        conn->handle = cfw_fd_get(&conn->http.fd);
         conn->next = server->conns;
         server->conns = conn;
         server->conn_count++;
@@ -704,8 +755,8 @@ static void cfw_server_accept(cfw_server_t *server)
             cfw_log(server->options.logger, CFW_LOG_DEBUG,
                     "connection accepted (%zu active)", server->conn_count);
         }
-        cfw_pollset_add(server->pollset, cfw_fd_get(&conn->http.fd),
-                        CFW_POLL_IN, conn);
+        cfw_pollset_add(server->pollset, conn->handle, CFW_POLL_IN,
+                        conn);
         cfw_server_conn_deadline(conn, server->options.request_timeout);
         cfw_server_update_listener(server);
     }

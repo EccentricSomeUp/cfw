@@ -89,6 +89,11 @@ semantic versioning once a stable release policy is adopted.
   at request-head time so waiting clients are not stalled
 - DNS resolution for server listen hosts via getaddrinfo (init-time
   only; first address in the configured family)
+- RFC 9112 Host enforcement: HTTP/1.1 requests without a non-empty Host
+  field are rejected with 400 and the connection closed
+- Fixed a pollset registration leak when a connection fd closed during
+  response drain: the cached handle is now used for pollset operations,
+  preventing fd-number reuse from starving new connections
 - Automatic `Date` response header (IMF-fixdate) unless the handler
   supplies one; `cfw_time_wall_now` wall-clock primitive and
   `cfw_http_date_format` formatter added
