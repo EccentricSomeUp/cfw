@@ -38,15 +38,16 @@ Exit criteria: documented platform matrix and portable internal APIs.
 
 ## Phase 3: Transport and HTTP
 
-- Socket lifecycle and connection management
-- HTTP/1.1 request parser and serializer
-- Header normalization and validation rules
-- Request smuggling resistance
-- Body framing, limits, and streaming strategy
-- Keep-alive, pipelining, and graceful shutdown behavior
+- [x] Socket lifecycle and connection management
+- [x] HTTP/1.1 request parser and serializer
+- [x] Header normalization and validation rules
+- [x] Request smuggling resistance
+- [x] Body framing, limits, and streaming strategy
+- [x] Keep-alive, pipelining, and graceful shutdown behavior
 
-Exit criteria: fuzzed parser, protocol security tests, and bounded resource
-behavior.
+Exit criteria: fuzzed parser (deterministic mutation suite under
+sanitizers), protocol security tests (smuggling/framing/limit cases), and
+bounded resource behavior (head/body/pending caps) — met.
 
 ## Phase 4: Routing and middleware
 

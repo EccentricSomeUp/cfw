@@ -11,6 +11,7 @@ add_executable(cfw_unit_tests
     unit/test_http.c
     unit/test_http1.c
     unit/test_http1_conn.c
+    unit/test_http_fuzz.c
     unit/test_log.c
     unit/test_main.c
     unit/test_net.c

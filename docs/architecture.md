@@ -45,6 +45,8 @@ abstraction exists.
 - `platform`: OS capability detection and abstraction
 - `net`: sockets, address handling, polling/event loop primitives
 - `http`: request/response parsing and serialization
+- `http1`: HTTP/1.1 server message reader and connection binding
+  (implemented; see `cfw/http.h`, `cfw/http1.h`, `cfw/http1_conn.h`)
 - `router`: route matching, parameters, middleware pipeline
 - `server`: lifecycle, configuration, connection management
 - `tls`: optional boundary for a future dependency decision; no TLS dependency
