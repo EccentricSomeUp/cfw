@@ -39,6 +39,7 @@ set(CFW_SOURCES
     src/cfw/http1.c
     src/cfw/http1_conn.c
     src/cfw/log.c
+    src/cfw/multipart.c
     src/cfw/platform.c
     src/cfw/private/net.c
     src/cfw/private/pollset.c

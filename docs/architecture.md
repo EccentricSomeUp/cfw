@@ -62,6 +62,10 @@ abstraction exists.
   response-head serialization, and pull-style streaming bodies with
   optional known-length Content-Length framing
   (implemented; see `cfw/dispatch.h`, ADRs 0031/0041)
+- `multipart`: buffered multipart/form-data parsing — boundary
+  extraction, part headers, Content-Disposition name/filename
+  unescaping, zero-copy part bodies (implemented; see
+  `cfw/multipart.h`, ADR 0043)
 - `server`: listener, event loop, connection limits/timeouts,
   graceful stop, streaming request-body upload hooks (ADR 0033), and
   peer-address exposure (ADR 0032) (implemented; see `cfw/server.h`)

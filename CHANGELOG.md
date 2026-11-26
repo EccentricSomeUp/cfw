@@ -72,6 +72,14 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   206/`Content-Range` (416 when unsatisfiable). New fs primitives
   `cfw_file_fstat` and `cfw_file_seek` provide handle-relative
   metadata and positioned reads; new status codes 206, 412, 416.
+- multipart/form-data parsing (ADR 0043): new `cfw/multipart.h`
+  module — `cfw_multipart_boundary` extracts the boundary parameter
+  from Content-Type, `cfw_multipart_parse` splits a buffered body
+  into parts with Content-Disposition name/filename unescaping,
+  per-part Content-Type, raw header blocks, and zero-copy body spans.
+  Strict delimiter semantics (CRLF-anchored boundaries, trailer
+  validation, boundary-prefix collision handling) and bounded
+  capacity/drop accounting.
 - Query-string parsing (ADR 0042): new `cfw/query.h` module with
   `cfw_query_parse` (form-urlencoded pairs, `+`/`%XX` decoding into
   caller scratch, capacity/drop accounting, strict malformed-escape
