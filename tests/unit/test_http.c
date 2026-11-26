@@ -780,6 +780,34 @@ static int test_http_head_reader(void)
     return 0;
 }
 
+static int test_http_date_format(void)
+{
+    char out[40];
+
+    CFW_TEST_ASSERT_EQ(cfw_http_date_format(0, out, sizeof(out)), CFW_OK);
+    CFW_TEST_ASSERT_STR_EQ(out, "Thu, 01 Jan 1970 00:00:00 GMT");
+
+    CFW_TEST_ASSERT_EQ(cfw_http_date_format(784111777, out, sizeof(out)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_STR_EQ(out, "Sun, 06 Nov 1994 08:49:37 GMT");
+
+    /* 2000-02-29 12:34:56 UTC (leap day). */
+    CFW_TEST_ASSERT_EQ(cfw_http_date_format(951827696, out, sizeof(out)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_STR_EQ(out, "Tue, 29 Feb 2000 12:34:56 GMT");
+
+    CFW_TEST_ASSERT_EQ(cfw_http_date_format(-1, out, sizeof(out)),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_http_date_format(253402300800LL, out,
+                                            sizeof(out)),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_http_date_format(0, out, 29),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_http_date_format(0, NULL, 30),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    return 0;
+}
+
 const cfw_test_case cfw_test_http_cases[] = {
     {"http_method_names_and_parse", test_http_method_names_and_parse},
     {"http_version_parse_and_format", test_http_version_parse_and_format},
@@ -795,5 +823,6 @@ const cfw_test_case cfw_test_http_cases[] = {
     {"http_chunked_decode", test_http_chunked_decode},
     {"http_response_serialize", test_http_response_serialize},
     {"http_head_reader", test_http_head_reader},
+    {"http_date_format", test_http_date_format},
     {NULL, NULL},
 };

@@ -279,6 +279,37 @@ cfw_status_t cfw_time_now(cfw_timepoint_t *timepoint)
     return cfw_time_store_ns(nanoseconds, timepoint);
 }
 
+cfw_status_t cfw_time_wall_now(int64_t *unix_seconds)
+{
+    if (unix_seconds == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+#if defined(_WIN32)
+    FILETIME file_time;
+    uint64_t ticks;
+    GetSystemTimePreciseAsFileTime(&file_time);
+    ticks = ((uint64_t)file_time.dwHighDateTime << 32) |
+            (uint64_t)file_time.dwLowDateTime;
+    /* FILETIME epoch is 1601-01-01; Unix epoch offset is
+     * 11644473600 seconds. */
+    if (ticks < 116444736000000000ULL) {
+        return CFW_ERROR_UNAVAILABLE;
+    }
+    *unix_seconds = (int64_t)((ticks - 116444736000000000ULL) / 10000000ULL);
+    return CFW_OK;
+#elif defined(CLOCK_REALTIME)
+    struct timespec ts;
+    if (clock_gettime(CLOCK_REALTIME, &ts) != 0 || ts.tv_sec < 0) {
+        return CFW_ERROR_UNAVAILABLE;
+    }
+    *unix_seconds = (int64_t)ts.tv_sec;
+    return CFW_OK;
+#else
+    (void)unix_seconds;
+    return CFW_ERROR_UNAVAILABLE;
+#endif
+}
+
 cfw_status_t cfw_timepoint_add(const cfw_timepoint_t *timepoint,
                                const cfw_duration_t *duration,
                                cfw_timepoint_t *result)

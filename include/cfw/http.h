@@ -256,6 +256,12 @@ CFW_API cfw_status_t cfw_http_response_head_format(
  * message body: false for HEAD, 1xx, 204, and 304 responses. */
 CFW_API int cfw_http_response_has_body(cfw_http_method_t method,
                                        cfw_http_status_t status);
+/* Formats `unix_seconds` (seconds since the Unix epoch) as an
+ * IMF-fixdate HTTP-date, e.g. "Sun, 06 Nov 1994 08:49:37 GMT".
+ * Requires capacity >= 30 (29 chars plus NUL). Seconds outside the
+ * representable four-digit-year range are rejected. */
+CFW_API cfw_status_t cfw_http_date_format(int64_t unix_seconds,
+                                          char *out, size_t capacity);
 CFW_API cfw_status_t cfw_http_status_parse(uint32_t code,
                                            cfw_http_status_t *status);
 

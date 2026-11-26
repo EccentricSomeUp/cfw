@@ -89,6 +89,9 @@ semantic versioning once a stable release policy is adopted.
   at request-head time so waiting clients are not stalled
 - DNS resolution for server listen hosts via getaddrinfo (init-time
   only; first address in the configured family)
+- Automatic `Date` response header (IMF-fixdate) unless the handler
+  supplies one; `cfw_time_wall_now` wall-clock primitive and
+  `cfw_http_date_format` formatter added
 - Response streaming: pull-style `cfw_response_stream_fn` body source
   with chunked transfer-encoding for HTTP/1.1 and close-delimited framing
   for older versions, bounded output backpressure, and keep-alive

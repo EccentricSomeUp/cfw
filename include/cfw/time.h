@@ -53,6 +53,10 @@ CFW_API cfw_status_t cfw_duration_to_millis(const cfw_duration_t *duration,
                                             int64_t *result);
 
 CFW_API cfw_status_t cfw_time_now(cfw_timepoint_t *timepoint);
+/* Wall-clock time as seconds since the Unix epoch. Unlike cfw_time_now
+ * (monotonic, for timeouts), this may jump on clock adjustments; use it
+ * only for timestamps such as HTTP Date headers. */
+CFW_API cfw_status_t cfw_time_wall_now(int64_t *unix_seconds);
 CFW_API cfw_status_t cfw_timepoint_add(const cfw_timepoint_t *timepoint,
                                        const cfw_duration_t *duration,
                                        cfw_timepoint_t *result);

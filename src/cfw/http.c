@@ -1299,3 +1299,72 @@ cfw_status_t cfw_http_target_path(const cfw_strview_t *target,
     path->size = end - start;
     return CFW_OK;
 }
+
+cfw_status_t cfw_http_date_format(int64_t unix_seconds, char *out,
+                                  size_t capacity)
+{
+    static const char *const weekday_names[] = {
+        "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat",
+    };
+    static const char *const month_names[] = {
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    };
+    int64_t days;
+    int64_t secs_of_day;
+    int64_t z;
+    int64_t era;
+    int64_t doe;
+    int64_t yoe;
+    int64_t year;
+    int64_t doy;
+    int64_t mp;
+    int64_t day;
+    int64_t month;
+    int64_t hour;
+    int64_t minute;
+    int64_t second;
+    int64_t weekday;
+    int written;
+
+    if (out == NULL || capacity < 30) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    /* Restrict to years 1970..9999 (IMF-fixdate four-digit year). */
+    if (unix_seconds < 0 || unix_seconds > INT64_C(253402300799)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    days = unix_seconds / 86400;
+    secs_of_day = unix_seconds % 86400;
+
+    /* Civil-from-days (Howard Hinnant's algorithm); z is days since
+     * 1970-01-01 shifted to the civil epoch 0000-03-01. */
+    z = days + 719468;
+    era = z / 146097;
+    doe = z - era * 146097; /* [0, 146096] */
+    yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    year = yoe + era * 400;
+    doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    mp = (5 * doy + 2) / 153;
+    day = doy - (153 * mp + 2) / 5 + 1;
+    month = mp + (mp < 10 ? 3 : -9);
+    year += month <= 2;
+    /* weekday: 1970-01-01 was Thursday (4 = Thu in Sun=0 indexing). */
+    weekday = (days + 4) % 7;
+
+    hour = secs_of_day / 3600;
+    minute = (secs_of_day % 3600) / 60;
+    second = secs_of_day % 60;
+
+    written = snprintf(out, capacity,
+                       "%s, %02lld %s %04lld %02lld:%02lld:%02lld GMT",
+                       weekday_names[weekday],
+                       (long long)day, month_names[month - 1],
+                       (long long)year, (long long)hour,
+                       (long long)minute, (long long)second);
+    if (written != 29) {
+        return CFW_ERROR_UNAVAILABLE;
+    }
+    return CFW_OK;
+}

@@ -223,6 +223,7 @@ static int test_server_request_response(void)
     CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
                                            "HTTP/1.1 200 OK"));
     CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n, "srv-ok"));
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n, "Date: "));
     CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
                                            "X-Server-Mw: 1"));
     CFW_TEST_ASSERT_EQ(cfw_server_requests_total(&ts.server), 1);

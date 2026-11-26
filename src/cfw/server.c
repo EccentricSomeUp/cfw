@@ -252,6 +252,7 @@ static void cfw_server_handle_done(cfw_server_t *server,
     cfw_span_t body;
     cfw_response_t res;
     cfw_request_t req_view;
+    char date[30];
     size_t written = 0;
     cfw_status_t st;
 
@@ -273,6 +274,34 @@ static void cfw_server_handle_done(cfw_server_t *server,
     if (st != CFW_OK) {
         conn->dead = 1;
         return;
+    }
+
+    /* Date header: added automatically unless the handler supplied
+     * one. Wall-clock failure or a full header scratch is non-fatal. */
+    {
+        int64_t unix_seconds;
+        size_t hi;
+        int have_date = 0;
+        for (hi = 0; hi < res.header_count; hi++) {
+            cfw_strview_t dn;
+            int eq;
+            cfw_strview_from_cstr(&dn, "Date");
+            if (cfw_strview_equal_nocase(&res.headers[hi].name, &dn,
+                                         &eq) == CFW_OK &&
+                eq) {
+                have_date = 1;
+                break;
+            }
+        }
+        if (!have_date &&
+            cfw_time_wall_now(&unix_seconds) == CFW_OK &&
+            cfw_http_date_format(unix_seconds, date,
+                                 sizeof(date)) == CFW_OK) {
+            cfw_strview_t hn, hv;
+            cfw_strview_from_cstr(&hn, "Date");
+            cfw_strview_init(&hv, date, 29);
+            cfw_response_header_add(&res, &hn, &hv);
+        }
     }
 
     /* Signal close to the client when the connection will not be

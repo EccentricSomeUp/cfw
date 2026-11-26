@@ -239,6 +239,20 @@ static int test_deadline_past_is_expired(void)
     return 0;
 }
 
+static int test_time_wall_now(void)
+{
+    int64_t a;
+    int64_t b;
+
+    CFW_TEST_ASSERT_EQ(cfw_time_wall_now(&a), CFW_OK);
+    CFW_TEST_ASSERT_TRUE(a > INT64_C(1700000000)); /* post-2023 sanity */
+    CFW_TEST_ASSERT_EQ(cfw_time_wall_now(&b), CFW_OK);
+    CFW_TEST_ASSERT_TRUE(b >= a);
+    CFW_TEST_ASSERT_EQ(cfw_time_wall_now(NULL),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    return 0;
+}
+
 const cfw_test_case cfw_test_time_cases[] = {
     {"duration_from_units", test_duration_from_units},
     {"duration_from_rejects_null", test_duration_from_rejects_null},
@@ -253,5 +267,6 @@ const cfw_test_case cfw_test_time_cases[] = {
     {"deadline_future_timeout_not_expired",
      test_deadline_future_timeout_not_expired},
     {"deadline_past_is_expired", test_deadline_past_is_expired},
+    {"time_wall_now", test_time_wall_now},
     {NULL, NULL},
 };
