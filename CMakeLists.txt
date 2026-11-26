@@ -152,6 +152,12 @@ if(CFW_BUILD_EXAMPLES)
     cfw_apply_strict_flags(cfw_example_ws_echo)
     cfw_apply_hardening_flags(cfw_example_ws_echo)
     cfw_apply_sanitizer_flags(cfw_example_ws_echo)
+
+    add_executable(cfw_example_signed_cookie examples/signed_cookie.c)
+    target_link_libraries(cfw_example_signed_cookie PRIVATE cfw)
+    cfw_apply_strict_flags(cfw_example_signed_cookie)
+    cfw_apply_hardening_flags(cfw_example_signed_cookie)
+    cfw_apply_sanitizer_flags(cfw_example_signed_cookie)
 endif()
 
 if(CFW_BUILD_TESTING)
