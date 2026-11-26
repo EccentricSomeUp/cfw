@@ -8,3 +8,7 @@
 CMakeLists.txt text eol=lf
 *.md text eol=lf
 *.json text eol=lf
+
+# Fuzz corpus inputs must be stored byte-for-byte; CRLF is
+# semantically significant in HTTP wire data.
+tests/fuzz/corpus/** -text
