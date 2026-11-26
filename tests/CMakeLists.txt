@@ -33,6 +33,9 @@ target_include_directories(cfw_unit_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/src/cfw
 )
 target_link_libraries(cfw_unit_tests PRIVATE cfw)
+target_compile_definitions(cfw_unit_tests PRIVATE
+    CFW_FUZZ_CORPUS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fuzz/corpus"
+)
 
 cfw_apply_strict_flags(cfw_unit_tests)
 cfw_apply_hardening_flags(cfw_unit_tests)

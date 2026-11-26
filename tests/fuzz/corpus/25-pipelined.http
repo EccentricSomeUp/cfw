@@ -1,0 +1,7 @@
+POST /cl0 HTTP/1.1
+Host: e
+Content-Length: 0
+
+GET /next HTTP/1.1
+Host: e
+

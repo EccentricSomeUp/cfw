@@ -7,6 +7,10 @@
 #include <stdint.h>
 #include <string.h>
 
+#if !defined(_WIN32)
+#include <dirent.h>
+#endif
+
 /*
  * Deterministic mutation fuzzing for the HTTP parser surface. Not
  * coverage-guided; it exists to shake out memory-safety and bounds bugs,
@@ -192,7 +196,58 @@ static int test_http_fuzz_mutation(void)
     return 0;
 }
 
+/*
+ * Replays every file in tests/fuzz/corpus through the same parser,
+ * decoder, and server-pipeline surface as the mutation fuzzer. The corpus
+ * directory is passed via the CFW_FUZZ_CORPUS_DIR compile definition.
+ */
+static int test_http_fuzz_corpus(void)
+{
+#if defined(CFW_FUZZ_CORPUS_DIR) && !defined(_WIN32)
+    enum { MAX_CORPUS_INPUT = 8192 };
+    DIR *dir;
+    struct dirent *entry;
+    size_t files = 0;
+
+    dir = opendir(CFW_FUZZ_CORPUS_DIR);
+    CFW_TEST_ASSERT(dir != NULL);
+
+    while ((entry = readdir(dir)) != NULL) {
+        char path[4096];
+        FILE *file;
+        char buf[MAX_CORPUS_INPUT];
+        size_t got;
+
+        if (entry->d_name[0] == '.') {
+            continue;
+        }
+        if (snprintf(path, sizeof(path), "%s/%s", CFW_FUZZ_CORPUS_DIR,
+                     entry->d_name) >= (int)sizeof(path)) {
+            continue;
+        }
+        file = fopen(path, "rb");
+        if (file == NULL) {
+            continue;
+        }
+        got = fread(buf, 1, sizeof(buf), file);
+        fclose(file);
+        if (got == 0) {
+            continue;
+        }
+        cfw_test_fuzz_one(buf, got);
+        files++;
+    }
+    closedir(dir);
+
+    CFW_TEST_ASSERT(files > 0);
+#else
+    /* No corpus directory on this platform/configuration. */
+#endif
+    return 0;
+}
+
 const cfw_test_case cfw_test_http_fuzz_cases[] = {
     {"http_fuzz_mutation", test_http_fuzz_mutation},
+    {"http_fuzz_corpus", test_http_fuzz_corpus},
     {NULL, NULL},
 };
