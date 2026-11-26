@@ -52,6 +52,8 @@ semantic versioning once a stable release policy is adopted.
   "chunked" transfer coding accepted
 - Incremental zero-copy chunked-transfer decoder with bounded line state,
   strict grammar, and pipelining-safe consumption
+- HTTP response serialization: status line, validated header lines, full
+  response head formatting, and body-allowance rules (HEAD/1xx/204/304)
 - CMake build, presets, sanitizer configuration, install rules, and CMake
   package config
 - Custom unit-test harness with debug, release, and sanitizer verification

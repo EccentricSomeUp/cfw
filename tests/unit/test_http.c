@@ -565,6 +565,113 @@ static int test_http_chunked_decode(void)
     return 0;
 }
 
+static int test_http_response_serialize(void)
+{
+    cfw_http_version_t version = {1, 1};
+    char buffer[512];
+    size_t written;
+    cfw_http_header_t headers[3];
+    cfw_strview_t name;
+    cfw_strview_t value;
+
+    /* Status line. */
+    CFW_TEST_ASSERT_EQ(cfw_http_status_line_format(&version,
+                                                    CFW_HTTP_STATUS_OK,
+                                                    buffer, sizeof(buffer),
+                                                    &written),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(written, 17);
+    CFW_TEST_ASSERT_EQ(memcmp(buffer, "HTTP/1.1 200 OK\r\n", 17), 0);
+
+    /* Header line with validation. */
+    cfw_strview_from_cstr(&name, "Content-Type");
+    cfw_strview_from_cstr(&value, "text/html");
+    CFW_TEST_ASSERT_EQ(cfw_http_header_line_format(&name, &value, buffer,
+                                                    sizeof(buffer), &written),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(memcmp(buffer, "Content-Type: text/html\r\n", 25),
+                       0);
+
+    /* Full response head. */
+    cfw_strview_from_cstr(&headers[0].name, "Content-Type");
+    cfw_strview_from_cstr(&headers[0].value, "text/html");
+    cfw_strview_from_cstr(&headers[1].name, "Content-Length");
+    cfw_strview_from_cstr(&headers[1].value, "5");
+    cfw_strview_from_cstr(&headers[2].name, "Connection");
+    cfw_strview_from_cstr(&headers[2].value, "close");
+    CFW_TEST_ASSERT_EQ(cfw_http_response_head_format(
+                           &version, CFW_HTTP_STATUS_OK, headers, 3, buffer,
+                           sizeof(buffer), &written),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(memcmp(buffer,
+                              "HTTP/1.1 200 OK\r\n"
+                              "Content-Type: text/html\r\n"
+                              "Content-Length: 5\r\n"
+                              "Connection: close\r\n"
+                              "\r\n",
+                              written),
+                       0);
+
+    /* Buffer too small fails without partial writes trusted. */
+    CFW_TEST_ASSERT_EQ(cfw_http_response_head_format(
+                           &version, CFW_HTTP_STATUS_OK, headers, 3, buffer,
+                           10, &written),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_http_header_line_format(&name, &value, buffer,
+                                                    5, &written),
+                       CFW_ERROR_INVALID_ARGUMENT);
+
+    /* Invalid inputs rejected. */
+    {
+        cfw_strview_t bad_name;
+        cfw_strview_t bad_value;
+        cfw_http_version_t bad_version = {10, 1};
+
+        cfw_strview_from_cstr(&bad_name, "Bad Name");
+        cfw_strview_from_cstr(&bad_value, "x");
+        CFW_TEST_ASSERT_EQ(cfw_http_header_line_format(
+                               &bad_name, &bad_value, buffer,
+                               sizeof(buffer), &written),
+                           CFW_ERROR_INVALID_ARGUMENT);
+
+        cfw_strview_from_cstr(&bad_name, "X-Bad");
+        cfw_strview_from_cstr(&bad_value, "a\rb");
+        CFW_TEST_ASSERT_EQ(cfw_http_header_line_format(
+                               &bad_name, &bad_value, buffer,
+                               sizeof(buffer), &written),
+                           CFW_ERROR_INVALID_ARGUMENT);
+
+        CFW_TEST_ASSERT_EQ(cfw_http_status_line_format(
+                               &bad_version, CFW_HTTP_STATUS_OK, buffer,
+                               sizeof(buffer), &written),
+                           CFW_ERROR_INVALID_ARGUMENT);
+        CFW_TEST_ASSERT_EQ(cfw_http_status_line_format(
+                               &version, (cfw_http_status_t)299, buffer,
+                               sizeof(buffer), &written),
+                           CFW_ERROR_INVALID_ARGUMENT);
+        CFW_TEST_ASSERT_EQ(cfw_http_response_head_format(
+                               &version, CFW_HTTP_STATUS_OK, NULL, 1, buffer,
+                               sizeof(buffer), &written),
+                           CFW_ERROR_INVALID_ARGUMENT);
+    }
+
+    /* Body-allowance rules. */
+    CFW_TEST_ASSERT_EQ(cfw_http_response_has_body(CFW_HTTP_METHOD_GET,
+                                                  CFW_HTTP_STATUS_OK), 1);
+    CFW_TEST_ASSERT_EQ(cfw_http_response_has_body(CFW_HTTP_METHOD_HEAD,
+                                                  CFW_HTTP_STATUS_OK), 0);
+    CFW_TEST_ASSERT_EQ(cfw_http_response_has_body(CFW_HTTP_METHOD_GET,
+                                                  CFW_HTTP_STATUS_NO_CONTENT),
+                       0);
+    CFW_TEST_ASSERT_EQ(cfw_http_response_has_body(CFW_HTTP_METHOD_GET,
+                                                  CFW_HTTP_STATUS_NOT_MODIFIED),
+                       0);
+    CFW_TEST_ASSERT_EQ(cfw_http_response_has_body(CFW_HTTP_METHOD_GET,
+                                                  CFW_HTTP_STATUS_CONTINUE),
+                       0);
+    return 0;
+}
+
 const cfw_test_case cfw_test_http_cases[] = {
     {"http_method_names_and_parse", test_http_method_names_and_parse},
     {"http_version_parse_and_format", test_http_version_parse_and_format},
@@ -578,5 +685,6 @@ const cfw_test_case cfw_test_http_cases[] = {
     {"http_request_head_parse", test_http_request_head_parse},
     {"http_request_framing", test_http_request_framing},
     {"http_chunked_decode", test_http_chunked_decode},
+    {"http_response_serialize", test_http_response_serialize},
     {NULL, NULL},
 };

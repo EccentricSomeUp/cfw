@@ -276,6 +276,18 @@ static int cfw_http_is_ows(unsigned char c)
     return c == ' ' || c == '\t';
 }
 
+static int cfw_http_field_value_valid(const char *data, size_t size)
+{
+    size_t i;
+    for (i = 0; i < size; i++) {
+        unsigned char c = (unsigned char)data[i];
+        if ((c < 0x20 && c != '\t') || c == 0x7F) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static cfw_status_t cfw_http_parse_header_line(const cfw_strview_t *line,
                                                cfw_http_header_t *header)
 {
@@ -314,14 +326,9 @@ static cfw_status_t cfw_http_parse_header_line(const cfw_strview_t *line,
     /* Field values allow VCHAR, obs-text, SP, and HTAB; other control
      * characters (including a bare CR that survived line splitting) are
      * rejected. */
-    for (i = value_start; i < value_end; i++) {
-        unsigned char c = (unsigned char)line->data[i];
-        if (c < 0x20 && c != '\t') {
-            return CFW_ERROR_INVALID_ARGUMENT;
-        }
-        if (c == 0x7F) {
-            return CFW_ERROR_INVALID_ARGUMENT;
-        }
+    if (!cfw_http_field_value_valid(line->data + value_start,
+                                    value_end - value_start)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
     }
 
     header->name.data = line->data;
@@ -951,4 +958,153 @@ out:
     output->size = output_size;
     *consumed = pos;
     return CFW_OK;
+}
+
+/* ------------------------------------------------------------------ */
+/* Response serialization                                              */
+/* ------------------------------------------------------------------ */
+
+cfw_status_t cfw_http_status_line_format(const cfw_http_version_t *version,
+                                         cfw_http_status_t status,
+                                         char *buffer, size_t capacity,
+                                         size_t *written)
+{
+    const char *reason;
+    int n;
+
+    if (version == NULL || buffer == NULL || written == NULL ||
+        version->major > 9 || version->minor > 9) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    reason = cfw_http_status_reason(status);
+    if (reason == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    n = snprintf(buffer, capacity, "HTTP/%u.%u %u %s\r\n",
+                 (unsigned)version->major, (unsigned)version->minor,
+                 (unsigned)status, reason);
+    if (n < 0 || (size_t)n >= capacity) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    *written = (size_t)n;
+    return CFW_OK;
+}
+
+static int cfw_http_field_name_valid(const cfw_strview_t *name)
+{
+    size_t i;
+    if (name->size == 0) {
+        return 0;
+    }
+    for (i = 0; i < name->size; i++) {
+        if (!cfw_http_is_tchar((unsigned char)name->data[i])) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+cfw_status_t cfw_http_header_line_format(const cfw_strview_t *name,
+                                         const cfw_strview_t *value,
+                                         char *buffer, size_t capacity,
+                                         size_t *written)
+{
+    size_t need;
+    size_t off = 0;
+
+    if (name == NULL || value == NULL || buffer == NULL || written == NULL ||
+        capacity == 0) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if ((name->size != 0 && name->data == NULL) ||
+        (value->size != 0 && value->data == NULL)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (!cfw_http_field_name_valid(name) ||
+        !cfw_http_field_value_valid(value->data, value->size)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    /* "Name: value\r\n" — fixed overhead is 4 bytes (": " + CRLF). */
+    if (name->size > SIZE_MAX - value->size - 4) {
+        return CFW_ERROR_OVERFLOW;
+    }
+    need = name->size + value->size + 4;
+    if (need > capacity) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    memcpy(buffer + off, name->data, name->size);
+    off += name->size;
+    buffer[off++] = ':';
+    buffer[off++] = ' ';
+    if (value->size != 0) {
+        memcpy(buffer + off, value->data, value->size);
+        off += value->size;
+    }
+    buffer[off++] = '\r';
+    buffer[off++] = '\n';
+
+    *written = off;
+    return CFW_OK;
+}
+
+cfw_status_t cfw_http_response_head_format(
+    const cfw_http_version_t *version, cfw_http_status_t status,
+    const cfw_http_header_t *headers, size_t header_count,
+    char *buffer, size_t capacity, size_t *written)
+{
+    size_t offset = 0;
+    size_t n;
+    size_t i;
+    cfw_status_t st;
+
+    if (buffer == NULL || written == NULL ||
+        (header_count != 0 && headers == NULL)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    st = cfw_http_status_line_format(version, status, buffer, capacity,
+                                     &n);
+    if (st != CFW_OK) {
+        return st;
+    }
+    offset += n;
+
+    for (i = 0; i < header_count; i++) {
+        st = cfw_http_header_line_format(&headers[i].name,
+                                         &headers[i].value,
+                                         buffer + offset,
+                                         capacity - offset, &n);
+        if (st != CFW_OK) {
+            return st;
+        }
+        offset += n;
+    }
+
+    if (capacity - offset < 2) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    buffer[offset++] = '\r';
+    buffer[offset++] = '\n';
+
+    *written = offset;
+    return CFW_OK;
+}
+
+int cfw_http_response_has_body(cfw_http_method_t method,
+                               cfw_http_status_t status)
+{
+    if (method == CFW_HTTP_METHOD_HEAD) {
+        return 0;
+    }
+    if (status >= 100 && status <= 199) {
+        return 0;
+    }
+    if (status == CFW_HTTP_STATUS_NO_CONTENT ||
+        status == CFW_HTTP_STATUS_NOT_MODIFIED) {
+        return 0;
+    }
+    return 1;
 }

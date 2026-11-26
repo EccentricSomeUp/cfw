@@ -176,6 +176,35 @@ CFW_API cfw_status_t cfw_http_version_format(const cfw_http_version_t *version,
 CFW_API cfw_status_t cfw_http_version_parse(const cfw_strview_t *token,
                                             cfw_http_version_t *version);
 CFW_API const char *cfw_http_status_reason(cfw_http_status_t status);
+
+/* Response serialization. Format functions write into caller-provided
+ * buffers and return CFW_ERROR_INVALID_ARGUMENT when the buffer is too
+ * small, matching cfw_http_version_format. */
+
+/* Formats the status line "HTTP/D.D NNN Reason-Phrase\r\n". The status
+ * must be a known cfw_http_status_t value. */
+CFW_API cfw_status_t cfw_http_status_line_format(
+    const cfw_http_version_t *version, cfw_http_status_t status,
+    char *buffer, size_t capacity, size_t *written);
+
+/* Formats one header field line "Name: value\r\n". The name must be a
+ * valid HTTP token and the value must satisfy the field-value grammar
+ * (VCHAR, obs-text, SP, HTAB; no other control characters). */
+CFW_API cfw_status_t cfw_http_header_line_format(
+    const cfw_strview_t *name, const cfw_strview_t *value,
+    char *buffer, size_t capacity, size_t *written);
+
+/* Formats a complete response head: status line, each header line, and
+ * the terminating empty line. */
+CFW_API cfw_status_t cfw_http_response_head_format(
+    const cfw_http_version_t *version, cfw_http_status_t status,
+    const cfw_http_header_t *headers, size_t header_count,
+    char *buffer, size_t capacity, size_t *written);
+
+/* Returns nonzero when a response to `method` with `status` may carry a
+ * message body: false for HEAD, 1xx, 204, and 304 responses. */
+CFW_API int cfw_http_response_has_body(cfw_http_method_t method,
+                                       cfw_http_status_t status);
 CFW_API cfw_status_t cfw_http_status_parse(uint32_t code,
                                            cfw_http_status_t *status);
 
