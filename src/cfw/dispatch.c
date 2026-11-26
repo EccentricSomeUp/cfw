@@ -243,6 +243,49 @@ cfw_status_t cfw_dispatch_request(
     req.params_written = req.match.params_written;
     req.route_user = req.match.user;
     if (req.match.route == NULL) {
+        if (req.match.allowed_methods != 0) {
+            /* Path exists under other method(s): 405 + Allow. */
+            cfw_status_t fst = cfw_dispatch_fail(
+                dispatch, &req, res, CFW_HTTP_STATUS_METHOD_NOT_ALLOWED);
+            if (fst == CFW_OK) {
+                static const char allow_name[] = "Allow";
+                char *allow_value;
+                size_t av_len = 0;
+                int m;
+                cfw_strview_t hn, hv;
+                for (m = 1; m <= 9; m++) {
+                    if ((req.match.allowed_methods & (1u << m)) != 0) {
+                        av_len += strlen(cfw_http_method_name(
+                            (cfw_http_method_t)m)) + 2;
+                    }
+                }
+                if (av_len != 0 &&
+                    cfw_arena_alloc(dispatch->arena, av_len,
+                                    (void **)&allow_value) == CFW_OK) {
+                    char *w = allow_value;
+                    for (m = 1; m <= 9; m++) {
+                        const char *mn;
+                        size_t ml;
+                        if ((req.match.allowed_methods & (1u << m)) == 0) {
+                            continue;
+                        }
+                        mn = cfw_http_method_name((cfw_http_method_t)m);
+                        ml = strlen(mn);
+                        memcpy(w, mn, ml);
+                        w += ml;
+                        *w++ = ',';
+                        *w++ = ' ';
+                    }
+                    w -= 2; /* trailing ", " */
+                    cfw_strview_init(&hn, allow_name,
+                                     sizeof(allow_name) - 1);
+                    cfw_strview_init(&hv, allow_value,
+                                     (size_t)(w - allow_value));
+                    cfw_response_header_add(res, &hn, &hv);
+                }
+            }
+            return fst;
+        }
         return cfw_dispatch_fail(dispatch, &req, res,
                                  CFW_HTTP_STATUS_NOT_FOUND);
     }
@@ -354,8 +397,14 @@ cfw_status_t cfw_dispatch_response_head_format(
     }
 
     version = req->version;
-    body_allowed = cfw_http_response_has_body(req->method, res->status) &&
-                   res->body.size != 0;
+    /* HEAD responses carry the headers GET would have produced,
+     * including Content-Length, but never body bytes (suppressed by
+     * cfw_http_response_has_body at the transport layer). */
+    body_allowed = res->body.size != 0 &&
+                   (cfw_http_response_has_body(req->method, res->status) ||
+                    (req->method == CFW_HTTP_METHOD_HEAD &&
+                     cfw_http_response_has_body(CFW_HTTP_METHOD_GET,
+                                                res->status)));
     need_length = body_allowed &&
                   !cfw_dispatch_has_framing_header(
                       res, "content-length",

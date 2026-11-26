@@ -9,6 +9,7 @@
 #include <cfw/strview.h>
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -53,6 +54,10 @@ typedef struct cfw_route_match {
     /* Total parameters declared by the matched route; may exceed
      * params_written when the caller's array was too small. */
     size_t param_count;
+    /* When route is NULL, a bitmask (1u << cfw_http_method_t) of the
+     * methods whose path pattern did match, for 405 reporting.
+     * Always 0 when a route matched. */
+    uint32_t allowed_methods;
 } cfw_route_match_t;
 
 CFW_API cfw_status_t cfw_router_init(cfw_router_t *router,

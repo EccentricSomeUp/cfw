@@ -399,7 +399,8 @@ static int test_dispatch_response_format(void)
     CFW_TEST_ASSERT_TRUE(
         cfw_test_contains(buf, written, "\r\n\r\n", 4));
 
-    /* HEAD suppresses the body → no auto Content-Length. */
+    /* HEAD mirrors GET headers: Content-Length is still emitted even
+     * though the body itself is suppressed at the transport layer. */
     req.method = CFW_HTTP_METHOD_HEAD;
     written = 0;
     CFW_TEST_ASSERT_EQ(cfw_dispatch_response_head_format(&req, &res, buf,
@@ -407,7 +408,7 @@ static int test_dispatch_response_format(void)
                                                          &written),
                        CFW_OK);
     CFW_TEST_ASSERT_TRUE(
-        !cfw_test_contains(buf, written, "Content-Length", 14));
+        cfw_test_contains(buf, written, "Content-Length: 9", 17));
 
     /* Explicit Content-Length wins over auto. */
     req.method = CFW_HTTP_METHOD_GET;

@@ -276,6 +276,71 @@ cfw_status_t cfw_router_add_ex(cfw_router_t *router,
 /* Matching                                                            */
 /* ------------------------------------------------------------------ */
 
+/* Tests whether `route`'s path pattern matches `path`, writing
+ * extracted parameters into `params` (up to param_capacity). On
+ * success returns 1 and sets *params_written to the number of entries
+ * written. */
+static int cfw_route_path_matches(const cfw_route_t *route,
+                                  const cfw_strview_t *path,
+                                  cfw_route_param_t *params,
+                                  size_t param_capacity,
+                                  size_t *params_written)
+{
+    size_t rpos = 1;
+    size_t si;
+    size_t written = 0;
+
+    for (si = 0; si < route->segment_count; si++) {
+        const cfw_route_segment_t *seg = &route->segments[si];
+        size_t e;
+        cfw_strview_t value;
+        if (rpos > path->size) {
+            return 0;
+        }
+        e = rpos;
+        while (e < path->size && path->data[e] != '/') {
+            e++;
+        }
+        value.data = path->data + rpos;
+        value.size = e - rpos;
+
+        if (seg->is_param) {
+            if (value.size == 0) {
+                return 0;
+            }
+            if (written < param_capacity) {
+                params[written].name = seg->text;
+                params[written].value = value;
+            }
+            written++;
+        } else {
+            if (value.size != seg->text.size ||
+                memcmp(value.data, seg->text.data, value.size) != 0) {
+                return 0;
+            }
+        }
+        rpos = e + 1;
+    }
+
+    /* No leftover segments allowed: rpos must have moved past the
+     * path end, except the root path "/" which has none. */
+    if (rpos <= path->size &&
+        !(rpos == path->size && path->size == 1)) {
+        return 0;
+    }
+    *params_written = written < param_capacity ? written : param_capacity;
+    return 1;
+}
+
+static void cfw_route_match_fill(const cfw_route_t *route,
+                                 cfw_route_match_t *match)
+{
+    match->route = route;
+    match->user = route->user;
+    match->ex = route->ex;
+    match->param_count = route->param_count;
+}
+
 cfw_status_t cfw_router_match(const cfw_router_t *router,
                               cfw_http_method_t method,
                               const cfw_strview_t *path,
@@ -284,6 +349,7 @@ cfw_status_t cfw_router_match(const cfw_router_t *router,
                               cfw_route_match_t *match)
 {
     const cfw_route_t *route;
+    size_t written;
 
     if (router == NULL || match == NULL || path == NULL ||
         (path->size != 0 && path->data == NULL) ||
@@ -296,76 +362,62 @@ cfw_status_t cfw_router_match(const cfw_router_t *router,
     match->ex = NULL;
     match->param_count = 0;
     match->params_written = 0;
+    match->allowed_methods = 0;
 
     if (path->size == 0 || path->data[0] != '/') {
         return CFW_OK; /* no match */
     }
 
+    /* Pass 1: exact method (UNKNOWN route methods match anything). */
     for (route = router->head; route != NULL; route = route->next) {
-        size_t rpos = 1;
-        size_t si;
-        size_t written = 0;
-        int ok = 1;
-
         if (route->method != CFW_HTTP_METHOD_UNKNOWN &&
             method != CFW_HTTP_METHOD_UNKNOWN &&
             route->method != method) {
             continue;
         }
-
-        for (si = 0; si < route->segment_count; si++) {
-            const cfw_route_segment_t *seg = &route->segments[si];
-            size_t e;
-            cfw_strview_t value;
-            if (rpos > path->size) {
-                ok = 0;
-                break;
-            }
-            e = rpos;
-            while (e < path->size && path->data[e] != '/') {
-                e++;
-            }
-            value.data = path->data + rpos;
-            value.size = e - rpos;
-
-            if (seg->is_param) {
-                if (value.size == 0) {
-                    ok = 0;
-                    break;
-                }
-                if (written < param_capacity) {
-                    params[written].name = seg->text;
-                    params[written].value = value;
-                }
-                written++;
-            } else {
-                if (value.size != seg->text.size ||
-                    memcmp(value.data, seg->text.data, value.size) != 0) {
-                    ok = 0;
-                    break;
-                }
-            }
-            rpos = e + 1;
-        }
-        if (!ok) {
+        if (!cfw_route_path_matches(route, path, params, param_capacity,
+                                   &written)) {
             continue;
         }
-
-        /* No leftover segments allowed: rpos must have moved past the
-         * path end, except the root path "/" which has none. */
-        if (rpos <= path->size &&
-            !(rpos == path->size && path->size == 1)) {
-            continue;
-        }
-
-        match->route = route;
-        match->user = route->user;
-        match->ex = route->ex;
-        match->param_count = route->param_count;
-        match->params_written =
-            route->param_count < param_capacity ? route->param_count
-                                                : param_capacity;
+        cfw_route_match_fill(route, match);
+        match->params_written = written;
         return CFW_OK;
+    }
+
+    /* Pass 2: HEAD falls back to GET routes (RFC 9110: HEAD is GET
+     * without a body; the response layer suppresses the body). */
+    if (method == CFW_HTTP_METHOD_HEAD) {
+        for (route = router->head; route != NULL; route = route->next) {
+            if (route->method != CFW_HTTP_METHOD_GET) {
+                continue;
+            }
+            if (!cfw_route_path_matches(route, path, params,
+                                       param_capacity, &written)) {
+                continue;
+            }
+            cfw_route_match_fill(route, match);
+            match->params_written = written;
+            return CFW_OK;
+        }
+    }
+
+    /* Pass 3: no route matched; collect the methods whose path pattern
+     * did match so callers can answer 405 Method Not Allowed. */
+    for (route = router->head; route != NULL; route = route->next) {
+        size_t scratch_written;
+        if (!cfw_route_path_matches(route, path, NULL, 0,
+                                   &scratch_written)) {
+            continue;
+        }
+        if (route->method == CFW_HTTP_METHOD_UNKNOWN) {
+            match->allowed_methods |= 0x3FEu; /* all defined methods */
+        } else {
+            match->allowed_methods |= 1u << route->method;
+            /* GET routes also serve HEAD via the fallback. */
+            if (route->method == CFW_HTTP_METHOD_GET) {
+                match->allowed_methods |= 1u << CFW_HTTP_METHOD_HEAD;
+            }
+        }
     }
 
     return CFW_OK;

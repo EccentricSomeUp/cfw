@@ -978,7 +978,91 @@ static int test_server_expect_rejected(void)
     return 0;
 }
 
+
+static int test_server_method_fallbacks(void)
+{
+    cfw_test_server ts;
+    char response[4096];
+    ssize_t n;
+
+    CFW_TEST_ASSERT_EQ(cfw_test_server_setup(&ts, (cfw_duration_t){0},
+                                             (cfw_duration_t){0}, 8),
+                       0);
+
+    /* HEAD falls back to the GET route: headers mirror GET (including
+     * Content-Length) but no body bytes follow. */
+    {
+        cfw_fd_t client;
+        cfw_fd_init(&client);
+        CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                            cfw_server_port(&ts.server)),
+                           CFW_OK);
+        CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                         "HEAD /hello HTTP/1.1\r\n"
+                                         "Host: x\r\n\r\n"),
+                           0);
+        n = cfw_test_serve_recv(&ts.server, &client, response,
+                                sizeof(response) - 1);
+        CFW_TEST_ASSERT_TRUE(n > 0);
+        response[n] = '\0';
+        CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                               "200"));
+        CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                               "Content-Length: 6"));
+        CFW_TEST_ASSERT_TRUE(!cfw_test_contains(response, (size_t)n,
+                                                "srv-ok"));
+        cfw_fd_close(&client);
+    }
+
+    /* POST to a GET-only path yields 405 with an Allow header. */
+    {
+        cfw_fd_t client;
+        cfw_fd_init(&client);
+        CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                            cfw_server_port(&ts.server)),
+                           CFW_OK);
+        CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                         "POST /hello HTTP/1.1\r\n"
+                                         "Host: x\r\n"
+                                         "Content-Length: 0\r\n\r\n"),
+                           0);
+        n = cfw_test_serve_recv(&ts.server, &client, response,
+                                sizeof(response) - 1);
+        CFW_TEST_ASSERT_TRUE(n > 0);
+        response[n] = '\0';
+        CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                               "405"));
+        CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                               "Allow: GET, HEAD"));
+        cfw_fd_close(&client);
+    }
+
+    /* Unknown path still yields 404. */
+    {
+        cfw_fd_t client;
+        cfw_fd_init(&client);
+        CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                            cfw_server_port(&ts.server)),
+                           CFW_OK);
+        CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                         "GET /nope HTTP/1.1\r\n"
+                                         "Host: x\r\n\r\n"),
+                           0);
+        n = cfw_test_serve_recv(&ts.server, &client, response,
+                                sizeof(response) - 1);
+        CFW_TEST_ASSERT_TRUE(n > 0);
+        response[n] = '\0';
+        CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                               "404"));
+        cfw_fd_close(&client);
+    }
+
+    cfw_test_server_teardown(&ts);
+    return 0;
+}
+
 const cfw_test_case cfw_test_server_cases[] = {
+    {"server_method_fallbacks", test_server_method_fallbacks},
     {"server_expect_rejected", test_server_expect_rejected},
     {"server_host_required", test_server_host_required},
     {"server_streaming_response", test_server_streaming_response},
