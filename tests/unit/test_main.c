@@ -8,6 +8,7 @@
 extern const cfw_test_case cfw_test_arena_cases[];
 extern const cfw_test_case cfw_test_buffer_cases[];
 extern const cfw_test_case cfw_test_checked_arithmetic_cases[];
+extern const cfw_test_case cfw_test_codec_cases[];
 extern const cfw_test_case cfw_test_cookie_cases[];
 extern const cfw_test_case cfw_test_crypto_cases[];
 extern const cfw_test_case cfw_test_dispatch_cases[];
@@ -44,6 +45,7 @@ static const cfw_test_suite cfw_test_suites[] = {
     {"arena", cfw_test_arena_cases},
     {"buffer", cfw_test_buffer_cases},
     {"checked_arithmetic", cfw_test_checked_arithmetic_cases},
+    {"codec", cfw_test_codec_cases},
     {"cookie", cfw_test_cookie_cases},
     {"crypto", cfw_test_crypto_cases},
     {"dispatch", cfw_test_dispatch_cases},

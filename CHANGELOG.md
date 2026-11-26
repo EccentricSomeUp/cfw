@@ -72,6 +72,14 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   206/`Content-Range` (416 when unsatisfiable). New fs primitives
   `cfw_file_fstat` and `cfw_file_seek` provide handle-relative
   metadata and positioned reads; new status codes 206, 412, 416.
+- Byte-to-text codecs (ADR 0047): new `cfw/codec.h` module with
+  canonical RFC 4648 base64 (`cfw_base64_encode`/`decode` +
+  `cfw_base64_encode_bound`) and hex (`cfw_hex_encode`/`decode` +
+  `cfw_hex_encode_bound`). Decoders are strict — canonical padding
+  and pad bits for base64, even-length digit-only for hex — for
+  token/signature material. `ws.c` now uses the shared codec instead
+  of private base64 copies, tightening key validation to canonical
+  form.
 - Cryptographic primitives (ADR 0046): new `cfw/crypto.h` module with
   SHA-256 (`cfw_sha256_init`/`update`/`final` streaming API and
   one-shot `cfw_sha256`), HMAC-SHA256 (`cfw_hmac_sha256`, RFC 2104),

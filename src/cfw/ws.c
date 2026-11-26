@@ -2,6 +2,7 @@
 
 #include <cfw/ws.h>
 
+#include <cfw/codec.h>
 #include <cfw/http.h>
 #include <cfw/strview.h>
 
@@ -134,116 +135,6 @@ static void cfw_ws_sha1_final(cfw_ws_sha1_t *ctx, uint8_t out[20])
 }
 
 /* ------------------------------------------------------------------ */
-/* Base64 (RFC 4648) — decode for key validation, encode for accept.   */
-/* ------------------------------------------------------------------ */
-
-static int cfw_ws_b64_value(uint8_t c)
-{
-    if (c >= 'A' && c <= 'Z') {
-        return c - 'A';
-    }
-    if (c >= 'a' && c <= 'z') {
-        return c - 'a' + 26;
-    }
-    if (c >= '0' && c <= '9') {
-        return c - '0' + 52;
-    }
-    if (c == '+') {
-        return 62;
-    }
-    if (c == '/') {
-        return 63;
-    }
-    return -1;
-}
-
-/* Decodes canonical base64 (with optional '=' padding) into out.
- * Returns decoded size or (size_t)-1 on malformed input. */
-static size_t cfw_ws_b64_decode(const char *in, size_t in_size,
-                                uint8_t *out, size_t out_cap)
-{
-    size_t i = 0;
-    size_t o = 0;
-    int pad = 0;
-
-    while (i + 4 <= in_size) {
-        int v[4];
-        size_t j;
-        uint32_t triple;
-        int pads = 0;
-        for (j = 0; j < 4; j++) {
-            uint8_t c = (uint8_t)in[i + j];
-            if (c == '=') {
-                v[j] = -2;
-                pads++;
-            } else {
-                v[j] = cfw_ws_b64_value(c);
-                if (v[j] < 0 || pads != 0) {
-                    return (size_t)-1;
-                }
-            }
-        }
-        if (pads > 2 || (pads != 0 && i + 4 != in_size)) {
-            return (size_t)-1;
-        }
-        triple = ((uint32_t)(v[0] < 0 ? 0 : v[0]) << 18) |
-                 ((uint32_t)(v[1] < 0 ? 0 : v[1]) << 12) |
-                 ((uint32_t)(v[2] < 0 ? 0 : v[2]) << 6) |
-                 (uint32_t)(v[3] < 0 ? 0 : v[3]);
-        /* A padded group writes 3 - pads bytes, not always 3. */
-        if (o + (3u - (size_t)pads) > out_cap) {
-            return (size_t)-1;
-        }
-        out[o++] = (uint8_t)(triple >> 16);
-        if (pads < 2) {
-            out[o++] = (uint8_t)(triple >> 8);
-        }
-        if (pads < 1) {
-            out[o++] = (uint8_t)triple;
-        }
-        pad += pads;
-        i += 4;
-        if (pads != 0) {
-            break;
-        }
-    }
-    if (i != in_size || pad > 2) {
-        return (size_t)-1;
-    }
-    return o;
-}
-
-static const char cfw_ws_b64_alphabet[] =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-static void cfw_ws_b64_encode(const uint8_t *in, size_t in_size, char *out)
-{
-    size_t i = 0;
-    size_t o = 0;
-    while (i + 3 <= in_size) {
-        uint32_t t = ((uint32_t)in[i] << 16) | ((uint32_t)in[i + 1] << 8) |
-                     (uint32_t)in[i + 2];
-        out[o++] = cfw_ws_b64_alphabet[(t >> 18) & 63];
-        out[o++] = cfw_ws_b64_alphabet[(t >> 12) & 63];
-        out[o++] = cfw_ws_b64_alphabet[(t >> 6) & 63];
-        out[o++] = cfw_ws_b64_alphabet[t & 63];
-        i += 3;
-    }
-    if (i < in_size) {
-        uint32_t t = (uint32_t)in[i] << 16;
-        int rem = (int)(in_size - i);
-        if (rem == 2) {
-            t |= (uint32_t)in[i + 1] << 8;
-        }
-        out[o++] = cfw_ws_b64_alphabet[(t >> 18) & 63];
-        out[o++] = cfw_ws_b64_alphabet[(t >> 12) & 63];
-        out[o++] = rem == 2 ? cfw_ws_b64_alphabet[(t >> 6) & 63] : '=';
-        out[o++] = '=';
-    }
-    out[o] = '\0';
-}
-
-/* ------------------------------------------------------------------ */
 /* Header helpers                                                      */
 /* ------------------------------------------------------------------ */
 
@@ -355,9 +246,16 @@ cfw_status_t cfw_ws_handshake_validate(const cfw_request_t *req)
     if (key == NULL || key->size == 0 || key->size > 256) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
-    if (cfw_ws_b64_decode(key->data, key->size, decoded,
-                          sizeof(decoded)) != 16) {
-        return CFW_ERROR_INVALID_ARGUMENT;
+    {
+        cfw_strview_t key_view;
+        size_t decoded_size = 0;
+
+        if (cfw_strview_init(&key_view, key->data, key->size) != CFW_OK ||
+            cfw_base64_decode(&key_view, decoded, sizeof(decoded),
+                              &decoded_size) != CFW_OK ||
+            decoded_size != sizeof(decoded)) {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
     }
     return CFW_OK;
 }
@@ -384,8 +282,7 @@ cfw_status_t cfw_ws_accept_key(const char *key, size_t key_size, char *out,
     cfw_ws_sha1_init(&sha);
     cfw_ws_sha1_update(&sha, (const uint8_t *)material, mlen);
     cfw_ws_sha1_final(&sha, digest);
-    cfw_ws_b64_encode(digest, sizeof(digest), out);
-    return CFW_OK;
+    return cfw_base64_encode(digest, sizeof(digest), out, out_size, NULL);
 }
 
 cfw_status_t cfw_ws_handshake_accept(const cfw_request_t *req, char *out,

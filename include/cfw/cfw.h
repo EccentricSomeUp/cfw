@@ -6,6 +6,7 @@
 #include <cfw/arena.h>
 #include <cfw/buffer.h>
 #include <cfw/checked_arithmetic.h>
+#include <cfw/codec.h>
 #include <cfw/cookie.h>
 #include <cfw/crypto.h>
 #include <cfw/fd.h>
