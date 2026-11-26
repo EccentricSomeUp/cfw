@@ -12,6 +12,7 @@ extern const cfw_test_case cfw_test_fd_cases[];
 extern const cfw_test_case cfw_test_fs_cases[];
 extern const cfw_test_case cfw_test_http_cases[];
 extern const cfw_test_case cfw_test_http1_cases[];
+extern const cfw_test_case cfw_test_http1_conn_cases[];
 extern const cfw_test_case cfw_test_log_cases[];
 extern const cfw_test_case cfw_test_net_cases[];
 extern const cfw_test_case cfw_test_platform_cases[];
@@ -36,6 +37,7 @@ static const cfw_test_suite cfw_test_suites[] = {
     {"fs", cfw_test_fs_cases},
     {"http", cfw_test_http_cases},
     {"http1", cfw_test_http1_cases},
+    {"http1_conn", cfw_test_http1_conn_cases},
     {"log", cfw_test_log_cases},
     {"net", cfw_test_net_cases},
     {"platform", cfw_test_platform_cases},

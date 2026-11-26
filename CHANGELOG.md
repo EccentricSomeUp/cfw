@@ -59,6 +59,8 @@ semantic versioning once a stable release policy is adopted.
 - HTTP/1.1 server message reader: per-connection state machine with
   keep-alive, pipelining, streaming zero-copy bodies, and configurable
   head/body/pending resource limits
+- HTTP/1.1 connection binding: nonblocking socket ownership, integrated
+  request reads, bounded response queue, and graceful close-after-write
 - CMake build, presets, sanitizer configuration, install rules, and CMake
   package config
 - Custom unit-test harness with debug, release, and sanitizer verification

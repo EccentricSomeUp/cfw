@@ -35,6 +35,7 @@ set(CFW_SOURCES
     src/cfw/fs.c
     src/cfw/http.c
     src/cfw/http1.c
+    src/cfw/http1_conn.c
     src/cfw/log.c
     src/cfw/platform.c
     src/cfw/private/net.c
