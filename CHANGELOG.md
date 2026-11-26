@@ -9,6 +9,8 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-26
+
 ### Added
 
 - Protocol upgrades (ADR 0034): handlers may return `101 Switching
