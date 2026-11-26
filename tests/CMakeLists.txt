@@ -81,6 +81,32 @@ cfw_apply_sanitizer_flags(cfw_security_tests)
 
 add_test(NAME cfw_security COMMAND cfw_security_tests)
 
+# Poll-backend variant: compiles the pollset suite against the poll()
+# fallback (CFW_POLLF_FORCE_POLL) so the non-epoll path is verified on
+# Linux, where it would otherwise only run on macOS/BSD.
+if(NOT WIN32)
+    add_executable(cfw_pollset_poll_tests
+        ../src/cfw/private/pollset.c
+        unit/test_pollset.c
+        unit/test_pollset_main.c
+    )
+
+    target_include_directories(cfw_pollset_poll_tests PRIVATE
+        unit
+        ${CMAKE_SOURCE_DIR}/src/cfw
+    )
+    target_link_libraries(cfw_pollset_poll_tests PRIVATE cfw)
+    target_compile_definitions(cfw_pollset_poll_tests PRIVATE
+        CFW_POLLF_FORCE_POLL=1
+    )
+
+    cfw_apply_strict_flags(cfw_pollset_poll_tests)
+    cfw_apply_hardening_flags(cfw_pollset_poll_tests)
+    cfw_apply_sanitizer_flags(cfw_pollset_poll_tests)
+
+    add_test(NAME cfw_pollset_poll COMMAND cfw_pollset_poll_tests)
+endif()
+
 # C++ consumer smoke test: all public headers must compile as C++ and the
 # exported symbols must link. Only built when a C++ compiler is available.
 include(CheckLanguage)
