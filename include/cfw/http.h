@@ -97,6 +97,31 @@ typedef struct cfw_http_request_head {
 CFW_API cfw_status_t cfw_http_request_head_parse(
     const cfw_strview_t *head, cfw_http_request_head_t *request_head);
 
+typedef enum cfw_http_body_framing {
+    CFW_HTTP_BODY_NONE = 0,
+    CFW_HTTP_BODY_CONTENT_LENGTH,
+    CFW_HTTP_BODY_CHUNKED
+} cfw_http_body_framing_t;
+
+typedef struct cfw_http_message_framing {
+    cfw_http_body_framing_t framing;
+    /* Valid only when framing == CFW_HTTP_BODY_CONTENT_LENGTH. */
+    uint64_t content_length;
+} cfw_http_message_framing_t;
+
+/* Determines request body framing from a parsed head using
+ * request-smuggling-resistant rules:
+ * - Content-Length must be 1*DIGIT; multiple occurrences must carry the
+ *   same numeric value.
+ * - Transfer-Encoding must appear at most once and its value must be
+ *   exactly "chunked" (case-insensitive).
+ * - Content-Length combined with Transfer-Encoding is rejected.
+ * Returns CFW_ERROR_INVALID_ARGUMENT on any violation; the caller maps it
+ * to 400 Bad Request. */
+CFW_API cfw_status_t cfw_http_request_framing(
+    const cfw_http_request_head_t *request_head,
+    cfw_http_message_framing_t *framing);
+
 CFW_API cfw_status_t cfw_http_headers_next(const cfw_strview_t *block,
                                            size_t *cursor,
                                            cfw_http_header_t *header,

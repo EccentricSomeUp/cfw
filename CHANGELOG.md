@@ -47,6 +47,9 @@ semantic versioning once a stable release policy is adopted.
   with single-space grammar and control-character rejection
 - Complete request-head parser validating request line, headers, and the
   empty-line terminator with nothing permitted after it
+- Request body framing detection with request-smuggling-resistant rules:
+  conflicting Content-Length rejected, TE+CL rejected, only sole
+  "chunked" transfer coding accepted
 - CMake build, presets, sanitizer configuration, install rules, and CMake
   package config
 - Custom unit-test harness with debug, release, and sanitizer verification

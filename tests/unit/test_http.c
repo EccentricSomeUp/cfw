@@ -367,6 +367,70 @@ static int test_http_request_head_parse(void)
     return 0;
 }
 
+static int test_http_request_framing(void)
+{
+    static const struct {
+        const char *head;
+        cfw_http_body_framing_t framing;
+        uint64_t length;
+    } valid[] = {
+        {"GET / HTTP/1.1\r\n\r\n", CFW_HTTP_BODY_NONE, 0},
+        {"POST / HTTP/1.1\r\nContent-Length: 0\r\n\r\n",
+         CFW_HTTP_BODY_CONTENT_LENGTH, 0},
+        {"POST / HTTP/1.1\r\nContent-Length: 42\r\n\r\n",
+         CFW_HTTP_BODY_CONTENT_LENGTH, 42},
+        {"POST / HTTP/1.1\r\ncontent-length: 0042\r\n\r\n",
+         CFW_HTTP_BODY_CONTENT_LENGTH, 42},
+        {"POST / HTTP/1.1\r\nContent-Length: 7\r\nContent-Length: 7\r\n\r\n",
+         CFW_HTTP_BODY_CONTENT_LENGTH, 7},
+        {"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n",
+         CFW_HTTP_BODY_CHUNKED, 0},
+        {"POST / HTTP/1.1\r\nTRANSFER-ENCODING: CHUNKED\r\n\r\n",
+         CFW_HTTP_BODY_CHUNKED, 0},
+        {"POST / HTTP/1.1\r\nX-Other: v\r\nContent-Length: 18446744073709551615\r\n\r\n",
+         CFW_HTTP_BODY_CONTENT_LENGTH, UINT64_MAX},
+    };
+    static const char *invalid[] = {
+        /* Conflicting or malformed Content-Length. */
+        "POST / HTTP/1.1\r\nContent-Length: 5\r\nContent-Length: 6\r\n\r\n",
+        "POST / HTTP/1.1\r\nContent-Length: abc\r\n\r\n",
+        "POST / HTTP/1.1\r\nContent-Length: -1\r\n\r\n",
+        "POST / HTTP/1.1\r\nContent-Length: 1x\r\n\r\n",
+        "POST / HTTP/1.1\r\nContent-Length:\r\n\r\n",
+        "POST / HTTP/1.1\r\nContent-Length: 18446744073709551616\r\n\r\n",
+        /* Smuggling pair. */
+        "POST / HTTP/1.1\r\nContent-Length: 5\r\nTransfer-Encoding: chunked\r\n\r\n",
+        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\nContent-Length: 5\r\n\r\n",
+        /* Unsupported or ambiguous transfer codings. */
+        "POST / HTTP/1.1\r\nTransfer-Encoding: gzip\r\n\r\n",
+        "POST / HTTP/1.1\r\nTransfer-Encoding: gzip, chunked\r\n\r\n",
+        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked, gzip\r\n\r\n",
+        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\nTransfer-Encoding: chunked\r\n\r\n",
+    };
+    cfw_http_request_head_t head;
+    cfw_http_message_framing_t framing;
+    size_t i;
+
+    for (i = 0; i < sizeof(valid) / sizeof(valid[0]); i++) {
+        cfw_strview_t view = cfw_test_view(valid[i].head);
+        CFW_TEST_ASSERT_EQ(cfw_http_request_head_parse(&view, &head), CFW_OK);
+        CFW_TEST_ASSERT_EQ(cfw_http_request_framing(&head, &framing), CFW_OK);
+        CFW_TEST_ASSERT_EQ((int)framing.framing, (int)valid[i].framing);
+        CFW_TEST_ASSERT_EQ(framing.content_length, valid[i].length);
+    }
+
+    for (i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+        cfw_strview_t view = cfw_test_view(invalid[i]);
+        CFW_TEST_ASSERT_EQ(cfw_http_request_head_parse(&view, &head), CFW_OK);
+        CFW_TEST_ASSERT_EQ(cfw_http_request_framing(&head, &framing),
+                           CFW_ERROR_INVALID_ARGUMENT);
+    }
+
+    CFW_TEST_ASSERT_EQ(cfw_http_request_framing(NULL, &framing),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    return 0;
+}
+
 const cfw_test_case cfw_test_http_cases[] = {
     {"http_method_names_and_parse", test_http_method_names_and_parse},
     {"http_version_parse_and_format", test_http_version_parse_and_format},
@@ -378,5 +442,6 @@ const cfw_test_case cfw_test_http_cases[] = {
     {"http_headers_next_invalid_args", test_http_headers_next_invalid_args},
     {"http_request_line_parse", test_http_request_line_parse},
     {"http_request_head_parse", test_http_request_head_parse},
+    {"http_request_framing", test_http_request_framing},
     {NULL, NULL},
 };

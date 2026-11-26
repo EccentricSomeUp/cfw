@@ -541,3 +541,125 @@ cfw_status_t cfw_http_request_head_parse(const cfw_strview_t *head,
     request_head->headers = headers_view;
     return CFW_OK;
 }
+
+static cfw_status_t cfw_http_parse_content_length(const cfw_strview_t *value,
+                                                  uint64_t *out)
+{
+    uint64_t result = 0;
+    size_t i;
+
+    if (value->size == 0) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    for (i = 0; i < value->size; i++) {
+        unsigned char c = (unsigned char)value->data[i];
+        uint64_t digit;
+        if (c < '0' || c > '9') {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+        digit = (uint64_t)(c - '0');
+        if (result > (UINT64_MAX - digit) / 10) {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+        result = result * 10 + digit;
+    }
+    *out = result;
+    return CFW_OK;
+}
+
+cfw_status_t cfw_http_request_framing(
+    const cfw_http_request_head_t *request_head,
+    cfw_http_message_framing_t *framing)
+{
+    cfw_strview_t headers_block;
+    cfw_strview_t content_length_name;
+    cfw_strview_t transfer_encoding_name;
+    cfw_strview_t chunked_token;
+    size_t cursor;
+    cfw_http_header_t header;
+    int done;
+    int have_length = 0;
+    int have_chunked = 0;
+    uint64_t content_length = 0;
+    uint64_t parsed_length;
+    int equal;
+    cfw_status_t status;
+
+    if (request_head == NULL || framing == NULL ||
+        request_head->headers.data == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    framing->framing = CFW_HTTP_BODY_NONE;
+    framing->content_length = 0;
+
+    headers_block = request_head->headers;
+    cursor = 0;
+    cfw_strview_from_cstr(&content_length_name, "content-length");
+    cfw_strview_from_cstr(&transfer_encoding_name, "transfer-encoding");
+    cfw_strview_from_cstr(&chunked_token, "chunked");
+
+    for (;;) {
+        status = cfw_http_headers_next(&headers_block, &cursor, &header,
+                                       &done);
+        if (status != CFW_OK) {
+            return status;
+        }
+        if (done) {
+            break;
+        }
+
+        if (cfw_strview_equal_nocase(&header.name, &content_length_name,
+                                     &equal) != CFW_OK) {
+            return CFW_ERROR_INTERNAL;
+        }
+        if (equal) {
+            status = cfw_http_parse_content_length(&header.value,
+                                                   &parsed_length);
+            if (status != CFW_OK) {
+                return status;
+            }
+            if (have_length && parsed_length != content_length) {
+                /* Conflicting duplicate Content-Length: smuggling vector. */
+                return CFW_ERROR_INVALID_ARGUMENT;
+            }
+            have_length = 1;
+            content_length = parsed_length;
+            continue;
+        }
+
+        if (cfw_strview_equal_nocase(&header.name, &transfer_encoding_name,
+                                     &equal) != CFW_OK) {
+            return CFW_ERROR_INTERNAL;
+        }
+        if (equal) {
+            if (have_chunked) {
+                /* Multiple Transfer-Encoding headers are ambiguous. */
+                return CFW_ERROR_INVALID_ARGUMENT;
+            }
+            have_chunked = 1;
+            if (cfw_strview_equal_nocase(&header.value, &chunked_token,
+                                         &equal) != CFW_OK) {
+                return CFW_ERROR_INTERNAL;
+            }
+            if (!equal) {
+                /* Only a sole "chunked" coding is supported. */
+                return CFW_ERROR_INVALID_ARGUMENT;
+            }
+            continue;
+        }
+    }
+
+    if (have_length && have_chunked) {
+        /* Content-Length + Transfer-Encoding is a classic smuggling pair. */
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    if (have_chunked) {
+        framing->framing = CFW_HTTP_BODY_CHUNKED;
+    } else if (have_length) {
+        framing->framing = CFW_HTTP_BODY_CONTENT_LENGTH;
+        framing->content_length = content_length;
+    }
+    return CFW_OK;
+}
