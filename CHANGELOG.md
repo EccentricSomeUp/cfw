@@ -4,7 +4,8 @@
 
 All notable changes to this project will be documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
-semantic versioning once a stable release policy is adopted.
+semantic versioning; `0.x` releases carry no API/ABI stability guarantees —
+the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ## [Unreleased]
 

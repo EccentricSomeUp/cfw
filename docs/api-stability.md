@@ -7,10 +7,11 @@ and the rules governing the public surface going forward.
 
 ## Current status
 
-The project has not tagged a stable release; `cfw_version_*` reports the
-development version. The public API is **not yet frozen** — additive
-changes are expected until the first tagged release. Once 1.0.0 is
-tagged, semantic versioning applies: breaking changes require a major
+The project has not reached its stable release; `cfw_version_*` reports the
+development version. The public API is **not yet frozen** — additive and
+breaking changes are both permitted while the version is `0.x`, including
+in tagged `0.x.y` releases. The freeze applies only when `1.0.0` is tagged:
+semantic versioning then governs, and breaking changes require a major
 version and a migration note in `CHANGELOG.md`.
 
 ## Review findings (Phase 7)

@@ -90,7 +90,7 @@ transport audit deferred with the module itself.
 
 - Full audit catalog pass — met (audits/2026-11-26-1.0-readiness-audit.md)
 - ABI/API freeze review — met (docs/api-stability.md; freeze applies at
-  first tagged release)
+  the 1.0.0 tag; earlier 0.x tags remain unfrozen)
 - Platform matrix verification — met (docs/platform-matrix.md updated to
   implemented state)
 - Fuzz corpus stabilization — met (adversarial seeds added:
