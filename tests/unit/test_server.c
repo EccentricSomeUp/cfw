@@ -8,6 +8,7 @@
     #include "private/net.h"
 
     #include <errno.h>
+    #include <stdlib.h>
     #include <string.h>
     #include <sys/socket.h>
     #include <unistd.h>
@@ -130,11 +131,15 @@ static void cfw_test_server_options(cfw_server_options_t *options,
     options->max_params = 16;
 }
 
-static int cfw_test_server_setup_host(cfw_test_server *ts,
-                                      cfw_duration_t keep_alive,
-                                      cfw_duration_t request_timeout,
-                                      size_t max_connections,
-                                      const char *host)
+static int cfw_test_server_setup_ex(cfw_test_server *ts,
+                                    cfw_duration_t keep_alive,
+                                    cfw_duration_t request_timeout,
+                                    size_t max_connections,
+                                    const char *host,
+                                    cfw_upload_begin_fn upload_begin,
+                                    cfw_upload_write_fn upload_write,
+                                    cfw_upload_end_fn upload_end,
+                                    void *upload_user)
 {
     cfw_server_options_t options;
     cfw_dispatch_options_t doptions;
@@ -168,9 +173,24 @@ static int cfw_test_server_setup_host(cfw_test_server *ts,
     options.keep_alive_timeout = keep_alive;
     options.request_timeout = request_timeout;
     options.max_connections = max_connections;
+    options.upload_begin = upload_begin;
+    options.upload_write = upload_write;
+    options.upload_end = upload_end;
+    options.upload_user = upload_user;
     CFW_TEST_ASSERT_EQ(cfw_server_init(&ts->server, &options), CFW_OK);
     CFW_TEST_ASSERT_TRUE(cfw_server_port(&ts->server) != 0);
     return 0;
+}
+
+static int cfw_test_server_setup_host(cfw_test_server *ts,
+                                      cfw_duration_t keep_alive,
+                                      cfw_duration_t request_timeout,
+                                      size_t max_connections,
+                                      const char *host)
+{
+    return cfw_test_server_setup_ex(ts, keep_alive, request_timeout,
+                                    max_connections, host, NULL, NULL,
+                                    NULL, NULL);
 }
 
 static int cfw_test_server_setup(cfw_test_server *ts,
@@ -1184,7 +1204,343 @@ static int test_server_streaming_conn_close(void)
     return 0;
 }
 
+/* ---- upload hooks (ADR 0033) ---- */
+
+typedef struct {
+    unsigned char *data;
+    size_t size;
+    size_t cap;
+    int begin_calls;
+    int write_calls;
+    int end_calls;
+    int end_completed;
+    int fail_begin;
+    int fail_write;
+} cfw_test_upload_state;
+
+static void *cfw_test_seen_upload;
+static size_t cfw_test_seen_body_size;
+
+static cfw_status_t cfw_test_upload_begin(void *user,
+                                          const cfw_http_request_head_t *head,
+                                          void **upload)
+{
+    cfw_test_upload_state *st = user;
+    (void)head;
+    st->begin_calls++;
+    if (st->fail_begin) {
+        return CFW_ERROR_IO;
+    }
+    *upload = st;
+    return CFW_OK;
+}
+
+static cfw_status_t cfw_test_upload_write(void *upload,
+                                          const cfw_span_t *piece)
+{
+    cfw_test_upload_state *st = upload;
+    size_t ncap;
+    unsigned char *nd;
+
+    st->write_calls++;
+    if (st->fail_write) {
+        return CFW_ERROR_IO;
+    }
+    if (st->size + piece->size > st->cap) {
+        ncap = st->cap != 0 ? st->cap : 256;
+        while (ncap < st->size + piece->size) {
+            ncap *= 2;
+        }
+        nd = realloc(st->data, ncap);
+        if (nd == NULL) {
+            return CFW_ERROR_NOMEM;
+        }
+        st->data = nd;
+        st->cap = ncap;
+    }
+    memcpy(st->data + st->size, piece->data, piece->size);
+    st->size += piece->size;
+    return CFW_OK;
+}
+
+static void cfw_test_upload_end(void *upload, int completed)
+{
+    cfw_test_upload_state *st = upload;
+    st->end_calls++;
+    st->end_completed = completed;
+}
+
+static cfw_status_t cfw_test_upload_handler(cfw_request_t *req,
+                                            cfw_response_t *res, void *user)
+{
+    static const char body[] = "up-ok";
+    (void)user;
+    cfw_test_seen_upload = req->upload;
+    cfw_test_seen_body_size = req->body.size;
+    res->status = CFW_HTTP_STATUS_OK;
+    res->body.data = (const uint8_t *)body;
+    res->body.size = sizeof(body) - 1;
+    return CFW_OK;
+}
+
+static int cfw_test_setup_upload_to(cfw_test_server *ts,
+                                    cfw_test_upload_state *st,
+                                    cfw_duration_t request_timeout)
+{
+    cfw_strview_t pattern;
+
+    memset(st, 0, sizeof(*st));
+    CFW_TEST_ASSERT_EQ(cfw_test_server_setup_ex(
+                           ts, (cfw_duration_t){0}, request_timeout,
+                           8, "127.0.0.1", cfw_test_upload_begin,
+                           cfw_test_upload_write, cfw_test_upload_end, st),
+                       0);
+    cfw_strview_from_cstr(&pattern, "/up");
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(&ts->dispatch,
+                                              CFW_HTTP_METHOD_POST,
+                                              &pattern,
+                                              cfw_test_upload_handler,
+                                              NULL),
+                       CFW_OK);
+    return 0;
+}
+
+static int cfw_test_setup_upload(cfw_test_server *ts,
+                                 cfw_test_upload_state *st)
+{
+    return cfw_test_setup_upload_to(ts, st, (cfw_duration_t){0});
+}
+
+static void cfw_test_upload_reset(cfw_test_upload_state *st)
+{
+    free(st->data);
+    memset(st, 0, sizeof(*st));
+    cfw_test_seen_upload = NULL;
+    cfw_test_seen_body_size = 0;
+}
+
+static int test_server_upload_content_length(void)
+{
+    cfw_test_server ts;
+    cfw_test_upload_state st;
+    cfw_fd_t client;
+    char response[4096];
+    ssize_t n;
+    static const char payload[] = "hello world";
+
+    CFW_TEST_ASSERT_EQ(cfw_test_setup_upload(&ts, &st), 0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(
+                           &client,
+                           "POST /up HTTP/1.1\r\n"
+                           "Host: test\r\n"
+                           "Content-Length: 11\r\n\r\n"
+                           "hello world"),
+                       0);
+    n = cfw_test_serve_recv(&ts.server, &client, response,
+                            sizeof(response) - 1);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    response[n] = '\0';
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                           "HTTP/1.1 200 OK"));
+
+    CFW_TEST_ASSERT_EQ(st.begin_calls, 1);
+    CFW_TEST_ASSERT_TRUE(st.write_calls >= 1);
+    CFW_TEST_ASSERT_EQ(st.end_calls, 1);
+    CFW_TEST_ASSERT_EQ(st.end_completed, 1);
+    CFW_TEST_ASSERT_EQ(st.size, sizeof(payload) - 1);
+    CFW_TEST_ASSERT_TRUE(memcmp(st.data, payload,
+                                sizeof(payload) - 1) == 0);
+    CFW_TEST_ASSERT_TRUE(cfw_test_seen_upload == &st);
+    CFW_TEST_ASSERT_EQ(cfw_test_seen_body_size, 0);
+
+    cfw_fd_close(&client);
+    cfw_test_upload_reset(&st);
+    cfw_test_server_teardown(&ts);
+    return 0;
+}
+
+static int test_server_upload_chunked(void)
+{
+    cfw_test_server ts;
+    cfw_test_upload_state st;
+    cfw_fd_t client;
+    char response[4096];
+    ssize_t n;
+    static const char payload[] = "hello world";
+
+    CFW_TEST_ASSERT_EQ(cfw_test_setup_upload(&ts, &st), 0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(
+                           &client,
+                           "POST /up HTTP/1.1\r\n"
+                           "Host: test\r\n"
+                           "Transfer-Encoding: chunked\r\n\r\n"
+                           "5\r\nhello\r\n"
+                           "6\r\n world\r\n"
+                           "0\r\n\r\n"),
+                       0);
+    n = cfw_test_serve_recv(&ts.server, &client, response,
+                            sizeof(response) - 1);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    response[n] = '\0';
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                           "HTTP/1.1 200 OK"));
+
+    CFW_TEST_ASSERT_EQ(st.begin_calls, 1);
+    CFW_TEST_ASSERT_EQ(st.end_calls, 1);
+    CFW_TEST_ASSERT_EQ(st.end_completed, 1);
+    CFW_TEST_ASSERT_EQ(st.size, sizeof(payload) - 1);
+    CFW_TEST_ASSERT_TRUE(memcmp(st.data, payload,
+                                sizeof(payload) - 1) == 0);
+
+    cfw_fd_close(&client);
+    cfw_test_upload_reset(&st);
+    cfw_test_server_teardown(&ts);
+    return 0;
+}
+
+static int test_server_upload_abort(void)
+{
+    cfw_test_server ts;
+    cfw_test_upload_state st;
+    cfw_fd_t client;
+    cfw_duration_t timeout;
+    int attempts;
+
+    /* Declare 100 bytes, send 7, then stall: the request deadline
+     * reaps the conn and the upload must be reported incomplete. */
+    cfw_duration_from_millis(100, &timeout);
+    CFW_TEST_ASSERT_EQ(cfw_test_setup_upload_to(&ts, &st, timeout), 0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(
+                           &client,
+                           "POST /up HTTP/1.1\r\n"
+                           "Host: test\r\n"
+                           "Content-Length: 100\r\n\r\n"
+                           "partial"),
+                       0);
+
+    /* Phase 1: wait for the head to be serviced and the upload begun. */
+    for (attempts = 0; attempts < 200 && st.begin_calls == 0; attempts++) {
+        cfw_timepoint_t deadline;
+        cfw_duration_t slice;
+        cfw_duration_from_millis(20, &slice);
+        cfw_deadline_from_now(&deadline, slice);
+        CFW_TEST_ASSERT_EQ(cfw_server_step(&ts.server, &deadline),
+                           CFW_OK);
+    }
+    CFW_TEST_ASSERT_EQ(st.begin_calls, 1);
+
+    /* Phase 2: the stalled body hits the request deadline and the
+     * conn is reaped with the upload reported incomplete. */
+    for (attempts = 0; attempts < 200 &&
+                    cfw_server_connection_count(&ts.server) != 0;
+         attempts++) {
+        cfw_timepoint_t deadline;
+        cfw_duration_t slice;
+        cfw_duration_from_millis(20, &slice);
+        cfw_deadline_from_now(&deadline, slice);
+        CFW_TEST_ASSERT_EQ(cfw_server_step(&ts.server, &deadline),
+                           CFW_OK);
+    }
+    CFW_TEST_ASSERT_EQ(cfw_server_connection_count(&ts.server), 0);
+    CFW_TEST_ASSERT_EQ(st.end_calls, 1);
+    CFW_TEST_ASSERT_EQ(st.end_completed, 0);
+
+    cfw_fd_close(&client);
+    cfw_test_upload_reset(&st);
+    cfw_test_server_teardown(&ts);
+    return 0;
+}
+
+static int test_server_upload_write_error(void)
+{
+    cfw_test_server ts;
+    cfw_test_upload_state st;
+    cfw_fd_t client;
+    char response[4096];
+    ssize_t n;
+
+    CFW_TEST_ASSERT_EQ(cfw_test_setup_upload(&ts, &st), 0);
+    st.fail_write = 1;
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(
+                           &client,
+                           "POST /up HTTP/1.1\r\n"
+                           "Host: test\r\n"
+                           "Content-Length: 5\r\n\r\n"
+                           "abcde"),
+                       0);
+    n = cfw_test_serve_recv(&ts.server, &client, response,
+                            sizeof(response) - 1);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    response[n] = '\0';
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                           "500"));
+    CFW_TEST_ASSERT_EQ(st.end_calls, 1);
+    CFW_TEST_ASSERT_EQ(st.end_completed, 0);
+
+    cfw_fd_close(&client);
+    cfw_test_upload_reset(&st);
+    cfw_test_server_teardown(&ts);
+    return 0;
+}
+
+static int test_server_upload_begin_error(void)
+{
+    cfw_test_server ts;
+    cfw_test_upload_state st;
+    cfw_fd_t client;
+    char response[4096];
+    ssize_t n;
+
+    CFW_TEST_ASSERT_EQ(cfw_test_setup_upload(&ts, &st), 0);
+    st.fail_begin = 1;
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(
+                           &client,
+                           "POST /up HTTP/1.1\r\n"
+                           "Host: test\r\n"
+                           "Content-Length: 5\r\n\r\n"
+                           "abcde"),
+                       0);
+    n = cfw_test_serve_recv(&ts.server, &client, response,
+                            sizeof(response) - 1);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    response[n] = '\0';
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                           "500"));
+    CFW_TEST_ASSERT_EQ(st.begin_calls, 1);
+    CFW_TEST_ASSERT_EQ(st.end_calls, 0);
+
+    cfw_fd_close(&client);
+    cfw_test_upload_reset(&st);
+    cfw_test_server_teardown(&ts);
+    return 0;
+}
+
 const cfw_test_case cfw_test_server_cases[] = {
+    {"server_upload_content_length", test_server_upload_content_length},
+    {"server_upload_chunked", test_server_upload_chunked},
+    {"server_upload_abort", test_server_upload_abort},
+    {"server_upload_write_error", test_server_upload_write_error},
+    {"server_upload_begin_error", test_server_upload_begin_error},
     {"server_streaming_conn_close", test_server_streaming_conn_close},
     {"server_method_fallbacks", test_server_method_fallbacks},
     {"server_expect_rejected", test_server_expect_rejected},

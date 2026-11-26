@@ -110,6 +110,10 @@ typedef struct cfw_request {
      * valid for the duration of the dispatch call. Empty when the
      * transport does not supply peer information. */
     cfw_strview_t remote_addr;
+    /* Opaque per-request upload token supplied by transport body hooks
+     * (cfw_server_options_t upload_*); NULL when unused or when the
+     * body was buffered into `body`. */
+    void *upload;
 } cfw_request_t;
 
 typedef struct cfw_response {
@@ -213,16 +217,26 @@ CFW_API cfw_status_t cfw_dispatch_request(
     size_t header_capacity, cfw_route_param_t *params,
     size_t param_capacity, cfw_response_t *res);
 
+/* Transport-supplied per-request metadata for
+ * cfw_dispatch_request_ex. All fields optional; pass NULL for none. */
+typedef struct cfw_dispatch_request_info {
+    /* Formatted "ip:port" peer address copied into req.remote_addr;
+     * the strview must outlive the dispatch call. */
+    const cfw_strview_t *remote_addr;
+    /* Opaque upload token copied into req.upload. When non-NULL the
+     * transport delivered the body elsewhere, so the body/framing
+     * consistency check against `body` is skipped. */
+    void *upload;
+} cfw_dispatch_request_info_t;
+
 /* Extended variant of cfw_dispatch_request that additionally supplies
- * transport metadata. `remote_addr` is an optional "ip:port" formatted
- * peer address copied into req.remote_addr; pass NULL or an empty
- * strview when unknown. */
+ * transport metadata via `info` (may be NULL). */
 CFW_API cfw_status_t cfw_dispatch_request_ex(
     const cfw_dispatch_t *dispatch, const cfw_http_request_head_t *head,
     const cfw_span_t *body, cfw_http_header_t *headers,
     size_t header_capacity, cfw_route_param_t *params,
     size_t param_capacity, cfw_response_t *res,
-    const cfw_strview_t *remote_addr);
+    const cfw_dispatch_request_info_t *info);
 
 /* Appends a header to a response; fails with CFW_ERROR_NOMEM when
  * header_capacity is reached. */

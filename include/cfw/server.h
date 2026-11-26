@@ -40,6 +40,26 @@ extern "C" {
 typedef struct cfw_server_conn cfw_server_conn_t;
 typedef struct cfw_pollset cfw_pollset_t; /* private, opaque here */
 
+/* Request-body upload hooks (ADR 0033). When upload_begin is set,
+ * request bodies are delivered incrementally to the hooks instead of
+ * being buffered whole; cfw_request_t.body is then empty and
+ * cfw_request_t.upload carries the handle returned by begin.
+ *
+ * upload_begin runs once per request whose framing declares a body,
+ * after head validation; it must return CFW_OK and set *upload to a
+ * non-NULL application token. Any failure aborts the connection.
+ * upload_write receives each decoded body piece as a borrowed span
+ * valid only for the call; returning an error aborts the connection.
+ * upload_end runs exactly once per begun upload: completed=1 after the
+ * full body arrives (before dispatch) or completed=0 on abort. It is
+ * optional; upload_begin and upload_write must be set together. */
+typedef cfw_status_t (*cfw_upload_begin_fn)(void *user,
+                                            const cfw_http_request_head_t *head,
+                                            void **upload);
+typedef cfw_status_t (*cfw_upload_write_fn)(void *upload,
+                                            const cfw_span_t *piece);
+typedef void (*cfw_upload_end_fn)(void *upload, int completed);
+
 typedef struct cfw_server_options {
     /* Listen address: numeric IP text or NULL for any-address of the
      * selected family. No DNS resolution in v1. */
@@ -72,6 +92,13 @@ typedef struct cfw_server_options {
     size_t max_params;
     /* Optional logger for lifecycle events; may be NULL. */
     cfw_logger_t *logger;
+    /* Optional request-body upload hooks; all share upload_user.
+     * upload_begin and upload_write must both be non-NULL to enable
+     * streaming uploads; upload_end may be NULL. */
+    cfw_upload_begin_fn upload_begin;
+    cfw_upload_write_fn upload_write;
+    cfw_upload_end_fn upload_end;
+    void *upload_user;
 } cfw_server_options_t;
 
 typedef struct cfw_server {

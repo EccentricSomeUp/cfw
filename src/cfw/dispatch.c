@@ -183,7 +183,7 @@ cfw_status_t cfw_dispatch_request_ex(
     const cfw_span_t *body, cfw_http_header_t *headers,
     size_t header_capacity, cfw_route_param_t *params,
     size_t param_capacity, cfw_response_t *res,
-    const cfw_strview_t *remote_addr)
+    const cfw_dispatch_request_info_t *info)
 {
     cfw_request_t req;
     cfw_http_message_framing_t framing;
@@ -212,13 +212,19 @@ cfw_status_t cfw_dispatch_request_ex(
     req.version = head->request_line.version;
     req.headers = headers;
     req.body = body != NULL ? *body : (cfw_span_t){0};
-    if (remote_addr != NULL) {
-        req.remote_addr = *remote_addr;
+    if (info != NULL) {
+        if (info->remote_addr != NULL) {
+            req.remote_addr = *info->remote_addr;
+        }
+        req.upload = info->upload;
     }
 
-    /* Transport-independent validation: framing rules and body size. */
+    /* Transport-independent validation: framing rules and body size.
+     * When the transport streamed the body to an upload sink, req.body
+     * is legitimately empty and consistency is the transport's job. */
     if (cfw_http_request_framing(head, &framing) != CFW_OK ||
-        !cfw_dispatch_body_consistent(&framing, body)) {
+        (req.upload == NULL &&
+         !cfw_dispatch_body_consistent(&framing, body))) {
         return cfw_dispatch_fail(dispatch, &req, res,
                                  CFW_HTTP_STATUS_BAD_REQUEST);
     }

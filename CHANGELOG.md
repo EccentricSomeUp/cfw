@@ -123,6 +123,11 @@ semantic versioning once a stable release policy is adopted.
   formatted "ip:port" peer address ("[v6]:port" for IPv6) for IP-based
   middleware, logging, and rate limiting; supplied via the new
   `cfw_dispatch_request_ex` variant (ADR 0032)
+- Request-body upload streaming: optional `upload_begin`/`upload_write`/
+  `upload_end` server hooks deliver decoded body pieces incrementally
+  to an application sink, removing the `max_body_size` memory bound for
+  opted-in routes; the token reaches handlers via
+  `cfw_request_t.upload`/`cfw_dispatch_request_info_t` (ADR 0033)
 - End-to-end request-smuggling security suite (tests/security):
   CL/TE conflicts, duplicate Content-Length, non-chunked and
   multi-coding Transfer-Encoding, obs-fold, malformed request lines,

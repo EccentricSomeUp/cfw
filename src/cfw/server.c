@@ -97,6 +97,10 @@ struct cfw_server_conn {
      * handlers via cfw_request_t.remote_addr. */
     char remote_addr_buf[72];
     cfw_strview_t remote_addr;
+    /* Active request-body upload token (ADR 0033); NULL when the body
+     * is buffered or no upload is in progress. Non-NULL means
+     * upload_end has not yet run for this request. */
+    void *upload;
     cfw_timepoint_t deadline;
     int deadline_set;
     intptr_t handle;
@@ -120,6 +124,13 @@ static void cfw_server_conn_deadline(cfw_server_conn_t *conn,
 static void cfw_server_close_conn(cfw_server_t *server,
                                   cfw_server_conn_t *conn)
 {
+    /* An upload still open here means the request aborted (timeout,
+     * protocol error handled elsewhere already cleared it, or server
+     * teardown): report it incomplete exactly once. */
+    if (conn->upload != NULL && server->options.upload_end != NULL) {
+        server->options.upload_end(conn->upload, 0);
+    }
+    conn->upload = NULL;
     cfw_pollset_remove(server->pollset, conn->handle);
     cfw_http1_conn_free(&conn->http);
     cfw_buffer_free(&conn->body);
@@ -322,6 +333,7 @@ static void cfw_server_handle_done(cfw_server_t *server,
     cfw_span_t body;
     cfw_response_t res;
     cfw_request_t req_view;
+    cfw_dispatch_request_info_t info;
     char date[30];
     size_t written = 0;
     cfw_status_t st;
@@ -337,11 +349,22 @@ static void cfw_server_handle_done(cfw_server_t *server,
     res.headers = conn->headers;
     res.header_capacity = server->options.max_headers;
 
+    /* A completed upload is finalized before dispatch so the handler
+     * sees a consistent sink; the token then belongs to the app. */
+    memset(&info, 0, sizeof(info));
+    info.remote_addr = &conn->remote_addr;
+    if (conn->upload != NULL) {
+        if (server->options.upload_end != NULL) {
+            server->options.upload_end(conn->upload, 1);
+        }
+        info.upload = conn->upload;
+        conn->upload = NULL;
+    }
+
     st = cfw_dispatch_request_ex(server->options.dispatch, &conn->head,
                                  &body, conn->headers,
                                  server->options.max_headers, conn->params,
-                                 server->options.max_params, &res,
-                                 &conn->remote_addr);
+                                 server->options.max_params, &res, &info);
     if (st != CFW_OK) {
         conn->dead = 1;
         return;
@@ -738,6 +761,14 @@ static void cfw_server_service_read(cfw_server_t *server,
             conn->head = event.head;
             conn->have_head = 1;
             cfw_buffer_clear(&conn->body);
+            /* Defensive: a previous request's upload should already be
+             * ended; if one leaked, report it incomplete. */
+            if (conn->upload != NULL) {
+                if (server->options.upload_end != NULL) {
+                    server->options.upload_end(conn->upload, 0);
+                }
+                conn->upload = NULL;
+            }
             if ((conn->head.request_line.version.major > 1 ||
                  (conn->head.request_line.version.major == 1 &&
                   conn->head.request_line.version.minor >= 1)) &&
@@ -767,12 +798,57 @@ static void cfw_server_service_read(cfw_server_t *server,
                     cfw_server_expect_continue(server, conn);
                 }
             }
+            /* Upload hooks: begin once per request whose framing
+             * declares a non-empty body, after all head validation so
+             * rejected requests never allocate an upload. */
+            if (conn->upload == NULL &&
+                server->options.upload_begin != NULL) {
+                cfw_http_message_framing_t fr;
+                memset(&fr, 0, sizeof(fr));
+                if (cfw_http_request_framing(&conn->head, &fr) == CFW_OK &&
+                    fr.framing != CFW_HTTP_BODY_NONE &&
+                    (fr.framing != CFW_HTTP_BODY_CONTENT_LENGTH ||
+                     fr.content_length > 0)) {
+                    void *up = NULL;
+                    if (server->options.upload_begin(
+                            server->options.upload_user, &conn->head,
+                            &up) != CFW_OK ||
+                        up == NULL) {
+                        cfw_server_send_error(
+                            server, conn,
+                            CFW_HTTP_STATUS_INTERNAL_SERVER_ERROR,
+                            "upload begin failed");
+                        cfw_http1_conn_close_after_write(&conn->http);
+                        conn->rejecting = 1;
+                        cfw_server_conn_deadline(
+                            conn, server->options.keep_alive_timeout);
+                        break;
+                    }
+                    conn->upload = up;
+                }
+            }
             cfw_server_conn_deadline(conn,
                                      server->options.request_timeout);
             break;
         case CFW_HTTP1_EV_BODY:
-            if (cfw_buffer_append(&conn->body, event.body.data,
-                                  event.body.size) != CFW_OK) {
+            if (conn->upload != NULL) {
+                if (server->options.upload_write(conn->upload,
+                                                 &event.body) != CFW_OK) {
+                    if (server->options.upload_end != NULL) {
+                        server->options.upload_end(conn->upload, 0);
+                    }
+                    conn->upload = NULL;
+                    cfw_server_send_error(
+                        server, conn,
+                        CFW_HTTP_STATUS_INTERNAL_SERVER_ERROR,
+                        "upload write failed");
+                    cfw_http1_conn_close_after_write(&conn->http);
+                    conn->rejecting = 1;
+                    cfw_server_conn_deadline(
+                        conn, server->options.keep_alive_timeout);
+                }
+            } else if (cfw_buffer_append(&conn->body, event.body.data,
+                                         event.body.size) != CFW_OK) {
                 conn->dead = 1;
             }
             break;
@@ -782,6 +858,12 @@ static void cfw_server_service_read(cfw_server_t *server,
             }
             break;
         case CFW_HTTP1_EV_ERROR:
+            if (conn->upload != NULL) {
+                if (server->options.upload_end != NULL) {
+                    server->options.upload_end(conn->upload, 0);
+                }
+                conn->upload = NULL;
+            }
             cfw_server_send_error(
                 server, conn,
                 event.error_kind == CFW_HTTP1_ERR_BODY_TOO_LARGE
@@ -1066,7 +1148,9 @@ cfw_status_t cfw_server_init(cfw_server_t *server,
         options->http.max_pending_size == 0 ||
         options->max_headers >
             SIZE_MAX / sizeof(cfw_http_header_t) ||
-        options->max_params > SIZE_MAX / sizeof(cfw_route_param_t)) {
+        options->max_params > SIZE_MAX / sizeof(cfw_route_param_t) ||
+        (options->upload_begin == NULL) !=
+            (options->upload_write == NULL)) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
 
