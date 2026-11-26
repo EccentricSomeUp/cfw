@@ -87,7 +87,14 @@ enum {
     /* Peer performed an orderly shutdown (FIN received). */
     CFW_UPGRADE_EV_HUP = 1u << 2,
     /* Socket error condition reported by the pollset. */
-    CFW_UPGRADE_EV_ERR = 1u << 3
+    CFW_UPGRADE_EV_ERR = 1u << 3,
+    /* Final invocation: the upgraded connection is being torn down
+     * (peer gone, cfw_upgraded_close drained, error, idle deadline, or
+     * server shutdown). Delivered exactly once, always after any
+     * READY/data events. Use it to release per-connection state (e.g.
+     * cfw_ws_destroy). cfw_upgraded_recv/send/close are invalid at
+     * this point; the return value is ignored. */
+    CFW_UPGRADE_EV_CLOSE = 1u << 4
 };
 
 typedef cfw_status_t (*cfw_upgrade_fn)(cfw_upgraded_conn_t *conn,

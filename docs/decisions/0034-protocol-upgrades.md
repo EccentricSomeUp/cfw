@@ -58,6 +58,11 @@ When triggered, after the response head is queued the server:
 4. On each subsequent readiness event invokes `upgrade` with a mask of
    `CFW_UPGRADE_EV_READ` / `CFW_UPGRADE_EV_WRITE` /
    `CFW_UPGRADE_EV_HUP` / `CFW_UPGRADE_EV_ERR`.
+5. When the connection is finally torn down (peer gone, close drained,
+   error, idle deadline, or server shutdown) invokes `upgrade` once
+   more with `CFW_UPGRADE_EV_CLOSE` so the app can release
+   per-connection protocol state. Upgraded I/O is already invalid at
+   that point and the return value is ignored.
 
 The app drives the protocol through `cfw_upgraded_conn_t`:
 

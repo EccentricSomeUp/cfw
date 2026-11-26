@@ -263,6 +263,13 @@ static cfw_status_t cfw_test_ws_hook(cfw_upgraded_conn_t *conn,
 {
     cfw_test_ws_state *st = user;
 
+    if (events == CFW_UPGRADE_EV_CLOSE) {
+        if (st->ws != NULL) {
+            cfw_ws_destroy(st->ws);
+            st->ws = NULL;
+        }
+        return CFW_OK;
+    }
     if (events == CFW_UPGRADE_EV_READY) {
         cfw_ws_options_t options;
         memset(&options, 0, sizeof(options));
@@ -695,6 +702,25 @@ static int test_ws_close_echo(void)
     CFW_TEST_ASSERT_EQ(payload[0], 0x03);
     CFW_TEST_ASSERT_EQ(payload[1], 0xe8);
     CFW_TEST_ASSERT_TRUE(cfw_ws_is_closed(st->ws));
+
+    /* The server finishes the close and tears the conn down; the
+     * EV_CLOSE hook event must release the ws object exactly once. */
+    {
+        int attempts;
+        for (attempts = 0; attempts < 100; attempts++) {
+            cfw_timepoint_t deadline;
+            cfw_duration_t slice;
+            cfw_duration_from_millis(20, &slice);
+            cfw_deadline_from_now(&deadline, slice);
+            CFW_TEST_ASSERT_EQ(cfw_server_step(&st->server, &deadline),
+                               CFW_OK);
+            if (cfw_server_connection_count(&st->server) == 0) {
+                break;
+            }
+        }
+        CFW_TEST_ASSERT_EQ(cfw_server_connection_count(&st->server), 0);
+        CFW_TEST_ASSERT_TRUE(st->ws == NULL);
+    }
 
     cfw_fd_close(&client);
     cfw_test_ws_teardown(st);

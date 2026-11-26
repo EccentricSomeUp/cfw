@@ -19,7 +19,8 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   connections get `cfw_upgraded_recv`/`cfw_upgraded_send`/
   `cfw_upgraded_close` raw I/O with input bytes buffered past the
   request handed off intact, bounded output via `max_out_size`,
-  `cfw_upgraded_out_free` send-queue headroom queries, and
+  `cfw_upgraded_out_free` send-queue headroom queries, a final
+  `CFW_UPGRADE_EV_CLOSE` hook event for per-connection cleanup, and
   `keep_alive_timeout` as the idle deadline. Without the hook, 101 is
   sent as an ordinary response (previous behavior preserved).
 - WebSocket module (ADR 0035, RFC 6455): new `cfw/ws.h` provides
@@ -33,7 +34,8 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   text messages (close 1007), protocol-error closes (1002), automatic
   ping→pong, close-handshake echo, and transactional fragmented sends
   with `CFW_ERROR_WOULDBLOCK` backpressure. Cleartext `ws://` only;
-  `wss://` remains deferred with TLS (ADR 0030).
+  `wss://` remains deferred with TLS (ADR 0030). Includes a runnable
+  echo example (`examples/ws_echo.c`, `cfw_example_ws_echo`).
 
 ## [0.1.0] - 2026-11-26
 

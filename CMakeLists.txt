@@ -138,6 +138,12 @@ if(CFW_BUILD_EXAMPLES)
     cfw_apply_strict_flags(cfw_example_minimal_server)
     cfw_apply_hardening_flags(cfw_example_minimal_server)
     cfw_apply_sanitizer_flags(cfw_example_minimal_server)
+
+    add_executable(cfw_example_ws_echo examples/ws_echo.c)
+    target_link_libraries(cfw_example_ws_echo PRIVATE cfw)
+    cfw_apply_strict_flags(cfw_example_ws_echo)
+    cfw_apply_hardening_flags(cfw_example_ws_echo)
+    cfw_apply_sanitizer_flags(cfw_example_ws_echo)
 endif()
 
 if(CFW_BUILD_TESTING)

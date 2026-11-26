@@ -142,6 +142,7 @@ struct cfw_server_conn {
     int upgraded;
     int upgrade_hup_seen;
     int upgrade_closing;
+    int upgrade_close_sent;
     cfw_buffer_t upgrade_pending;
     size_t upgrade_pending_pos;
     void *upgrade_user;
@@ -186,6 +187,16 @@ static void cfw_server_close_conn(cfw_server_t *server,
         server->options.upload_end(conn->upload, 0);
     }
     conn->upload = NULL;
+    /* Deliver the final upgrade event so apps can release
+     * per-connection protocol state. Runs before any conn teardown;
+     * upgraded I/O is already invalid here (conn is dead or the
+     * server is shutting down). */
+    if (conn->upgraded && !conn->upgrade_close_sent &&
+        server->options.upgrade != NULL) {
+        conn->upgrade_close_sent = 1;
+        (void)server->options.upgrade(conn, CFW_UPGRADE_EV_CLOSE,
+                                      server->options.upgrade_user);
+    }
     cfw_pollset_remove(server->pollset, conn->handle);
     cfw_http1_conn_free(&conn->http);
     cfw_buffer_free(&conn->body);
