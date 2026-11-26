@@ -2,13 +2,15 @@
 
 # cfw
 
-`cfw` is a planned security-focused web server framework written from scratch in
+`cfw` is a security-focused web server framework written from scratch in
 C11 with no third-party runtime dependencies.
 
-The project is currently at repository-bootstrap stage. Only foundational
-version/status APIs, checked arithmetic helpers, byte-span and owning-buffer
-primitives, build configuration, and test infrastructure exist; no HTTP,
-socket, routing, or server functionality is implemented yet.
+Implemented so far: core primitives (time, buffers, arenas, logging,
+randomness), platform abstractions (sockets, pollset, filesystem), a
+strict HTTP/1.1 parser with smuggling-resistant framing, a route table
+with path parameters, an onion-model middleware dispatch pipeline, and a
+single-threaded `cfw_server_t` event-loop server with connection limits,
+timeouts, and graceful stop. TLS is out of scope (ADR 0030).
 
 ## Priorities
 
@@ -59,11 +61,72 @@ List or run selected unit tests directly:
 
 ```sh
 ./build/debug/tests/cfw_unit_tests --list
-./build/debug/tests/cfw_unit_tests --filter version
+./build/debug/tests/cfw_unit_tests --filter server
+./build/debug/tests/cfw_integration_tests   # end-to-end pipeline tests
 ```
 
 The exact test executable path may differ on Windows; use the path reported by
 the selected generator.
+
+## Minimal server
+
+```c
+#include <cfw/cfw.h>
+#include <string.h>
+
+static cfw_status_t hello(cfw_request_t *req, cfw_response_t *res,
+                          void *user)
+{
+    static const char body[] = "Hello, cfw!";
+    (void)req; (void)user;
+    res->status = CFW_HTTP_STATUS_OK;
+    res->body.data = (const uint8_t *)body;
+    res->body.size = sizeof(body) - 1;
+    return CFW_OK;
+}
+
+int main(void)
+{
+    cfw_arena_t *arena = cfw_arena_create(1 << 20);
+    cfw_router_t router;
+    cfw_dispatch_t dispatch;
+    cfw_dispatch_options_t dopt = {0};
+    cfw_server_options_t sopt = {0};
+    cfw_server_t server;
+    cfw_strview_t pattern;
+
+    cfw_router_init(&router, arena);
+    memset(&dopt, 0, sizeof(dopt));
+    dopt.router = &router;
+    dopt.handler = hello;
+    dopt.max_middleware = 4;
+    cfw_dispatch_init(&dispatch, arena, &dopt);
+    cfw_strview_from_cstr(&pattern, "/hello");
+    cfw_dispatch_add_route(&dispatch, CFW_HTTP_METHOD_GET, &pattern,
+                           hello, NULL);
+
+    memset(&sopt, 0, sizeof(sopt));
+    sopt.host = "0.0.0.0";
+    sopt.port = 8080;
+    sopt.dispatch = &dispatch;
+    sopt.http.max_head_size = 8192;
+    sopt.http.max_pending_size = 65536;
+    sopt.max_out_size = 8192;
+    sopt.max_connections = 128;
+    sopt.max_headers = 32;
+    sopt.max_params = 16;
+    if (cfw_server_init(&server, &sopt) != CFW_OK) {
+        return 1;
+    }
+    cfw_server_run(&server);   /* blocks; call cfw_server_stop() elsewhere */
+    cfw_server_free(&server);
+    cfw_arena_destroy(arena);
+    return 0;
+}
+```
+
+The server is single-threaded and cleartext-only (TLS deferred, ADR 0030);
+terminate TLS in a reverse proxy for production HTTPS.
 
 ## Project layout
 
@@ -82,6 +145,7 @@ use the public prefix unless they are intentionally part of the stable API.
 ## Documentation
 
 - [Architecture](docs/architecture.md)
+- [API and ABI stability](docs/api-stability.md)
 - [Development process](docs/process/development.md)
 - [Testing strategy](docs/process/testing.md)
 - [Release checklist](docs/process/release-checklist.md)

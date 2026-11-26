@@ -52,8 +52,8 @@ abstraction exists.
   response-head serialization (implemented; see `cfw/dispatch.h`)
 - `server`: listener, event loop, connection limits/timeouts,
   graceful stop (implemented; see `cfw/server.h`)
-- `tls`: optional boundary for a future dependency decision; no TLS dependency
-  is approved yet
+- `tls`: out of scope for the core library (ADR 0030); a future optional
+  module would sit below `http1_conn`/`server` behind its own dependency ADR
 - `log`: structured, rate-limited, non-blocking-friendly logging
 
 ## Security invariants

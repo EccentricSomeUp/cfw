@@ -23,10 +23,15 @@ cfw_status_t cfw_dispatch_init(cfw_dispatch_t *dispatch, cfw_arena_t *arena,
         return CFW_ERROR_INVALID_ARGUMENT;
     }
 
-    if (cfw_arena_alloc_zeroed(arena,
-                               options->max_middleware *
-                                   sizeof(cfw_dispatch_middleware_t),
-                               &storage) != CFW_OK) {
+    if (options->max_middleware >
+        SIZE_MAX / sizeof(cfw_dispatch_middleware_t)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (cfw_arena_alloc_zeroed(
+            arena,
+            options->max_middleware *
+                sizeof(cfw_dispatch_middleware_t),
+            &storage) != CFW_OK) {
         return CFW_ERROR_NOMEM;
     }
 

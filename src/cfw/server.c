@@ -65,6 +65,7 @@ uint64_t cfw_server_errors_total(const cfw_server_t *server)
 #include "private/net.h"
 #include "private/pollset.h"
 
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -562,7 +563,10 @@ cfw_status_t cfw_server_init(cfw_server_t *server,
     if (server == NULL || options == NULL || options->dispatch == NULL ||
         options->max_connections == 0 || options->max_out_size == 0 ||
         options->http.max_head_size == 0 ||
-        options->http.max_pending_size == 0) {
+        options->http.max_pending_size == 0 ||
+        options->max_headers >
+            SIZE_MAX / sizeof(cfw_http_header_t) ||
+        options->max_params > SIZE_MAX / sizeof(cfw_route_param_t)) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
 

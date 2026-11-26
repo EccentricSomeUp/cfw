@@ -78,6 +78,11 @@ semantic versioning once a stable release policy is adopted.
   accept/error/request diagnostics counters (ADR 0029)
 - `Connection: close` response header on non-keep-alive requests and
   correct deadline handling during response drain
+- TLS scope decision: out of scope for the core library; boundary
+  preserved for a future optional module (ADR 0030)
+- API/ABI stability policy document (docs/api-stability.md)
+- Platform matrix updated to reflect implemented capabilities
+- Additional adversarial HTTP fuzz seeds
 - CMake build, presets, sanitizer configuration, install rules, and CMake
   package config
 - Custom unit-test harness with debug, release, and sanitizer verification

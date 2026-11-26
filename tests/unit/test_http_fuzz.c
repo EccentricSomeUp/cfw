@@ -37,6 +37,13 @@ static const char *cfw_test_seeds[] = {
     "GET http://example.com/path?q=1 HTTP/1.1\r\n\r\n",
     "CONNECT example.com:443 HTTP/1.1\r\n\r\n",
     "PATCH /p HTTP/1.1\r\nContent-Length: 18446744073709551615\r\n\r\n",
+    "POST /x HTTP/1.1\r\nContent-Length: 4\r\nContent-Length: 5\r\n\r\n",
+    "GET /x HTTP/1.1\nHost: bare-lf\n\n",
+    "POST /x HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+    "Z\r\n",
+    "GET /x HTTP/1.1\r\nX-Fold:\r\n continued\r\n\r\n",
+    "POST /x HTTP/1.1\r\nTransfer-Encoding: gzip, chunked\r\n\r\n",
+    "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n",
 };
 
 static const char cfw_test_tokens[] =

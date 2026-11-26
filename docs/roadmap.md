@@ -77,16 +77,24 @@ audit (audits/2026-11-26-http-server-dos-audit.md) with three fixes.
 
 ## Phase 6: Optional TLS boundary
 
-- Decide whether TLS is in scope
-- If approved, choose a minimal audited dependency or design a separate TLS
-  module with explicit ADR and security review
+- Decide whether TLS is in scope — decided: out of scope for the core
+  library (ADR 0030); cleartext transport only, TLS deferred to a
+  future optional module pending a dependency ADR
+- Boundary preserved: `cfw_http1_conn_t`/`cfw_server_t` consume an
+  established byte stream; a future `cfw_tls` module slots below them
 
-Exit criteria: cryptographic and transport audit completed.
+Exit criteria: scope decision recorded (ADR 0030); cryptographic and
+transport audit deferred with the module itself.
 
 ## Phase 7: Hardening and 1.0 readiness
 
-- Full audit catalog pass
-- ABI/API freeze review
-- Platform matrix verification
-- Fuzz corpus stabilization
-- Documentation and migration completeness
+- Full audit catalog pass — met (audits/2026-11-26-1.0-readiness-audit.md)
+- ABI/API freeze review — met (docs/api-stability.md; freeze applies at
+  first tagged release)
+- Platform matrix verification — met (docs/platform-matrix.md updated to
+  implemented state)
+- Fuzz corpus stabilization — met (adversarial seeds added:
+  framing conflicts, bare LF, obs-fold, chunked extensions,
+  upgrade smuggling)
+- Documentation and migration completeness — met (README quickstart and
+  minimal-server example; migration guide N/A pre-1.0)
