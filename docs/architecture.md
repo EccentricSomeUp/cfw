@@ -67,8 +67,11 @@ abstraction exists.
   unescaping, zero-copy part bodies (implemented; see
   `cfw/multipart.h`, ADR 0043)
 - `server`: listener, event loop, connection limits/timeouts,
-  graceful stop, streaming request-body upload hooks (ADR 0033), and
-  peer-address exposure (ADR 0032) (implemented; see `cfw/server.h`)
+  graceful stop, streaming request-body upload hooks (ADR 0033),
+  peer-address exposure (ADR 0032), a per-request completion audit
+  hook (ADR 0055), and optional SO_REUSEPORT multi-instance serving
+  for application-owned worker threads (ADR 0056)
+  (implemented; see `cfw/server.h`)
 - `static`: static file serving middleware with lexical path validation,
   directory index resolution, MIME mapping, bounded stream slots,
   confined no-follow file opens on POSIX, and conditional/Range request
@@ -93,8 +96,10 @@ abstraction exists.
   monotonic deadlines for application-owned concurrency (implemented;
   see `cfw/sync.h`, ADR 0050)
 - `thread`: portable thread spawn/join/detach primitive for
-  application-owned workers; the server stays single-threaded
-  (implemented; see `cfw/thread.h`, ADR 0051)
+  application-owned workers; each `cfw_server_t` instance remains
+  single-threaded, and multi-worker deployments bind separate
+  instances via `SO_REUSEPORT` (implemented; see `cfw/thread.h`,
+  ADRs 0051/0056)
 - `log`: structured, rate-limited, non-blocking-friendly logging
 
 ## Security invariants
