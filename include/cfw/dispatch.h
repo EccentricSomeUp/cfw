@@ -118,6 +118,8 @@ typedef struct cfw_response {
     /* Single body span queued by the caller after head serialization.
      * Suppressed automatically for HEAD/1xx/204/304 responses. */
     cfw_span_t body;
+    /* Application data for the terminal handler/error handler. */
+    void *user;
     /* Optional streaming body source. When set (and the method/status
      * permit a body), the server pulls chunks after the response head
      * is queued, framing them as chunked transfer-encoding for
@@ -125,8 +127,6 @@ typedef struct cfw_response {
      * when stream is set. */
     cfw_response_stream_fn stream;
     void *stream_user;
-    /* Application data for the terminal handler/error handler. */
-    void *user;
 } cfw_response_t;
 
 /* Protocol upgrades (e.g. WebSocket via 101 Switching Protocols) are
