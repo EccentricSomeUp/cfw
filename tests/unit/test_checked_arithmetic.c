@@ -178,8 +178,72 @@ static int test_checked_mul_overflow(void)
     return 0;
 }
 
+static int test_checked_i64_success_and_boundaries(void)
+{
+    int64_t r;
+
+    CFW_TEST_ASSERT_EQ(cfw_checked_add_i64(7, -3, &r), CFW_OK);
+    CFW_TEST_ASSERT_EQ(r, 4);
+    CFW_TEST_ASSERT_EQ(cfw_checked_sub_i64(-7, -3, &r), CFW_OK);
+    CFW_TEST_ASSERT_EQ(r, -4);
+    CFW_TEST_ASSERT_EQ(cfw_checked_mul_i64(-6, 7, &r), CFW_OK);
+    CFW_TEST_ASSERT_EQ(r, -42);
+
+    /* Boundary values that must succeed. */
+    CFW_TEST_ASSERT_EQ(cfw_checked_add_i64(INT64_MAX, 0, &r), CFW_OK);
+    CFW_TEST_ASSERT_EQ(r, INT64_MAX);
+    CFW_TEST_ASSERT_EQ(cfw_checked_add_i64(INT64_MIN, 0, &r), CFW_OK);
+    CFW_TEST_ASSERT_EQ(r, INT64_MIN);
+    CFW_TEST_ASSERT_EQ(cfw_checked_sub_i64(INT64_MIN, 0, &r), CFW_OK);
+    CFW_TEST_ASSERT_EQ(r, INT64_MIN);
+    CFW_TEST_ASSERT_EQ(cfw_checked_mul_i64(INT64_MIN, 1, &r), CFW_OK);
+    CFW_TEST_ASSERT_EQ(r, INT64_MIN);
+    CFW_TEST_ASSERT_EQ(cfw_checked_mul_i64(0, INT64_MIN, &r), CFW_OK);
+    CFW_TEST_ASSERT_EQ(r, 0);
+    CFW_TEST_ASSERT_EQ(cfw_checked_mul_i64(-1, -1, &r), CFW_OK);
+    CFW_TEST_ASSERT_EQ(r, 1);
+    return 0;
+}
+
+static int test_checked_i64_overflow(void)
+{
+    int64_t r = 77;
+
+    CFW_TEST_ASSERT_EQ(cfw_checked_add_i64(INT64_MAX, 1, &r),
+                       CFW_ERROR_OVERFLOW);
+    CFW_TEST_ASSERT_EQ(r, 77);
+    CFW_TEST_ASSERT_EQ(cfw_checked_add_i64(INT64_MIN, -1, &r),
+                       CFW_ERROR_OVERFLOW);
+    CFW_TEST_ASSERT_EQ(r, 77);
+    CFW_TEST_ASSERT_EQ(cfw_checked_sub_i64(INT64_MIN, 1, &r),
+                       CFW_ERROR_OVERFLOW);
+    CFW_TEST_ASSERT_EQ(r, 77);
+    CFW_TEST_ASSERT_EQ(cfw_checked_sub_i64(INT64_MAX, -1, &r),
+                       CFW_ERROR_OVERFLOW);
+    CFW_TEST_ASSERT_EQ(r, 77);
+    CFW_TEST_ASSERT_EQ(cfw_checked_mul_i64(INT64_MAX, 2, &r),
+                       CFW_ERROR_OVERFLOW);
+    CFW_TEST_ASSERT_EQ(r, 77);
+    CFW_TEST_ASSERT_EQ(cfw_checked_mul_i64(INT64_MIN, -1, &r),
+                       CFW_ERROR_OVERFLOW);
+    CFW_TEST_ASSERT_EQ(r, 77);
+    CFW_TEST_ASSERT_EQ(cfw_checked_mul_i64(-1, INT64_MIN, &r),
+                       CFW_ERROR_OVERFLOW);
+    CFW_TEST_ASSERT_EQ(r, 77);
+    CFW_TEST_ASSERT_EQ(cfw_checked_mul_i64(INT64_MIN, 2, &r),
+                       CFW_ERROR_OVERFLOW);
+    CFW_TEST_ASSERT_EQ(r, 77);
+    return 0;
+}
+
 static int test_checked_arithmetic_null_result(void)
 {
+    CFW_TEST_ASSERT_EQ(cfw_checked_add_i64(1, 1, NULL),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_checked_sub_i64(1, 1, NULL),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_checked_mul_i64(1, 1, NULL),
+                       CFW_ERROR_INVALID_ARGUMENT);
     CFW_TEST_ASSERT_EQ(cfw_checked_add_u32(1, 1, NULL),
                        CFW_ERROR_INVALID_ARGUMENT);
     CFW_TEST_ASSERT_EQ(cfw_checked_sub_u32(1, 1, NULL),
@@ -231,6 +295,9 @@ const cfw_test_case cfw_test_checked_arithmetic_cases[] = {
     {"checked_add_overflow", test_checked_add_overflow},
     {"checked_sub_underflow", test_checked_sub_underflow},
     {"checked_mul_overflow", test_checked_mul_overflow},
+    {"checked_i64_success_and_boundaries",
+     test_checked_i64_success_and_boundaries},
+    {"checked_i64_overflow", test_checked_i64_overflow},
     {"checked_arithmetic_null_result", test_checked_arithmetic_null_result},
     {"checked_arithmetic_preserves_result_on_error",
      test_checked_arithmetic_preserves_result_on_error},

@@ -77,6 +77,12 @@ static int test_strview_equal(void)
     CFW_TEST_ASSERT_EQ(cfw_strview_equal(&a, &b, &equal), CFW_OK);
     CFW_TEST_ASSERT_FALSE(equal);
 
+    /* Two empty views are equal. */
+    CFW_TEST_ASSERT_EQ(cfw_strview_init(&a, NULL, 0), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_strview_init(&b, NULL, 0), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_strview_equal(&a, &b, &equal), CFW_OK);
+    CFW_TEST_ASSERT_TRUE(equal);
+
     CFW_TEST_ASSERT_EQ(cfw_strview_equal(&a, NULL, &equal),
                        CFW_ERROR_INVALID_ARGUMENT);
     CFW_TEST_ASSERT_EQ(cfw_strview_equal(&a, &b, NULL),
@@ -104,6 +110,12 @@ static int test_strview_equal_nocase(void)
     CFW_TEST_ASSERT_EQ(cfw_strview_init(&b, "\xE1", 1), CFW_OK);
     CFW_TEST_ASSERT_EQ(cfw_strview_equal_nocase(&a, &b, &equal), CFW_OK);
     CFW_TEST_ASSERT_FALSE(equal);
+
+    /* Two empty views are equal under case folding too. */
+    CFW_TEST_ASSERT_EQ(cfw_strview_init(&a, NULL, 0), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_strview_init(&b, NULL, 0), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_strview_equal_nocase(&a, &b, &equal), CFW_OK);
+    CFW_TEST_ASSERT_TRUE(equal);
     return 0;
 }
 
@@ -137,6 +149,9 @@ static int test_strview_prefix_suffix(void)
 
     CFW_TEST_ASSERT_EQ(cfw_strview_from_cstr(&affix, "hello world!"), CFW_OK);
     CFW_TEST_ASSERT_EQ(cfw_strview_starts_with(&view, &affix, &matches),
+                       CFW_OK);
+    CFW_TEST_ASSERT_FALSE(matches);
+    CFW_TEST_ASSERT_EQ(cfw_strview_ends_with(&view, &affix, &matches),
                        CFW_OK);
     CFW_TEST_ASSERT_FALSE(matches);
 
