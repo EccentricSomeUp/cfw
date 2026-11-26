@@ -204,6 +204,7 @@ cfw_status_t cfw_dispatch_request_ex(
     memset(&res->body, 0, sizeof(res->body));
     res->stream = NULL;
     res->stream_user = NULL;
+    res->stream_end = NULL;
     res->user = NULL;
 
     memset(&req, 0, sizeof(req));

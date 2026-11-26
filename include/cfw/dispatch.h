@@ -75,6 +75,14 @@ typedef cfw_status_t (*cfw_response_stream_fn)(void *user,
                                                cfw_span_t *chunk,
                                                int *eof);
 
+/* Optional stream cleanup hook. Invoked exactly once with `stream_user`
+ * when the stream finishes (after the terminal chunk is queued) or when
+ * the connection dies with the stream still active (timeout, protocol
+ * error, server shutdown). Use it to release per-stream resources such
+ * as open files; it is never called for streams that were never
+ * installed. */
+typedef void (*cfw_response_stream_end_fn)(void *user);
+
 /* Fills `res` for a failed dispatch. `status_hint` is the framework's
  * suggested status (400/404/500); implementations may override it. */
 typedef void (*cfw_dispatch_error_fn)(cfw_request_t *req,
@@ -135,6 +143,9 @@ typedef struct cfw_response {
      * when stream is set. */
     cfw_response_stream_fn stream;
     void *stream_user;
+    /* Optional cleanup hook run once when the stream ends or is
+     * abandoned; receives stream_user. See cfw_response_stream_end_fn. */
+    cfw_response_stream_end_fn stream_end;
 } cfw_response_t;
 
 /* Protocol upgrades (e.g. WebSocket via 101 Switching Protocols) are

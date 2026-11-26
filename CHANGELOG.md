@@ -43,6 +43,11 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   streaming files without buffering them whole. This is the foundation
   for a future static-file module; path validation and traversal
   protection remain the caller's responsibility.
+- Response stream cleanup hook: `cfw_response_t.stream_end`
+  (`cfw_response_stream_end_fn`) runs exactly once when a streaming
+  response finishes or its connection dies mid-stream, letting apps
+  release per-stream resources such as open files. Includes
+  `cfw_file_stream_end`, a ready-made adapter for `cfw_file_stream_t`.
 
 ## [0.1.0] - 2026-11-26
 

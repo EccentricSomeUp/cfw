@@ -6,9 +6,11 @@
 - Auditor: Devin (agent)
 - Scope: `cfw_file_t` (`cfw_file_open`/`cfw_file_read`/`cfw_file_close`),
   `cfw_file_stream_t` (`cfw_file_stream_init`/`cfw_file_stream_read`/
-  `cfw_file_stream_close`) in `include/cfw/fs.h` + `src/cfw/fs.c`, and
-  tests in `tests/unit/test_fs.c` /
-  `tests/unit/test_server.c` (`server_file_stream_response`)
+  `cfw_file_stream_end`/`cfw_file_stream_close`) in
+  `include/cfw/fs.h` + `src/cfw/fs.c`; the `cfw_response_t.stream_end`
+  cleanup hook (`cfw_response_stream_end_fn`) in `dispatch.h`/`server.c`;
+  tests in `tests/unit/test_fs.c` / `tests/unit/test_server.c`
+  (`server_file_stream_response`, `server_stream_end_on_close`)
 - Method: catalog-driven review per `docs/security/audit-catalog.md`
 
 ## Catalog coverage
@@ -32,6 +34,7 @@
 |----|----------|---------|-------------|
 | F-101 | Info | `cfw_file_read` does not retry on `EINTR` | Accepted — the framework's socket paths handle EINTR at the poll layer; a short read or error surfaces to the caller, and the stream adapter propagates it as a response abort. Revisit if real workloads show spurious failures |
 | F-102 | Info | No `pread`/seek support yet; Range requests and parallel readers are out of scope | Accepted — sequential read covers the streaming-response use case; additive seek API can land with the static-file module (ADR pending) |
+| F-103 | Low | `stream_end` fires when the terminal chunk is *queued*, not flushed; a conn dying between queue and flush still runs the hook via `close_conn` | Verified — `close_conn` invokes `stream_end` for any conn with an active stream, and the completion path clears `stream_fn`/`stream_end` together so the hook runs exactly once (`server_stream_end_on_close` covers the abort path) |
 | F-103 | Low | TOCTOU between `cfw_file_size(path)` and `cfw_file_open(path)` can serve a different file than sized | Accepted for now — documented that path handling is the caller's responsibility; the future static module must confine paths (root-prefix + canonicalization) before serving |
 
 ## Verified behaviors (tests)
@@ -44,7 +47,9 @@
   buffer, sticky EOF, empty-file immediate EOF, init error matrix.
 - `server_file_stream_response`: real file served over HTTP/1.1 as
   `Transfer-Encoding: chunked`; dechunked body byte-equals the file;
-  keep-alive survives the streamed response.
+  `stream_end` closes the file handle; keep-alive survives.
+- `server_stream_end_on_close`: abrupt client disconnect mid-stream
+  still invokes `stream_end` exactly once.
 
 ## Verification
 

@@ -124,6 +124,7 @@ struct cfw_server_conn {
     cfw_buffer_t head_scratch;
     cfw_http_request_head_t head;
     cfw_response_stream_fn stream_fn;
+    cfw_response_stream_end_fn stream_end;
     void *stream_user;
     cfw_span_t stream_chunk;
     size_t stream_pos;
@@ -187,6 +188,13 @@ static void cfw_server_close_conn(cfw_server_t *server,
         server->options.upload_end(conn->upload, 0);
     }
     conn->upload = NULL;
+    /* An active stream here means the connection died mid-response:
+     * run the app's stream_end hook exactly once so per-stream
+     * resources (open files, buffers) are released. */
+    if (conn->stream_fn != NULL && conn->stream_end != NULL) {
+        conn->stream_end(conn->stream_user);
+        conn->stream_end = NULL;
+    }
     /* Deliver the final upgrade event so apps can release
      * per-connection protocol state. Runs before any conn teardown;
      * upgraded I/O is already invalid here (conn is dead or the
@@ -479,6 +487,7 @@ static void cfw_server_handle_done(cfw_server_t *server,
         cfw_http_response_has_body(conn->head.request_line.method,
                                    res.status)) {
         conn->stream_fn = res.stream;
+        conn->stream_end = res.stream_end;
         conn->stream_user = res.stream_user;
         conn->stream_chunk = (cfw_span_t){0};
         conn->stream_pos = 0;
@@ -499,6 +508,7 @@ static void cfw_server_handle_done(cfw_server_t *server,
         }
     } else {
         conn->stream_fn = NULL;
+        conn->stream_end = NULL;
     }
 
     /* Signal connection persistence explicitly: HTTP/1.0 clients
@@ -717,6 +727,10 @@ static void cfw_server_stream_pump(cfw_server_t *server,
                 conn->http.close_after_write = 1;
             }
             conn->stream_fn = NULL;
+            if (conn->stream_end != NULL) {
+                conn->stream_end(conn->stream_user);
+                conn->stream_end = NULL;
+            }
             return;
         }
 

@@ -1100,6 +1100,7 @@ static cfw_status_t cfw_test_file_handler(cfw_request_t *req,
     res->status = CFW_HTTP_STATUS_OK;
     res->stream = cfw_file_stream_read;
     res->stream_user = &st->stream;
+    res->stream_end = cfw_file_stream_end;
     return CFW_OK;
 }
 
@@ -1236,13 +1237,105 @@ static int test_server_file_stream_response(void)
                             sizeof(response), "srv-ok", &used);
     CFW_TEST_ASSERT_TRUE(n > 0);
 
-    cfw_file_stream_close(&st.stream);
+    /* stream_end ran when the terminal chunk was queued: the file
+     * handle must already be closed. */
+    CFW_TEST_ASSERT_FALSE(cfw_file_valid(&st.stream.file));
+
     cfw_fd_close(&client);
     cfw_test_server_teardown(&ts);
     CFW_TEST_ASSERT_EQ(remove(path), 0);
     return 0;
 }
 
+
+/* stream_end on abandon: a client that disconnects mid-stream must
+ * still trigger the cleanup hook exactly once. */
+typedef struct {
+    int ended;
+} cfw_test_end_state;
+
+static cfw_status_t cfw_test_endless_fn(void *user, cfw_span_t *chunk,
+                                        int *eof)
+{
+    static const char piece[] = "x";
+    (void)user;
+    chunk->data = (const uint8_t *)piece;
+    chunk->size = 1;
+    *eof = 0;
+    return CFW_OK;
+}
+
+static void cfw_test_mark_end(void *user)
+{
+    ((cfw_test_end_state *)user)->ended++;
+}
+
+static cfw_status_t cfw_test_end_handler(cfw_request_t *req,
+                                         cfw_response_t *res, void *user)
+{
+    (void)req;
+    res->status = CFW_HTTP_STATUS_OK;
+    res->stream = cfw_test_endless_fn;
+    res->stream_user = user;
+    res->stream_end = cfw_test_mark_end;
+    return CFW_OK;
+}
+
+static int test_server_stream_end_on_close(void)
+{
+    cfw_test_server ts;
+    cfw_fd_t client;
+    cfw_test_end_state st;
+    char response[8192];
+    size_t used = 0;
+    int attempts;
+    cfw_strview_t pattern;
+
+    memset(&st, 0, sizeof(st));
+    CFW_TEST_ASSERT_EQ(cfw_test_server_setup(&ts, (cfw_duration_t){0},
+                                             (cfw_duration_t){0}, 8),
+                       0);
+    cfw_strview_from_cstr(&pattern, "/endless");
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(&ts.dispatch,
+                                              CFW_HTTP_METHOD_GET,
+                                              &pattern,
+                                              cfw_test_end_handler,
+                                              &st),
+                       CFW_OK);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /endless HTTP/1.1\r\n"
+                                     "Host: end\r\n\r\n"),
+                       0);
+    /* Pull until the stream is definitely active (headers + chunks). */
+    {
+        ssize_t n = cfw_test_recv_until(&ts.server, &client, response,
+                                        sizeof(response), "x", &used);
+        CFW_TEST_ASSERT_TRUE(n > 0);
+    }
+
+    /* Abrupt disconnect mid-stream, then let the server notice. */
+    cfw_fd_close(&client);
+    for (attempts = 0; attempts < 100; attempts++) {
+        cfw_timepoint_t deadline;
+        cfw_duration_t slice;
+        cfw_duration_from_millis(10, &slice);
+        cfw_deadline_from_now(&deadline, slice);
+        if (cfw_server_step(&ts.server, &deadline) != CFW_OK) {
+            break;
+        }
+        if (st.ended) {
+            break;
+        }
+    }
+    CFW_TEST_ASSERT_EQ(st.ended, 1);
+
+    cfw_test_server_teardown(&ts);
+    return 0;
+}
 
 static int test_server_host_required(void)
 {
@@ -2537,6 +2630,7 @@ const cfw_test_case cfw_test_server_cases[] = {
     {"server_streaming_response", test_server_streaming_response},
     {"server_streaming_http10", test_server_streaming_http10},
     {"server_file_stream_response", test_server_file_stream_response},
+    {"server_stream_end_on_close", test_server_stream_end_on_close},
     {"server_request_response", test_server_request_response},
     {"server_large_response_head", test_server_large_response_head},
     {"server_post_body", test_server_post_body},

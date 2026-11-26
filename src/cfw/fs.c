@@ -195,6 +195,11 @@ cfw_status_t cfw_file_stream_read(void *user, cfw_span_t *chunk,
     return cfw_span_init(chunk, stream->buffer, got);
 }
 
+void cfw_file_stream_end(void *user)
+{
+    cfw_file_stream_close(user);
+}
+
 void cfw_file_stream_close(cfw_file_stream_t *stream)
 {
     if (stream == NULL) {

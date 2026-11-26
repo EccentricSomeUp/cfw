@@ -53,14 +53,16 @@ CFW_API cfw_status_t cfw_file_close(cfw_file_t *file);
 /*
  * cfw_file_stream_t adapts an open file to the pull-style streaming
  * body contract used by cfw_response_t.stream (see dispatch.h): assign
- * cfw_file_stream_read to res->stream and the stream object to
- * res->stream_user, then call cfw_file_stream_close once the response
- * has been fully emitted (or when abandoning it).
+ * cfw_file_stream_read to res->stream, the stream object to
+ * res->stream_user, and cfw_file_stream_end to res->stream_end so the
+ * file is closed exactly once whether the stream completes or the
+ * connection dies mid-response.
  *
  * `buffer`/`buffer_size` are caller-owned scratch space reused for every
  * chunk; buffer_size must be nonzero. The emitted chunk remains valid
  * only until the next cfw_file_stream_read call, matching the stream
- * contract.
+ * contract. cfw_file_stream_close may still be called for streams that
+ * were initialized but never installed on a response.
  */
 typedef struct cfw_file_stream {
     cfw_file_t file;
@@ -75,6 +77,7 @@ CFW_API cfw_status_t cfw_file_stream_init(cfw_file_stream_t *stream,
                                           size_t buffer_size);
 CFW_API cfw_status_t cfw_file_stream_read(void *user, cfw_span_t *chunk,
                                           int *eof);
+CFW_API void cfw_file_stream_end(void *user);
 CFW_API void cfw_file_stream_close(cfw_file_stream_t *stream);
 
 #ifdef __cplusplus
