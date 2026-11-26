@@ -140,6 +140,10 @@ CFW_API cfw_status_t cfw_http_head_reader_init(cfw_http_head_reader_t *reader,
                                                size_t max_size);
 CFW_API void cfw_http_head_reader_free(cfw_http_head_reader_t *reader);
 
+/* Resets the reader for the next head on a persistent connection, keeping
+ * the allocated buffer capacity. */
+CFW_API void cfw_http_head_reader_reset(cfw_http_head_reader_t *reader);
+
 /* Appends input to the pending head. On success *consumed receives the
  * number of input bytes belonging to the head; any remainder (body or
  * pipelined bytes) is not retained and must be handled by the caller.

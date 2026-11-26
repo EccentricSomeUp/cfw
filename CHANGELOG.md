@@ -56,6 +56,9 @@ semantic versioning once a stable release policy is adopted.
   response head formatting, and body-allowance rules (HEAD/1xx/204/304)
 - Incremental request-head reader with configurable size limit,
   boundary-spanning terminator detection, and pipelining-safe consumption
+- HTTP/1.1 server message reader: per-connection state machine with
+  keep-alive, pipelining, streaming zero-copy bodies, and configurable
+  head/body/pending resource limits
 - CMake build, presets, sanitizer configuration, install rules, and CMake
   package config
 - Custom unit-test harness with debug, release, and sanitizer verification

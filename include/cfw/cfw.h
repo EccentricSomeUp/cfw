@@ -9,6 +9,7 @@
 #include <cfw/fd.h>
 #include <cfw/fs.h>
 #include <cfw/http.h>
+#include <cfw/http1.h>
 #include <cfw/log.h>
 #include <cfw/platform.h>
 #include <cfw/random.h>

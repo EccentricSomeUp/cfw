@@ -1217,6 +1217,16 @@ cfw_status_t cfw_http_head_reader_feed(cfw_http_head_reader_t *reader,
     return CFW_OK;
 }
 
+void cfw_http_head_reader_reset(cfw_http_head_reader_t *reader)
+{
+    if (reader == NULL) {
+        return;
+    }
+    cfw_buffer_clear(&reader->buffer);
+    reader->complete = 0;
+    reader->head_size = 0;
+}
+
 int cfw_http_head_reader_is_complete(const cfw_http_head_reader_t *reader)
 {
     return reader != NULL && reader->complete;
