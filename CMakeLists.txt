@@ -35,6 +35,7 @@ set(CFW_SOURCES
     src/cfw/fs.c
     src/cfw/log.c
     src/cfw/platform.c
+    src/cfw/private/pollset.c
     src/cfw/random.c
     src/cfw/span.c
     src/cfw/status.c

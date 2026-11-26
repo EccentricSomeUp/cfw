@@ -33,6 +33,9 @@ semantic versioning once a stable release policy is adopted.
   unbiased bounded generation via rejection sampling
 - Filesystem boundary primitives for regular-file size and directory checks
 - Documented platform support matrix covering Linux, macOS, BSD, and Windows
+- Internal pollset abstraction: level-triggered event sets with epoll on
+  Linux, poll() fallback on other POSIX, deadline-aware waits, and per-fd
+  tokens
 - CMake build, presets, sanitizer configuration, install rules, and CMake
   package config
 - Custom unit-test harness with debug, release, and sanitizer verification

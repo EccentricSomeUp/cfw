@@ -32,7 +32,7 @@ not yet implemented; "planned" means no contract exists yet.
 | CSPRNG | `getrandom` | `arc4random_buf` | `arc4random_buf` | `BCryptGenRandom` | `cfw_random_*` (implemented) |
 | File metadata | `stat` | `stat` | `stat` | `_stat64` | `cfw_file_*` (implemented) |
 | Descriptor close | `close` | `close` | `close` | stub: `UNAVAILABLE` | `cfw_fd_close` (partial) |
-| Polling/event loop | `epoll` planned | `kqueue` planned | `kqueue` planned | IOCP planned | designed (ADR 0011) |
+| Polling/event loop | `epoll` (internal) | `poll` fallback | `poll` fallback | stub | `cfw_pollset_*` internal (implemented, ADR 0014) |
 | Sockets | `socket` planned | `socket` planned | `socket` planned | `WSA` planned | designed |
 | Threads/mutexes | deferred | deferred | deferred | deferred | deferred to Phase 5 |
 
