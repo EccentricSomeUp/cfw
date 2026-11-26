@@ -70,8 +70,8 @@ integration tests over real loopback TCP
 - Connection limits and timeouts — met (ADR 0029)
 - Graceful start/stop/reload behavior — start/stop met; hot reload
   deferred (rebuild server instance; SIGHUP is app policy)
-- Operational logging and diagnostics — met (counters + optional
-  logger events; structured audit logging deferred)
+- Operational logging and diagnostics — met (counters, optional
+  logger events, and per-request completion audit hook; ADR 0055)
 
 Exit criteria met: bounded soak test (server_soak) and DoS
 audit (audits/2026-11-26-http-server-dos-audit.md) with three fixes.
