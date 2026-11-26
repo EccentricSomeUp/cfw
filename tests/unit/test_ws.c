@@ -201,6 +201,10 @@ typedef struct {
     size_t last_payload_len;
     size_t max_message_size;
     char accept[CFW_WS_ACCEPT_KEY_CAPACITY];
+    /* All live cfw_ws_t objects (multi-connection tests); st->ws
+     * mirrors the most recently created one for single-conn tests. */
+    cfw_ws_t *ws_list[16];
+    size_t ws_count;
 } cfw_test_ws_state;
 
 static cfw_test_ws_state cfw_test_ws_st;
@@ -262,11 +266,22 @@ static cfw_status_t cfw_test_ws_hook(cfw_upgraded_conn_t *conn,
                                      uint32_t events, void *user)
 {
     cfw_test_ws_state *st = user;
+    cfw_ws_t *ws;
 
     if (events == CFW_UPGRADE_EV_CLOSE) {
-        if (st->ws != NULL) {
-            cfw_ws_destroy(st->ws);
-            st->ws = NULL;
+        ws = cfw_upgraded_user(conn);
+        if (ws != NULL) {
+            size_t i;
+            cfw_ws_destroy(ws);
+            for (i = 0; i < st->ws_count; i++) {
+                if (st->ws_list[i] == ws) {
+                    st->ws_list[i] = st->ws_list[--st->ws_count];
+                    break;
+                }
+            }
+            if (st->ws == ws) {
+                st->ws = NULL;
+            }
         }
         return CFW_OK;
     }
@@ -276,11 +291,20 @@ static cfw_status_t cfw_test_ws_hook(cfw_upgraded_conn_t *conn,
         options.on_message = cfw_test_ws_on_message;
         options.user = st;
         options.max_message_size = st->max_message_size;
-        st->ws = cfw_ws_create(conn, &options);
-        return st->ws != NULL ? CFW_OK : CFW_ERROR_INTERNAL;
+        ws = cfw_ws_create(conn, &options);
+        if (ws == NULL) {
+            return CFW_ERROR_INTERNAL;
+        }
+        cfw_upgraded_set_user(conn, ws);
+        if (st->ws_count < sizeof(st->ws_list) / sizeof(st->ws_list[0])) {
+            st->ws_list[st->ws_count++] = ws;
+        }
+        st->ws = ws;
+        return CFW_OK;
     }
-    if (st->ws != NULL) {
-        (void)cfw_ws_on_event(st->ws, events);
+    ws = cfw_upgraded_user(conn);
+    if (ws != NULL) {
+        (void)cfw_ws_on_event(ws, events);
     }
     return CFW_OK;
 }
@@ -333,11 +357,15 @@ static int cfw_test_ws_setup(cfw_test_ws_state *st)
 
 static void cfw_test_ws_teardown(cfw_test_ws_state *st)
 {
-    if (st->ws != NULL) {
-        cfw_ws_destroy(st->ws);
-        st->ws = NULL;
-    }
+    /* Freeing the server tears down live conns, which delivers
+     * EV_CLOSE and lets the hook destroy each ws object. Anything
+     * still tracked afterwards was missed by the hook; destroy it
+     * directly so nothing leaks. */
     cfw_server_free(&st->server);
+    while (st->ws_count != 0) {
+        cfw_ws_destroy(st->ws_list[--st->ws_count]);
+    }
+    st->ws = NULL;
     cfw_arena_destroy(st->arena);
 }
 
@@ -1213,6 +1241,80 @@ static int test_ws_ping_interleaved_fragment(void)
     cfw_test_ws_teardown(st);
     return 0;
 }
+
+static int test_ws_soak(void)
+{
+    enum { NCONN = 6, ROUNDS = 25 };
+    cfw_test_ws_state *st = &cfw_test_ws_st;
+    cfw_fd_t clients[NCONN];
+    char response[8192];
+    uint8_t frame[128];
+    size_t flen;
+    int c;
+    int r;
+
+    cfw_test_ws_setup(st);
+    st->echo = 1;
+    st->messages = 0;
+
+    /* Handshake each connection sequentially (deterministic connect
+     * completion), then interleave message rounds across all of
+     * them. */
+    for (c = 0; c < NCONN; c++) {
+        cfw_fd_init(&clients[c]);
+        CFW_TEST_ASSERT_EQ(cfw_test_ws_connect(
+                               &clients[c],
+                               cfw_server_port(&st->server)),
+                           CFW_OK);
+        CFW_TEST_ASSERT_EQ(cfw_test_ws_handshake(
+                               &st->server, &clients[c], response,
+                               sizeof(response)),
+                           0);
+    }
+    CFW_TEST_ASSERT_EQ(st->ws_count, (size_t)NCONN);
+
+    flen = cfw_test_ws_masked_frame(frame, 1, 0x1, "soak-msg", 8);
+    for (r = 0; r < ROUNDS; r++) {
+        for (c = 0; c < NCONN; c++) {
+            CFW_TEST_ASSERT_EQ(cfw_test_ws_send(&clients[c], frame,
+                                                flen),
+                               0);
+        }
+        for (c = 0; c < NCONN; c++) {
+            size_t used = 0;
+            CFW_TEST_ASSERT_TRUE(cfw_test_ws_recv_until(
+                                     &st->server, &clients[c], response,
+                                     sizeof(response), "soak-msg",
+                                     &used) > 0);
+        }
+    }
+    CFW_TEST_ASSERT_EQ(st->messages, NCONN * ROUNDS);
+
+    /* Orderly close on every connection; EV_CLOSE must reap each ws
+     * object exactly once. */
+    for (c = 0; c < NCONN; c++) {
+        cfw_fd_close(&clients[c]);
+    }
+    {
+        int attempts;
+        for (attempts = 0; attempts < 200; attempts++) {
+            cfw_timepoint_t deadline;
+            cfw_duration_t slice;
+            cfw_duration_from_millis(20, &slice);
+            cfw_deadline_from_now(&deadline, slice);
+            CFW_TEST_ASSERT_EQ(cfw_server_step(&st->server, &deadline),
+                               CFW_OK);
+            if (st->ws_count == 0) {
+                break;
+            }
+        }
+        CFW_TEST_ASSERT_EQ(st->ws_count, 0);
+        CFW_TEST_ASSERT_EQ(cfw_server_connection_count(&st->server), 0);
+    }
+
+    cfw_test_ws_teardown(st);
+    return 0;
+}
 #endif /* !_WIN32 */
 
 const cfw_test_case cfw_test_ws_cases[] = {
@@ -1240,6 +1342,7 @@ const cfw_test_case cfw_test_ws_cases[] = {
     {"ws_close_with_reason", test_ws_close_with_reason},
     {"ws_ping_interleaved_fragment",
      test_ws_ping_interleaved_fragment},
+    {"ws_soak", test_ws_soak},
 #endif
     {NULL, NULL},
 };
