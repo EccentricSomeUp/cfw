@@ -87,6 +87,8 @@ semantic versioning once a stable release policy is adopted.
   connections after `cfw_server_stop` until `drain_timeout` expires
 - `Expect: 100-continue` support: interim `100 Continue` response emitted
   at request-head time so waiting clients are not stalled
+- DNS resolution for server listen hosts via getaddrinfo (init-time
+  only; first address in the configured family)
 - CMake build, presets, sanitizer configuration, install rules, and CMake
   package config
 - Custom unit-test harness with debug, release, and sanitizer verification

@@ -34,6 +34,11 @@ typedef struct cfw_sockaddr {
 /* Numeric-literal addresses only ("192.0.2.1", "::1"); no DNS. */
 cfw_status_t cfw_addr_from_str(cfw_sockaddr_t *addr, const char *text,
                                uint16_t port);
+/* Resolves `host` (name or literal) via getaddrinfo and returns the
+ * first address in `family` (AF_INET or AF_INET6). Blocking; intended
+ * for server init, not the event loop. */
+cfw_status_t cfw_addr_resolve(cfw_sockaddr_t *addr, const char *host,
+                              uint16_t port, int family);
 cfw_status_t cfw_addr_to_str(const cfw_sockaddr_t *addr, char *buffer,
                              size_t capacity);
 cfw_status_t cfw_addr_port(const cfw_sockaddr_t *addr, uint16_t *port);

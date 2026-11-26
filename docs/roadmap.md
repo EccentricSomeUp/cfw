@@ -65,7 +65,7 @@ integration tests over real loopback TCP
 ## Phase 5: Server lifecycle
 
 - Configuration model — met (ADR 0029)
-- Listener management — met (ADR 0029; numeric hosts only, no DNS)
+- Listener management — met (ADR 0029; getaddrinfo listen hosts)
 - Connection limits and timeouts — met (ADR 0029)
 - Graceful start/stop/reload behavior — start/stop met; hot reload
   deferred (rebuild server instance; SIGHUP is app policy)

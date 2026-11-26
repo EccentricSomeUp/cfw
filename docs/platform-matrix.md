@@ -33,7 +33,7 @@ not yet implemented; "planned" means no contract exists yet.
 | File metadata | `stat` | `stat` | `stat` | `_stat64` | `cfw_file_*` (implemented) |
 | Descriptor close | `close` | `close` | `close` | stub: `UNAVAILABLE` | `cfw_fd_close` (POSIX; Windows deferred with IOCP) |
 | Polling/event loop | `epoll` (internal) | `poll` fallback | `poll` fallback | stub | `cfw_pollset_*` internal (implemented, ADR 0014) |
-| Sockets | `socket`/`accept4` | `socket`/`accept` | `socket`/`accept` | stub | `cfw_net_*` internal (implemented; numeric IPs only, no DNS) |
+| Sockets | `socket`/`accept4` | `socket`/`accept` | `socket`/`accept` | stub | `cfw_net_*` internal (implemented; numeric IPs plus init-time getaddrinfo for listen hosts) |
 | HTTP/1.1 + server | POSIX only | POSIX only | POSIX only | stub: `UNAVAILABLE` | `cfw_http1*`, `cfw_server` (implemented; Windows pending IOCP) |
 | Threads/mutexes | deferred | deferred | deferred | deferred | single-threaded per server; deferred |
 

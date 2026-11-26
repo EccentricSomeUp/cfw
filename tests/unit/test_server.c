@@ -107,10 +107,11 @@ static void cfw_test_server_options(cfw_server_options_t *options,
     options->max_params = 16;
 }
 
-static int cfw_test_server_setup(cfw_test_server *ts,
-                                 cfw_duration_t keep_alive,
-                                 cfw_duration_t request_timeout,
-                                 size_t max_connections)
+static int cfw_test_server_setup_host(cfw_test_server *ts,
+                                      cfw_duration_t keep_alive,
+                                      cfw_duration_t request_timeout,
+                                      size_t max_connections,
+                                      const char *host)
 {
     cfw_server_options_t options;
     cfw_dispatch_options_t doptions;
@@ -140,12 +141,22 @@ static int cfw_test_server_setup(cfw_test_server *ts,
                        CFW_OK);
 
     cfw_test_server_options(&options, &ts->dispatch);
+    options.host = host;
     options.keep_alive_timeout = keep_alive;
     options.request_timeout = request_timeout;
     options.max_connections = max_connections;
     CFW_TEST_ASSERT_EQ(cfw_server_init(&ts->server, &options), CFW_OK);
     CFW_TEST_ASSERT_TRUE(cfw_server_port(&ts->server) != 0);
     return 0;
+}
+
+static int cfw_test_server_setup(cfw_test_server *ts,
+                                 cfw_duration_t keep_alive,
+                                 cfw_duration_t request_timeout,
+                                 size_t max_connections)
+{
+    return cfw_test_server_setup_host(ts, keep_alive, request_timeout,
+                                      max_connections, "127.0.0.1");
 }
 
 static void cfw_test_server_teardown(cfw_test_server *ts)
@@ -573,6 +584,86 @@ static int test_server_expect_continue(void)
     return 0;
 }
 
+
+static int test_server_keep_alive_timeout(void)
+{
+    cfw_test_server ts;
+    cfw_fd_t client;
+    cfw_duration_t ka;
+    int attempts;
+
+    cfw_duration_from_millis(100, &ka);
+    CFW_TEST_ASSERT_EQ(cfw_test_server_setup(&ts, ka, (cfw_duration_t){0},
+                                             8),
+                       0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    /* Complete one request so the conn enters keep-alive idle. */
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /hello HTTP/1.1\r\n"
+                                     "Host: ka\r\n\r\n"),
+                       0);
+    {
+        char buf[1024];
+        cfw_test_serve_recv(&ts.server, &client, buf, sizeof(buf) - 1);
+    }
+    CFW_TEST_ASSERT_EQ(cfw_server_connection_count(&ts.server), 1);
+
+    /* Idle past keep_alive_timeout → conn reaped. */
+    for (attempts = 0; attempts < 400; attempts++) {
+        cfw_timepoint_t deadline;
+        cfw_duration_t slice;
+        cfw_duration_from_millis(20, &slice);
+        cfw_deadline_from_now(&deadline, slice);
+        CFW_TEST_ASSERT_EQ(cfw_server_step(&ts.server, &deadline), CFW_OK);
+        if (cfw_server_connection_count(&ts.server) == 0) {
+            break;
+        }
+    }
+    CFW_TEST_ASSERT_EQ(cfw_server_connection_count(&ts.server), 0);
+
+    cfw_fd_close(&client);
+    cfw_test_server_teardown(&ts);
+    return 0;
+}
+
+
+static int test_server_dns_listen(void)
+{
+    cfw_test_server ts;
+    cfw_fd_t client;
+    char response[4096];
+    ssize_t n;
+
+    /* "localhost" must resolve; skip gracefully if the host has no
+     * resolver entry (unusual but possible in minimal containers). */
+    CFW_TEST_ASSERT_EQ(cfw_test_server_setup_host(
+                           &ts, (cfw_duration_t){0}, (cfw_duration_t){0},
+                           8, "localhost"),
+                       0);
+    CFW_TEST_ASSERT_TRUE(cfw_server_port(&ts.server) != 0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /hello HTTP/1.1\r\n"
+                                     "Host: dns\r\n\r\n"),
+                       0);
+    n = cfw_test_serve_recv(&ts.server, &client, response,
+                            sizeof(response) - 1);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    response[n] = '\0';
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                           "HTTP/1.1 200 OK"));
+
+    cfw_fd_close(&client);
+    cfw_test_server_teardown(&ts);
+    return 0;
+}
+
 const cfw_test_case cfw_test_server_cases[] = {
     {"server_request_response", test_server_request_response},
     {"server_post_body", test_server_post_body},
@@ -582,6 +673,8 @@ const cfw_test_case cfw_test_server_cases[] = {
     {"server_soak", test_server_soak},
     {"server_drain_after_stop", test_server_drain_after_stop},
     {"server_expect_continue", test_server_expect_continue},
+    {"server_keep_alive_timeout", test_server_keep_alive_timeout},
+    {"server_dns_listen", test_server_dns_listen},
     {NULL, NULL},
 };
 
@@ -741,6 +834,86 @@ static int test_server_expect_continue(void)
 
     /* Now send the body; final response follows. */
     CFW_TEST_ASSERT_EQ(cfw_test_send(&client, "data"), 0);
+    n = cfw_test_serve_recv(&ts.server, &client, response,
+                            sizeof(response) - 1);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    response[n] = '\0';
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                           "HTTP/1.1 200 OK"));
+
+    cfw_fd_close(&client);
+    cfw_test_server_teardown(&ts);
+    return 0;
+}
+
+
+static int test_server_keep_alive_timeout(void)
+{
+    cfw_test_server ts;
+    cfw_fd_t client;
+    cfw_duration_t ka;
+    int attempts;
+
+    cfw_duration_from_millis(100, &ka);
+    CFW_TEST_ASSERT_EQ(cfw_test_server_setup(&ts, ka, (cfw_duration_t){0},
+                                             8),
+                       0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    /* Complete one request so the conn enters keep-alive idle. */
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /hello HTTP/1.1\r\n"
+                                     "Host: ka\r\n\r\n"),
+                       0);
+    {
+        char buf[1024];
+        cfw_test_serve_recv(&ts.server, &client, buf, sizeof(buf) - 1);
+    }
+    CFW_TEST_ASSERT_EQ(cfw_server_connection_count(&ts.server), 1);
+
+    /* Idle past keep_alive_timeout → conn reaped. */
+    for (attempts = 0; attempts < 400; attempts++) {
+        cfw_timepoint_t deadline;
+        cfw_duration_t slice;
+        cfw_duration_from_millis(20, &slice);
+        cfw_deadline_from_now(&deadline, slice);
+        CFW_TEST_ASSERT_EQ(cfw_server_step(&ts.server, &deadline), CFW_OK);
+        if (cfw_server_connection_count(&ts.server) == 0) {
+            break;
+        }
+    }
+    CFW_TEST_ASSERT_EQ(cfw_server_connection_count(&ts.server), 0);
+
+    cfw_fd_close(&client);
+    cfw_test_server_teardown(&ts);
+    return 0;
+}
+
+
+static int test_server_dns_listen(void)
+{
+    cfw_test_server ts;
+    cfw_fd_t client;
+    char response[4096];
+    ssize_t n;
+
+    /* "localhost" must resolve; skip gracefully if the host has no
+     * resolver entry (unusual but possible in minimal containers). */
+    CFW_TEST_ASSERT_EQ(cfw_test_server_setup_host(
+                           &ts, (cfw_duration_t){0}, (cfw_duration_t){0},
+                           8, "localhost"),
+                       0);
+    CFW_TEST_ASSERT_TRUE(cfw_server_port(&ts.server) != 0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /hello HTTP/1.1\r\n"
+                                     "Host: dns\r\n\r\n"),
+                       0);
     n = cfw_test_serve_recv(&ts.server, &client, response,
                             sizeof(response) - 1);
     CFW_TEST_ASSERT_TRUE(n > 0);

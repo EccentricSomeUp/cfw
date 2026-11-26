@@ -668,7 +668,8 @@ cfw_status_t cfw_server_init(cfw_server_t *server,
         goto fail;
     }
     if (options->host != NULL) {
-        st = cfw_addr_from_str(&addr, options->host, options->port);
+        st = cfw_addr_resolve(&addr, options->host, options->port,
+                              options->ipv6 ? AF_INET6 : AF_INET);
     } else {
         st = cfw_addr_any(options->port, options->ipv6, &addr);
     }

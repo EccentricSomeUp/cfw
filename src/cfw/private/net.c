@@ -22,6 +22,9 @@ typedef struct cfw_sockaddr {
 
 cfw_status_t cfw_addr_from_str(cfw_sockaddr_t *a, const char *t, uint16_t p)
 { (void)a; (void)t; (void)p; return CFW_ERROR_UNAVAILABLE; }
+cfw_status_t cfw_addr_resolve(cfw_sockaddr_t *a, const char *h, uint16_t p,
+                              int f)
+{ (void)a; (void)h; (void)p; (void)f; return CFW_ERROR_UNAVAILABLE; }
 cfw_status_t cfw_addr_to_str(const cfw_sockaddr_t *a, char *b, size_t c)
 { (void)a; (void)b; (void)c; return CFW_ERROR_UNAVAILABLE; }
 cfw_status_t cfw_addr_port(const cfw_sockaddr_t *a, uint16_t *p)
@@ -52,7 +55,10 @@ cfw_status_t cfw_net_local_addr(cfw_fd_t *f, cfw_sockaddr_t *a)
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <netdb.h>
 #include <netinet/in.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -121,6 +127,43 @@ cfw_status_t cfw_addr_from_str(cfw_sockaddr_t *addr, const char *text,
     in6->sin6_port = htons(port);
     addr->len = (socklen_t)sizeof(*in6);
     return CFW_OK;
+}
+
+cfw_status_t cfw_addr_resolve(cfw_sockaddr_t *addr, const char *host,
+                              uint16_t port, int family)
+{
+    struct addrinfo hints;
+    struct addrinfo *res = NULL;
+    struct addrinfo *it;
+    char port_str[8];
+    int rc;
+
+    if (addr == NULL || host == NULL || host[0] == '\0' ||
+        (family != AF_INET && family != AF_INET6)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = family;
+    hints.ai_socktype = SOCK_STREAM;
+    snprintf(port_str, sizeof(port_str), "%u", (unsigned)port);
+
+    rc = getaddrinfo(host, port_str, &hints, &res);
+    if (rc != 0) {
+        return rc == EAI_NONAME ? CFW_ERROR_INVALID_ARGUMENT
+                                : CFW_ERROR_IO;
+    }
+    for (it = res; it != NULL; it = it->ai_next) {
+        if (it->ai_addrlen <= sizeof(addr->storage) &&
+            it->ai_family == family) {
+            memcpy(&addr->storage, it->ai_addr, it->ai_addrlen);
+            addr->len = (socklen_t)it->ai_addrlen;
+            freeaddrinfo(res);
+            return CFW_OK;
+        }
+    }
+    freeaddrinfo(res);
+    return CFW_ERROR_IO;
 }
 
 cfw_status_t cfw_addr_to_str(const cfw_sockaddr_t *addr, char *buffer,
