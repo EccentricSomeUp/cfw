@@ -871,6 +871,70 @@ static int test_http_date_format(void)
     return 0;
 }
 
+static int test_http_date_parse(void)
+{
+    cfw_strview_t view;
+    int64_t out = 0;
+
+    /* IMF-fixdate and asctime share the same instant. */
+    view = cfw_test_view("Sun, 06 Nov 1994 08:49:37 GMT");
+    CFW_TEST_ASSERT_EQ(cfw_http_date_parse_at(&view, 0, &out), CFW_OK);
+    CFW_TEST_ASSERT_EQ(out, 784111777);
+
+    view = cfw_test_view("Sun Nov  6 08:49:37 1994");
+    CFW_TEST_ASSERT_EQ(cfw_http_date_parse_at(&view, 0, &out), CFW_OK);
+    CFW_TEST_ASSERT_EQ(out, 784111777);
+
+    view = cfw_test_view("Tue, 29 Feb 2000 12:34:56 GMT");
+    CFW_TEST_ASSERT_EQ(cfw_http_date_parse_at(&view, 0, &out), CFW_OK);
+    CFW_TEST_ASSERT_EQ(out, 951827696);
+    view = cfw_test_view("Sun, 29 Feb 1900 12:34:56 GMT");
+    CFW_TEST_ASSERT_EQ(cfw_http_date_parse_at(&view, 0, &out),
+                       CFW_ERROR_INVALID_ARGUMENT);
+
+    /* RFC 850 resolves a two-digit year against the reference time:
+     * with now in 1994, "94" is 1994; with now in 2000, "70" is more
+     * than 50 years in the future as 2070 and slides back to 1970. */
+    view = cfw_test_view("Sunday, 06-Nov-94 08:49:37 GMT");
+    CFW_TEST_ASSERT_EQ(cfw_http_date_parse_at(&view, 784111777, &out),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(out, 784111777);
+
+    view = cfw_test_view("Friday, 06-Nov-70 08:49:37 GMT");
+    CFW_TEST_ASSERT_EQ(cfw_http_date_parse_at(&view, 946684800, &out),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(out, 26729377);
+
+    /* The wall-clock wrapper accepts absolute formats without needing
+     * the RFC 850 reference time. */
+    view = cfw_test_view("Sun, 06 Nov 1994 08:49:37 GMT");
+    CFW_TEST_ASSERT_EQ(cfw_http_date_parse(&view, &out), CFW_OK);
+    CFW_TEST_ASSERT_EQ(out, 784111777);
+
+    /* Rejections: malformed fields, impossible dates, trailing data,
+     * and invalid arguments. */
+    view = cfw_test_view("Sun, 30 Feb 1994 08:49:37 GMT");
+    CFW_TEST_ASSERT_EQ(cfw_http_date_parse_at(&view, 0, &out),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    view = cfw_test_view("Sun, 06 Nov 1994 24:49:37 GMT");
+    CFW_TEST_ASSERT_EQ(cfw_http_date_parse_at(&view, 0, &out),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    view = cfw_test_view("Sun, 06 Nov 1994 08:49:37 GMT ");
+    CFW_TEST_ASSERT_EQ(cfw_http_date_parse_at(&view, 0, &out),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    view = cfw_test_view("sun, 06 Nov 1994 08:49:37 GMT");
+    CFW_TEST_ASSERT_EQ(cfw_http_date_parse_at(&view, 0, &out),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_http_date_parse_at(NULL, 0, &out),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_http_date_parse_at(&view, -1, &out),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    view = cfw_test_view("not a date");
+    CFW_TEST_ASSERT_EQ(cfw_http_date_parse_at(&view, 0, &out),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    return 0;
+}
+
 const cfw_test_case cfw_test_http_cases[] = {
     {"http_method_names_and_parse", test_http_method_names_and_parse},
     {"http_method_status_exhaustive",
@@ -889,5 +953,6 @@ const cfw_test_case cfw_test_http_cases[] = {
     {"http_response_serialize", test_http_response_serialize},
     {"http_head_reader", test_http_head_reader},
     {"http_date_format", test_http_date_format},
+    {"http_date_parse", test_http_date_parse},
     {NULL, NULL},
 };

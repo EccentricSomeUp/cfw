@@ -60,6 +60,11 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   symlink components are rejected on POSIX, the final descriptor is
   verified as a regular file, and HEAD applies the same confinement
   check as GET.
+- HTTP-date parsing (ADR 0038): `cfw_http_date_parse` and
+  `cfw_http_date_parse_at` accept IMF-fixdate, obsolete RFC 850, and
+  ANSI C `asctime` timestamps, validate calendar fields, and resolve
+  RFC 850 two-digit years against an explicit or wall-clock reference
+  time per the RFC 9110 50-year rule.
 
 ## [0.1.0] - 2026-11-26
 

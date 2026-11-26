@@ -263,6 +263,19 @@ CFW_API int cfw_http_response_has_body(cfw_http_method_t method,
  * representable four-digit-year range are rejected. */
 CFW_API cfw_status_t cfw_http_date_format(int64_t unix_seconds,
                                           char *out, size_t capacity);
+/* Parses an HTTP-date (IMF-fixdate, obsolete RFC 850, or ANSI C
+ * asctime) into seconds since the Unix epoch. IMF-fixdate and asctime
+ * are absolute; RFC 850 two-digit years are resolved against `now`
+ * (which must be non-negative) using the RFC 9110 50-year rule.
+ * Malformed dates, out-of-range fields, and years outside 1900..9999
+ * are rejected. cfw_http_date_parse uses the current wall clock for the
+ * RFC 850 reference time; cfw_http_date_parse_at is the deterministic
+ * variant for callers that already have one. */
+CFW_API cfw_status_t cfw_http_date_parse_at(const cfw_strview_t *text,
+                                            int64_t now_unix_seconds,
+                                            int64_t *unix_seconds);
+CFW_API cfw_status_t cfw_http_date_parse(const cfw_strview_t *text,
+                                         int64_t *unix_seconds);
 CFW_API cfw_status_t cfw_http_status_parse(uint32_t code,
                                            cfw_http_status_t *status);
 

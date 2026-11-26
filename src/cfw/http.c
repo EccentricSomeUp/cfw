@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 */
 
 #include <cfw/http.h>
+#include <cfw/time.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -1301,6 +1302,386 @@ cfw_status_t cfw_http_target_path(const cfw_strview_t *target,
     path->data = target->data + start;
     path->size = end - start;
     return CFW_OK;
+}
+
+#define CFW_HTTP_DATE_MIN_YEAR 1900
+#define CFW_HTTP_DATE_MAX_YEAR 9999
+
+static int cfw_http_is_leap_year(int64_t year)
+{
+    return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+}
+
+static int cfw_http_days_in_month(int64_t year, int64_t month)
+{
+    static const int days[] = {31, 28, 31, 30, 31, 30,
+                               31, 31, 30, 31, 30, 31};
+    if (month == 2 && cfw_http_is_leap_year(year)) {
+        return 29;
+    }
+    return days[month - 1];
+}
+
+/* Days-from-civil (Howard Hinnant's algorithm), valid for the
+ * non-negative years produced after the caller clamps month/day. */
+static int64_t cfw_http_days_from_civil(int64_t year, int64_t month,
+                                        int64_t day)
+{
+    int64_t y = year - (month <= 2);
+    int64_t era = y / 400;
+    int64_t yoe = y - era * 400;
+    int64_t doy = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 +
+                  day - 1;
+    int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + doe - 719468;
+}
+
+/* Civil-from-days inverse of cfw_http_days_from_civil for days since
+ * 1970-01-01. Only used for non-negative day counts in this file. */
+static void cfw_http_civil_from_days(int64_t days, int64_t *year,
+                                     int64_t *month, int64_t *day)
+{
+    int64_t z = days + 719468;
+    int64_t era = z / 146097;
+    int64_t doe = z - era * 146097;
+    int64_t yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    int64_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    int64_t mp = (5 * doy + 2) / 153;
+
+    *day = doy - (153 * mp + 2) / 5 + 1;
+    *month = mp + (mp < 10 ? 3 : -9);
+    *year = yoe + era * 400 + (*month <= 2);
+}
+
+static int cfw_http_date_ndigits(const unsigned char *p, size_t available,
+                                 int count, int64_t *out)
+{
+    int64_t value = 0;
+    int i;
+
+    if (available < (size_t)count) {
+        return 0;
+    }
+    for (i = 0; i < count; i++) {
+        unsigned char c = p[i];
+        if (c < '0' || c > '9') {
+            return 0;
+        }
+        value = value * 10 + (c - '0');
+    }
+    *out = value;
+    return 1;
+}
+
+static int cfw_http_date_month_index(const unsigned char *p)
+{
+    static const char *const names[] = {
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    };
+    size_t i;
+
+    for (i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        if (memcmp(p, names[i], 3) == 0) {
+            return (int)i + 1;
+        }
+    }
+    return 0;
+}
+
+static int cfw_http_date_weekday_index(const unsigned char *p)
+{
+    static const char *const names[] = {
+        "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat",
+    };
+    size_t i;
+
+    for (i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        if (memcmp(p, names[i], 3) == 0) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+typedef struct cfw_http_date_cursor {
+    const unsigned char *data;
+    size_t size;
+    size_t pos;
+} cfw_http_date_cursor_t;
+
+static void cfw_http_date_cursor_init(cfw_http_date_cursor_t *cursor,
+                                      const cfw_strview_t *text)
+{
+    cursor->data = (const unsigned char *)text->data;
+    cursor->size = text->size;
+    cursor->pos = 0;
+}
+
+static int cfw_http_date_eat(cfw_http_date_cursor_t *cursor, char c)
+{
+    if (cursor->pos >= cursor->size || cursor->data[cursor->pos] != c) {
+        return 0;
+    }
+    cursor->pos++;
+    return 1;
+}
+
+static int cfw_http_date_match(cfw_http_date_cursor_t *cursor,
+                               const char *literal)
+{
+    size_t len = strlen(literal);
+    if (cursor->size - cursor->pos < len ||
+        memcmp(cursor->data + cursor->pos, literal, len) != 0) {
+        return 0;
+    }
+    cursor->pos += len;
+    return 1;
+}
+
+static int cfw_http_date_digits(cfw_http_date_cursor_t *cursor, int count,
+                                int64_t *out)
+{
+    if (!cfw_http_date_ndigits(cursor->data + cursor->pos,
+                               cursor->size - cursor->pos, count, out)) {
+        return 0;
+    }
+    cursor->pos += (size_t)count;
+    return 1;
+}
+
+static int cfw_http_date_at_end(const cfw_http_date_cursor_t *cursor)
+{
+    return cursor->pos == cursor->size;
+}
+
+static int cfw_http_date_month_cursor(cfw_http_date_cursor_t *cursor,
+                                      int64_t *month)
+{
+    static const char *const names[] = {
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    };
+    size_t i;
+
+    for (i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        if (cfw_http_date_match(cursor, names[i])) {
+            *month = (int64_t)i + 1;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int cfw_http_date_weekday_abbrev_cursor(cfw_http_date_cursor_t *cursor)
+{
+    static const char *const names[] = {
+        "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat",
+    };
+    size_t i;
+
+    for (i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        if (cfw_http_date_match(cursor, names[i])) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int cfw_http_date_weekday_full_cursor(cfw_http_date_cursor_t *cursor)
+{
+    static const char *const names[] = {
+        "Sunday", "Monday", "Tuesday", "Wednesday",
+        "Thursday", "Friday", "Saturday",
+    };
+    size_t i;
+
+    for (i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        if (cfw_http_date_match(cursor, names[i])) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int cfw_http_date_time_cursor(cfw_http_date_cursor_t *cursor,
+                                     int64_t *hour, int64_t *minute,
+                                     int64_t *second)
+{
+    return cfw_http_date_digits(cursor, 2, hour) &&
+           cfw_http_date_eat(cursor, ':') &&
+           cfw_http_date_digits(cursor, 2, minute) &&
+           cfw_http_date_eat(cursor, ':') &&
+           cfw_http_date_digits(cursor, 2, second);
+}
+
+static int cfw_http_date_finish(int64_t year, int64_t month, int64_t day,
+                                int64_t hour, int64_t minute,
+                                int64_t second, int64_t *out)
+{
+    int64_t days;
+    int64_t secs;
+
+    if (year < CFW_HTTP_DATE_MIN_YEAR || year > CFW_HTTP_DATE_MAX_YEAR ||
+        month < 1 || month > 12 || day < 1 ||
+        day > cfw_http_days_in_month(year, month) || hour > 23 ||
+        minute > 59 || second > 59) {
+        return 0;
+    }
+    days = cfw_http_days_from_civil(year, month, day);
+    secs = days * 86400 + hour * 3600 + minute * 60 + second;
+    *out = secs;
+    return 1;
+}
+
+static int cfw_http_date_parse_imf(const cfw_strview_t *text,
+                                   int64_t *out)
+{
+    static const char *const gmt = "GMT";
+    const unsigned char *s;
+    int64_t day, year, hour, minute, second;
+    int month;
+
+    if (text->size != 29) {
+        return 0;
+    }
+    s = (const unsigned char *)text->data;
+    if (s[3] != ',' || s[4] != ' ' || s[7] != ' ' || s[11] != ' ' ||
+        s[16] != ' ' || s[19] != ':' || s[22] != ':' || s[25] != ' ' ||
+        memcmp(s + 26, gmt, 3) != 0 ||
+        cfw_http_date_weekday_index(s) < 0 ||
+        cfw_http_date_month_index(s + 8) == 0 ||
+        !cfw_http_date_ndigits(s + 5, 2, 2, &day) ||
+        !cfw_http_date_ndigits(s + 12, 4, 4, &year) ||
+        !cfw_http_date_ndigits(s + 17, 2, 2, &hour) ||
+        !cfw_http_date_ndigits(s + 20, 2, 2, &minute) ||
+        !cfw_http_date_ndigits(s + 23, 2, 2, &second)) {
+        return 0;
+    }
+    month = cfw_http_date_month_index(s + 8);
+    return cfw_http_date_finish(year, month, day, hour, minute, second,
+                                out);
+}
+
+static int cfw_http_date_parse_rfc850(const cfw_strview_t *text,
+                                      int64_t now, int64_t *out)
+{
+    cfw_http_date_cursor_t cursor;
+    int64_t day, year2, hour, minute, second, month;
+    int64_t now_days, now_secs, now_year, now_month, now_day;
+    int64_t now_hour, now_minute, now_second;
+    int64_t candidate_year;
+
+    cfw_http_date_cursor_init(&cursor, text);
+    if (!cfw_http_date_weekday_full_cursor(&cursor) ||
+        !cfw_http_date_eat(&cursor, ',') ||
+        !cfw_http_date_eat(&cursor, ' ') ||
+        !cfw_http_date_digits(&cursor, 2, &day) ||
+        !cfw_http_date_eat(&cursor, '-') ||
+        !cfw_http_date_month_cursor(&cursor, &month) ||
+        !cfw_http_date_eat(&cursor, '-') ||
+        !cfw_http_date_digits(&cursor, 2, &year2) ||
+        !cfw_http_date_eat(&cursor, ' ') ||
+        !cfw_http_date_time_cursor(&cursor, &hour, &minute, &second) ||
+        !cfw_http_date_eat(&cursor, ' ') ||
+        !cfw_http_date_match(&cursor, "GMT") ||
+        !cfw_http_date_at_end(&cursor)) {
+        return 0;
+    }
+
+    /* RFC 9110: an rfc850 two-digit year that appears more than 50
+     * years in the future denotes the most recent past year with the
+     * same last two digits. Compare the full timestamp against the
+     * same month/day/time 50 years after `now`. */
+    now_days = now / 86400;
+    now_secs = now % 86400;
+    cfw_http_civil_from_days(now_days, &now_year, &now_month, &now_day);
+    now_hour = now_secs / 3600;
+    now_minute = (now_secs % 3600) / 60;
+    now_second = now_secs % 60;
+
+    candidate_year = 2000 + year2;
+    if (candidate_year > now_year + 50 ||
+        (candidate_year == now_year + 50 &&
+         (month > now_month ||
+          (month == now_month &&
+           (day > now_day ||
+            (day == now_day &&
+             (hour > now_hour ||
+              (hour == now_hour &&
+               (minute > now_minute ||
+                (minute == now_minute && second > now_second)))))))))) {
+        candidate_year -= 100;
+    }
+
+    return cfw_http_date_finish(candidate_year, month, day, hour, minute,
+                                second, out);
+}
+
+static int cfw_http_date_parse_asctime(const cfw_strview_t *text,
+                                       int64_t *out)
+{
+    cfw_http_date_cursor_t cursor;
+    int64_t day, year, hour, minute, second, month;
+    unsigned char a, b;
+
+    cfw_http_date_cursor_init(&cursor, text);
+    if (!cfw_http_date_weekday_abbrev_cursor(&cursor) ||
+        !cfw_http_date_eat(&cursor, ' ') ||
+        !cfw_http_date_month_cursor(&cursor, &month) ||
+        !cfw_http_date_eat(&cursor, ' ')) {
+        return 0;
+    }
+    if (cursor.size - cursor.pos < 2) {
+        return 0;
+    }
+    a = cursor.data[cursor.pos];
+    b = cursor.data[cursor.pos + 1];
+    if (a == ' ' && b >= '0' && b <= '9') {
+        day = b - '0';
+    } else if (a >= '0' && a <= '9' && b >= '0' && b <= '9') {
+        day = (a - '0') * 10 + (b - '0');
+    } else {
+        return 0;
+    }
+    cursor.pos += 2;
+    if (!cfw_http_date_eat(&cursor, ' ') ||
+        !cfw_http_date_time_cursor(&cursor, &hour, &minute, &second) ||
+        !cfw_http_date_eat(&cursor, ' ') ||
+        !cfw_http_date_digits(&cursor, 4, &year) ||
+        !cfw_http_date_at_end(&cursor)) {
+        return 0;
+    }
+    return cfw_http_date_finish(year, month, day, hour, minute, second,
+                                out);
+}
+
+cfw_status_t cfw_http_date_parse_at(const cfw_strview_t *text,
+                                    int64_t now_unix_seconds,
+                                    int64_t *unix_seconds)
+{
+    if (text == NULL || text->data == NULL || unix_seconds == NULL ||
+        now_unix_seconds < 0) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (cfw_http_date_parse_imf(text, unix_seconds) ||
+        cfw_http_date_parse_rfc850(text, now_unix_seconds,
+                                   unix_seconds) ||
+        cfw_http_date_parse_asctime(text, unix_seconds)) {
+        return CFW_OK;
+    }
+    return CFW_ERROR_INVALID_ARGUMENT;
+}
+
+cfw_status_t cfw_http_date_parse(const cfw_strview_t *text,
+                                 int64_t *unix_seconds)
+{
+    int64_t now;
+
+    if (cfw_time_wall_now(&now) != CFW_OK) {
+        return CFW_ERROR_UNAVAILABLE;
+    }
+    return cfw_http_date_parse_at(text, now, unix_seconds);
 }
 
 cfw_status_t cfw_http_date_format(int64_t unix_seconds, char *out,
