@@ -13,8 +13,9 @@ single-threaded `cfw_server_t` event-loop server with connection limits,
 timeouts, graceful stop/drain, automatic Date headers, RFC 9112 Host
 enforcement, `Expect: 100-continue`, pull-style streaming response
 bodies (chunked or close-delimited), streaming request-body uploads via
-server hooks, and peer-address exposure to handlers. TLS is out of
-scope (ADR 0030).
+server hooks, peer-address exposure to handlers, and opt-in protocol
+upgrades (`101 Switching Protocols` takeover for application-defined
+protocols such as WebSocket, ADR 0034). TLS is out of scope (ADR 0030).
 
 ## Priorities
 

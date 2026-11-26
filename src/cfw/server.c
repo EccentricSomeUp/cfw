@@ -61,11 +61,45 @@ uint64_t cfw_server_errors_total(const cfw_server_t *server)
     return 0;
 }
 
+cfw_status_t cfw_upgraded_recv(cfw_upgraded_conn_t *conn, void *buffer,
+                               size_t capacity, size_t *received)
+{
+    (void)conn;
+    (void)buffer;
+    (void)capacity;
+    (void)received;
+    return CFW_ERROR_UNAVAILABLE;
+}
+
+cfw_status_t cfw_upgraded_send(cfw_upgraded_conn_t *conn, const void *data,
+                               size_t size)
+{
+    (void)conn;
+    (void)data;
+    (void)size;
+    return CFW_ERROR_UNAVAILABLE;
+}
+
+void cfw_upgraded_close(cfw_upgraded_conn_t *conn) { (void)conn; }
+
+void *cfw_upgraded_user(cfw_upgraded_conn_t *conn)
+{
+    (void)conn;
+    return NULL;
+}
+
+void cfw_upgraded_set_user(cfw_upgraded_conn_t *conn, void *user)
+{
+    (void)conn;
+    (void)user;
+}
+
 #else /* !_WIN32 */
 
 #include "private/net.h"
 #include "private/pollset.h"
 
+#include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -93,6 +127,18 @@ struct cfw_server_conn {
     int have_head;
     int rejecting;
     int dead;
+    /* Protocol upgrade state (ADR 0034): set once a 101 response has
+     * been queued for a request that carried an Upgrade header and the
+     * server upgrade hook is configured. upgrade_pending holds input
+     * bytes the HTTP reader had already buffered past the request;
+     * upgrade_pending_pos is the drain cursor. upgrade_closing suppresses
+     * further app callbacks while queued output finishes. */
+    int upgraded;
+    int upgrade_hup_seen;
+    int upgrade_closing;
+    cfw_buffer_t upgrade_pending;
+    size_t upgrade_pending_pos;
+    void *upgrade_user;
     /* Peer address formatted "ip:port" at accept time; exposed to
      * handlers via cfw_request_t.remote_addr. */
     char remote_addr_buf[72];
@@ -109,6 +155,9 @@ struct cfw_server_conn {
 
 static void cfw_server_stream_pump(cfw_server_t *server,
                                    cfw_server_conn_t *conn);
+static int cfw_server_head_has_upgrade(const cfw_http_request_head_t *head);
+static void cfw_server_activate_upgrade(cfw_server_t *server,
+                                        cfw_server_conn_t *conn);
 
 static void cfw_server_conn_deadline(cfw_server_conn_t *conn,
                                      cfw_duration_t timeout)
@@ -135,6 +184,7 @@ static void cfw_server_close_conn(cfw_server_t *server,
     cfw_http1_conn_free(&conn->http);
     cfw_buffer_free(&conn->body);
     cfw_buffer_free(&conn->head_scratch);
+    cfw_buffer_free(&conn->upgrade_pending);
     free(conn->headers);
     free(conn->params);
     free(conn);
@@ -337,6 +387,7 @@ static void cfw_server_handle_done(cfw_server_t *server,
     char date[30];
     size_t written = 0;
     cfw_status_t st;
+    int upgrade;
 
     server->requests_total++;
     conn->have_head = 0;
@@ -386,6 +437,18 @@ static void cfw_server_handle_done(cfw_server_t *server,
         cfw_server_response_strip(&res, "content-length");
     }
 
+    /* Protocol upgrade (ADR 0034): a 101 response to a request that
+     * carried an Upgrade header takes the connection over when the
+     * server upgrade hook is configured. Server-managed Connection and
+     * streaming logic is skipped, and close_after_write is cleared —
+     * the upgraded connection outlives HTTP keep-alive semantics. */
+    upgrade = res.status == CFW_HTTP_STATUS_SWITCHING_PROTOCOLS &&
+              server->options.upgrade != NULL &&
+              cfw_server_head_has_upgrade(&conn->head);
+    if (upgrade) {
+        conn->http.close_after_write = 0;
+    }
+
     /* Date header: added automatically unless the handler supplied
      * one. Wall-clock failure or a full header scratch is non-fatal. */
     cfw_server_add_date_header(&res, date);
@@ -395,7 +458,7 @@ static void cfw_server_handle_done(cfw_server_t *server,
      * stream is active the connection must not auto-close on buffer
      * drain, so close_after_write is saved and cleared; it is restored
      * (or forced for close-delimited) when the stream ends. */
-    if (res.stream != NULL &&
+    if (!upgrade && res.stream != NULL &&
         cfw_http_response_has_body(conn->head.request_line.method,
                                    res.status)) {
         conn->stream_fn = res.stream;
@@ -425,8 +488,9 @@ static void cfw_server_handle_done(cfw_server_t *server,
      * default to close, so keep-alive must be announced; HTTP/1.1+
      * defaults to keep-alive, so only "close" needs signaling. A
      * close-delimited stream always ends in close. Header add failure
-     * (full scratch) is non-fatal. */
-    {
+     * (full scratch) is non-fatal. Upgraded connections get no
+     * automatic Connection header — the handler owns protocol headers. */
+    if (!upgrade) {
         int is_http10 = conn->head.request_line.version.major < 1 ||
                         (conn->head.request_line.version.major == 1 &&
                          conn->head.request_line.version.minor == 0);
@@ -486,8 +550,12 @@ static void cfw_server_handle_done(cfw_server_t *server,
 
     /* Always re-arm: the request deadline must not fire while the
      * response drains. keep_alive_timeout doubles as the drain deadline
-     * for closing connections (0 disables, matching keep-alive). */
+     * for closing connections and as the idle deadline for upgraded
+     * connections (0 disables, matching keep-alive). */
     cfw_server_conn_deadline(conn, server->options.keep_alive_timeout);
+    if (upgrade) {
+        cfw_server_activate_upgrade(server, conn);
+    }
 }
 
 
@@ -741,6 +809,110 @@ static int cfw_server_head_has_host(const cfw_http_request_head_t *head)
     }
 }
 
+/* Returns 1 when the request head carries an Upgrade header field
+ * (any value; the handler validates the protocol token). This is only
+ * a takeover guard for ADR 0034 — semantics are the app's job. */
+static int cfw_server_head_has_upgrade(const cfw_http_request_head_t *head)
+{
+    cfw_strview_t block;
+    cfw_strview_t upgrade_name;
+    size_t cursor = 0;
+    int done = 0;
+
+    if (head == NULL) {
+        return 0;
+    }
+    cfw_strview_from_cstr(&upgrade_name, "upgrade");
+    block = head->headers;
+    for (;;) {
+        cfw_http_header_t header;
+        int eq = 0;
+        if (cfw_http_headers_next(&block, &cursor, &header, &done) !=
+                CFW_OK ||
+            done) {
+            return 0;
+        }
+        if (cfw_strview_equal_nocase(&header.name, &upgrade_name, &eq) ==
+                CFW_OK &&
+            eq) {
+            return 1;
+        }
+    }
+}
+
+/* Takes over an upgraded connection (ADR 0034): stages any input bytes
+ * the HTTP reader already buffered past the request, marks the conn
+ * upgraded, and invokes the app hook once with CFW_UPGRADE_EV_READY.
+ * Staging failure drops the connection rather than corrupting the new
+ * protocol's byte stream. */
+static void cfw_server_activate_upgrade(cfw_server_t *server,
+                                        cfw_server_conn_t *conn)
+{
+    cfw_http1_server_t *reader = &conn->http.server;
+    size_t avail = reader->pending.size - reader->pending_pos;
+
+    if (avail != 0 &&
+        cfw_buffer_append(&conn->upgrade_pending,
+                          reader->pending.data + reader->pending_pos,
+                          avail) != CFW_OK) {
+        conn->dead = 1;
+        return;
+    }
+    conn->upgraded = 1;
+    if (server->options.upgrade(conn, CFW_UPGRADE_EV_READY,
+                                server->options.upgrade_user) != CFW_OK) {
+        conn->dead = 1;
+    }
+}
+
+/* Services an upgraded connection: delivers readiness events to the
+ * app hook and keeps the bounded output queue draining. App callbacks
+ * stop once cfw_upgraded_close begins the graceful close. */
+static void cfw_server_service_upgraded(cfw_server_t *server,
+                                        cfw_server_conn_t *conn,
+                                        uint32_t events)
+{
+    uint32_t mask = 0;
+    int had_pending;
+
+    if (conn->upgrade_closing) {
+        if ((events & CFW_POLL_OUT) &&
+            cfw_http1_conn_flush(&conn->http) == CFW_ERROR_IO) {
+            conn->dead = 1;
+        }
+        return;
+    }
+
+    had_pending = cfw_http1_conn_pending_out(&conn->http) != 0;
+    if (events & CFW_POLL_IN) {
+        mask |= CFW_UPGRADE_EV_READ;
+    }
+    if (events & CFW_POLL_ERR) {
+        mask |= CFW_UPGRADE_EV_ERR;
+    }
+    if ((events & CFW_POLL_HUP) && !conn->upgrade_hup_seen) {
+        conn->upgrade_hup_seen = 1;
+        mask |= CFW_UPGRADE_EV_HUP;
+    }
+    if ((events & CFW_POLL_OUT) &&
+        cfw_http1_conn_flush(&conn->http) == CFW_ERROR_IO) {
+        conn->dead = 1;
+    }
+    if (!conn->dead && had_pending &&
+        cfw_http1_conn_pending_out(&conn->http) == 0) {
+        mask |= CFW_UPGRADE_EV_WRITE;
+    }
+    if (conn->dead || mask == 0) {
+        return;
+    }
+    /* Activity refreshes the idle deadline. */
+    cfw_server_conn_deadline(conn, server->options.keep_alive_timeout);
+    if (server->options.upgrade(conn, mask,
+                                server->options.upgrade_user) != CFW_OK) {
+        conn->dead = 1;
+    }
+}
+
 static void cfw_server_service_read(cfw_server_t *server,
                                     cfw_server_conn_t *conn)
 {
@@ -874,7 +1046,8 @@ static void cfw_server_service_read(cfw_server_t *server,
                     : "protocol error");
             break;
         }
-        if (conn->dead || conn->stream_fn != NULL || conn->rejecting) {
+        if (conn->dead || conn->stream_fn != NULL || conn->rejecting ||
+            conn->upgraded) {
             break;
         }
     }
@@ -884,6 +1057,11 @@ static void cfw_server_service_conn(cfw_server_t *server,
                                     cfw_server_conn_t *conn, uint32_t events)
 {
     if (conn == NULL || conn->dead) {
+        return;
+    }
+    if (conn->upgraded) {
+        cfw_server_service_upgraded(server, conn, events);
+        cfw_server_update_conn_interest(server, conn);
         return;
     }
     if (!conn->rejecting && conn->stream_fn == NULL &&
@@ -982,7 +1160,8 @@ static void cfw_server_accept(cfw_server_t *server)
              conn->headers == NULL) ||
             (server->options.max_params != 0 && conn->params == NULL) ||
             cfw_buffer_init(&conn->body) != CFW_OK ||
-            cfw_buffer_init(&conn->head_scratch) != CFW_OK) {
+            cfw_buffer_init(&conn->head_scratch) != CFW_OK ||
+            cfw_buffer_init(&conn->upgrade_pending) != CFW_OK) {
             cfw_http1_conn_free(&conn->http);
             free(conn->headers);
             free(conn->params);
@@ -1287,6 +1466,132 @@ uint64_t cfw_server_requests_total(const cfw_server_t *server)
 uint64_t cfw_server_errors_total(const cfw_server_t *server)
 {
     return server != NULL ? server->errors_total : 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Upgraded connections (ADR 0034)                                      */
+/* ------------------------------------------------------------------ */
+
+cfw_status_t cfw_upgraded_recv(cfw_upgraded_conn_t *conn, void *buffer,
+                               size_t capacity, size_t *received)
+{
+    size_t done = 0;
+    ssize_t n;
+
+    if (conn == NULL || received == NULL ||
+        (capacity != 0 && buffer == NULL) || !conn->upgraded ||
+        conn->dead || !cfw_fd_valid(&conn->http.fd)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    *received = 0;
+    if (capacity == 0) {
+        return CFW_OK;
+    }
+
+    /* Staged bytes buffered past the request go first. */
+    if (conn->upgrade_pending_pos < conn->upgrade_pending.size) {
+        size_t avail =
+            conn->upgrade_pending.size - conn->upgrade_pending_pos;
+        size_t k = avail < capacity ? avail : capacity;
+        memcpy(buffer,
+               conn->upgrade_pending.data + conn->upgrade_pending_pos, k);
+        conn->upgrade_pending_pos += k;
+        done = k;
+        if (done == capacity) {
+            *received = done;
+            return CFW_OK;
+        }
+    }
+    if (conn->http.input_closed) {
+        *received = done;
+        return CFW_OK;
+    }
+
+    n = recv((int)conn->http.fd.handle, (char *)buffer + done,
+             capacity - done, 0);
+    if (n > 0) {
+        *received = done + (size_t)n;
+        return CFW_OK;
+    }
+    if (n == 0) {
+        conn->http.input_closed = 1;
+        *received = done;
+        return CFW_OK;
+    }
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        if (done != 0) {
+            *received = done;
+            return CFW_OK;
+        }
+        return CFW_ERROR_WOULDBLOCK;
+    }
+    /* Socket error: the connection cannot continue; report it dead so
+     * the event loop reaps it. The handle must not be used again. */
+    conn->dead = 1;
+    return CFW_ERROR_IO;
+}
+
+cfw_status_t cfw_upgraded_send(cfw_upgraded_conn_t *conn, const void *data,
+                               size_t size)
+{
+    size_t pending;
+    cfw_status_t st;
+
+    if (conn == NULL || !conn->upgraded || conn->dead ||
+        !cfw_fd_valid(&conn->http.fd)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (conn->upgrade_closing || conn->http.close_after_write) {
+        return CFW_ERROR_IO;
+    }
+    if (size == 0) {
+        return data == NULL ? CFW_ERROR_INVALID_ARGUMENT : CFW_OK;
+    }
+    if (data == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    /* All-or-nothing against the same bound HTTP responses use; the
+     * app retries when CFW_UPGRADE_EV_WRITE is delivered. */
+    pending = cfw_http1_conn_pending_out(&conn->http);
+    if (size > conn->http.max_out_size ||
+        pending > conn->http.max_out_size - size) {
+        return CFW_ERROR_WOULDBLOCK;
+    }
+    st = cfw_http1_conn_queue(&conn->http, data, size);
+    if (st != CFW_OK) {
+        return st;
+    }
+    st = cfw_http1_conn_flush(&conn->http);
+    if (st == CFW_ERROR_IO) {
+        conn->dead = 1;
+        return CFW_ERROR_IO;
+    }
+    return CFW_OK;
+}
+
+void cfw_upgraded_close(cfw_upgraded_conn_t *conn)
+{
+    if (conn == NULL || !conn->upgraded || conn->dead) {
+        return;
+    }
+    conn->upgrade_closing = 1;
+    cfw_http1_conn_close_after_write(&conn->http);
+    if (cfw_http1_conn_pending_out(&conn->http) == 0) {
+        conn->dead = 1;
+    }
+}
+
+void *cfw_upgraded_user(cfw_upgraded_conn_t *conn)
+{
+    return conn != NULL ? conn->upgrade_user : NULL;
+}
+
+void cfw_upgraded_set_user(cfw_upgraded_conn_t *conn, void *user)
+{
+    if (conn != NULL) {
+        conn->upgrade_user = user;
+    }
 }
 
 #endif /* !_WIN32 */

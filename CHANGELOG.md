@@ -9,6 +9,19 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ## [Unreleased]
 
+### Added
+
+- Protocol upgrades (ADR 0034): handlers may return `101 Switching
+  Protocols` for requests carrying an `Upgrade` header when the new
+  `cfw_server_options_t.upgrade` hook is configured; the server then
+  stops HTTP framing and delivers readiness events
+  (`CFW_UPGRADE_EV_*`) for the application's protocol. Upgraded
+  connections get `cfw_upgraded_recv`/`cfw_upgraded_send`/
+  `cfw_upgraded_close` raw I/O with input bytes buffered past the
+  request handed off intact, bounded output via `max_out_size`, and
+  `keep_alive_timeout` as the idle deadline. Without the hook, 101 is
+  sent as an ordinary response (previous behavior preserved).
+
 ## [0.1.0] - 2026-11-26
 
 ### Added

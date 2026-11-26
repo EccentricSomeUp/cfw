@@ -1963,6 +1963,404 @@ static int test_server_run_and_drain(void)
     return 0;
 }
 
+/* ---------------- Protocol upgrades (ADR 0034) ---------------- */
+
+static cfw_status_t cfw_test_upgrade_handler(cfw_request_t *req,
+                                             cfw_response_t *res,
+                                             void *user)
+{
+    cfw_strview_t name;
+    cfw_strview_t value;
+    (void)req;
+    (void)user;
+    res->status = CFW_HTTP_STATUS_SWITCHING_PROTOCOLS;
+    cfw_strview_from_cstr(&name, "Upgrade");
+    cfw_strview_from_cstr(&value, "cfw-test");
+    cfw_response_header_add(res, &name, &value);
+    cfw_strview_from_cstr(&name, "Connection");
+    cfw_strview_from_cstr(&value, "Upgrade");
+    cfw_response_header_add(res, &name, &value);
+    return CFW_OK;
+}
+
+static int cfw_test_upgrade_calls;
+static int cfw_test_upgrade_ready_seen;
+static int cfw_test_upgrade_user_ok;
+static char cfw_test_upgrade_echoed[512];
+static size_t cfw_test_upgrade_echoed_len;
+static cfw_status_t cfw_test_upgrade_last_send;
+static int cfw_test_upgrade_magic;
+
+/* Echo protocol: on any event, drain recv() and send back whatever
+ * arrived; close on EOF/HUP/ERR. */
+static cfw_status_t cfw_test_upgrade_echo(cfw_upgraded_conn_t *conn,
+                                          uint32_t events, void *user)
+{
+    char buf[512];
+    size_t n = 0;
+    cfw_status_t st;
+
+    cfw_test_upgrade_calls++;
+    if (events == CFW_UPGRADE_EV_READY) {
+        cfw_test_upgrade_ready_seen = 1;
+        cfw_upgraded_set_user(conn, user);
+    }
+    if (cfw_upgraded_user(conn) == &cfw_test_upgrade_magic) {
+        cfw_test_upgrade_user_ok = 1;
+    }
+    if (events & (CFW_UPGRADE_EV_HUP | CFW_UPGRADE_EV_ERR)) {
+        cfw_upgraded_close(conn);
+        return CFW_OK;
+    }
+    if (events == CFW_UPGRADE_EV_READY || (events & CFW_UPGRADE_EV_READ) ||
+        (events & CFW_UPGRADE_EV_WRITE)) {
+        for (;;) {
+            st = cfw_upgraded_recv(conn, buf, sizeof(buf), &n);
+            if (st == CFW_ERROR_WOULDBLOCK) {
+                break;
+            }
+            if (st != CFW_OK) {
+                return st;
+            }
+            if (n == 0) {
+                cfw_upgraded_close(conn);
+                return CFW_OK;
+            }
+            if (n <= sizeof(cfw_test_upgrade_echoed)) {
+                memcpy(cfw_test_upgrade_echoed, buf, n);
+                cfw_test_upgrade_echoed_len = n;
+            }
+            st = cfw_upgraded_send(conn, buf, n);
+            cfw_test_upgrade_last_send = st;
+            if (st != CFW_OK) {
+                return CFW_OK; /* retry on EV_WRITE */
+            }
+        }
+    }
+    (void)user;
+    return CFW_OK;
+}
+
+/* Bound-check probe: records the send status instead of echoing. */
+static cfw_status_t cfw_test_upgrade_probe(cfw_upgraded_conn_t *conn,
+                                           uint32_t events, void *user)
+{
+    static const char blob[600];
+    (void)events;
+    (void)user;
+    cfw_test_upgrade_calls++;
+    if (events == CFW_UPGRADE_EV_READY) {
+        cfw_test_upgrade_last_send =
+            cfw_upgraded_send(conn, blob, sizeof(blob));
+        cfw_upgraded_close(conn);
+    }
+    return CFW_OK;
+}
+
+typedef struct {
+    cfw_arena_t *arena;
+    cfw_router_t router;
+    cfw_dispatch_t dispatch;
+    cfw_server_t server;
+} cfw_test_upgrade_server;
+
+static int cfw_test_upgrade_setup(cfw_test_upgrade_server *ts,
+                                  size_t max_out_size,
+                                  cfw_upgrade_fn hook)
+{
+    cfw_server_options_t options;
+    cfw_dispatch_options_t doptions;
+    cfw_strview_t pattern;
+
+    memset(ts, 0, sizeof(*ts));
+    ts->arena = cfw_arena_create(32768);
+    CFW_TEST_ASSERT_TRUE(ts->arena != NULL);
+    CFW_TEST_ASSERT_EQ(cfw_router_init(&ts->router, ts->arena), CFW_OK);
+
+    memset(&doptions, 0, sizeof(doptions));
+    doptions.router = &ts->router;
+    doptions.handler = cfw_test_ok_handler;
+    doptions.max_middleware = 4;
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_init(&ts->dispatch, ts->arena,
+                                         &doptions),
+                       CFW_OK);
+
+    cfw_strview_from_cstr(&pattern, "/upgrade");
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(&ts->dispatch,
+                                              CFW_HTTP_METHOD_GET,
+                                              &pattern,
+                                              cfw_test_upgrade_handler,
+                                              NULL),
+                       CFW_OK);
+    cfw_strview_from_cstr(&pattern, "/hello");
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(&ts->dispatch,
+                                              CFW_HTTP_METHOD_GET,
+                                              &pattern, cfw_test_ok_handler,
+                                              NULL),
+                       CFW_OK);
+
+    memset(&options, 0, sizeof(options));
+    options.host = "127.0.0.1";
+    options.port = 0;
+    options.backlog = 16;
+    options.dispatch = &ts->dispatch;
+    options.http.max_head_size = 8192;
+    options.http.max_body_size = 65536;
+    options.http.max_pending_size = 65536;
+    options.max_out_size = max_out_size;
+    options.max_connections = 8;
+    options.max_headers = 32;
+    options.max_params = 16;
+    options.upgrade = hook;
+    options.upgrade_user = &cfw_test_upgrade_magic;
+    CFW_TEST_ASSERT_EQ(cfw_server_init(&ts->server, &options), CFW_OK);
+    return 0;
+}
+
+static void cfw_test_upgrade_teardown(cfw_test_upgrade_server *ts)
+{
+    cfw_server_free(&ts->server);
+    cfw_arena_destroy(ts->arena);
+}
+
+static void cfw_test_upgrade_reset(void)
+{
+    cfw_test_upgrade_calls = 0;
+    cfw_test_upgrade_ready_seen = 0;
+    cfw_test_upgrade_user_ok = 0;
+    cfw_test_upgrade_echoed_len = 0;
+    cfw_test_upgrade_last_send = CFW_OK;
+    cfw_test_upgrade_magic = 0x5a5a;
+}
+
+/* Wrapper over cfw_test_recv_until: returns 1 when `needle` was seen. */
+static int cfw_test_upgrade_recv(cfw_server_t *server, cfw_fd_t *client,
+                                 char *buffer, size_t capacity,
+                                 const char *needle)
+{
+    size_t used = 0;
+    ssize_t n = cfw_test_recv_until(server, client, buffer, capacity,
+                                    needle, &used);
+    return n >= 0 && cfw_test_contains(buffer, used, needle);
+}
+
+static int test_server_upgrade_echo(void)
+{
+    cfw_test_upgrade_server ts;
+    cfw_fd_t client;
+    char response[8192];
+
+    cfw_test_upgrade_reset();
+    CFW_TEST_ASSERT_EQ(cfw_test_upgrade_setup(&ts, 65536,
+                                              cfw_test_upgrade_echo),
+                       0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /upgrade HTTP/1.1\r\n"
+                                     "Host: t\r\n"
+                                     "Upgrade: cfw-test\r\n"
+                                     "Connection: upgrade\r\n\r\n"),
+                       0);
+
+    CFW_TEST_ASSERT_TRUE(cfw_test_upgrade_recv(
+        &ts.server, &client, response, sizeof(response), "101"));
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, strlen(response),
+                                           "cfw-test"));
+    CFW_TEST_ASSERT_TRUE(cfw_test_upgrade_ready_seen);
+    CFW_TEST_ASSERT_TRUE(cfw_test_upgrade_user_ok);
+
+    /* Raw protocol bytes are echoed through the upgraded connection. */
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client, "ping-payload"), 0);
+    memset(response, 0, sizeof(response));
+    CFW_TEST_ASSERT_TRUE(cfw_test_upgrade_recv(
+        &ts.server, &client, response, sizeof(response), "ping-payload"));
+    CFW_TEST_ASSERT_EQ(cfw_test_upgrade_last_send, CFW_OK);
+    CFW_TEST_ASSERT_EQ(memcmp(cfw_test_upgrade_echoed, "ping-payload",
+                              sizeof("ping-payload") - 1),
+                       0);
+
+    /* Peer close → server delivers EOF and closes the connection. */
+    cfw_fd_close(&client);
+    {
+        int attempts;
+        for (attempts = 0; attempts < 100; attempts++) {
+            cfw_timepoint_t deadline;
+            cfw_duration_t slice;
+            cfw_duration_from_millis(20, &slice);
+            cfw_deadline_from_now(&deadline, slice);
+            CFW_TEST_ASSERT_EQ(cfw_server_step(&ts.server, &deadline),
+                               CFW_OK);
+            if (cfw_server_connection_count(&ts.server) == 0) {
+                break;
+            }
+        }
+        CFW_TEST_ASSERT_EQ(cfw_server_connection_count(&ts.server), 0);
+    }
+
+    cfw_test_upgrade_teardown(&ts);
+    return 0;
+}
+
+static int test_server_upgrade_pipelined(void)
+{
+    cfw_test_upgrade_server ts;
+    cfw_fd_t client;
+    char response[8192];
+
+    cfw_test_upgrade_reset();
+    CFW_TEST_ASSERT_EQ(cfw_test_upgrade_setup(&ts, 65536,
+                                              cfw_test_upgrade_echo),
+                       0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    /* Handshake and first protocol frame in a single write: the frame
+     * bytes are already inside the HTTP reader's pending buffer and
+     * must be handed to the upgraded protocol intact. */
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /upgrade HTTP/1.1\r\n"
+                                     "Host: t\r\n"
+                                     "Upgrade: cfw-test\r\n"
+                                     "Connection: upgrade\r\n"
+                                     "\r\n"
+                                     "early-frame"),
+                       0);
+
+    memset(response, 0, sizeof(response));
+    CFW_TEST_ASSERT_TRUE(cfw_test_upgrade_recv(
+        &ts.server, &client, response, sizeof(response), "early-frame"));
+    CFW_TEST_ASSERT_EQ(memcmp(cfw_test_upgrade_echoed, "early-frame",
+                              sizeof("early-frame") - 1),
+                       0);
+
+    cfw_fd_close(&client);
+    cfw_test_upgrade_teardown(&ts);
+    return 0;
+}
+
+static int test_server_upgrade_requires_header(void)
+{
+    cfw_test_upgrade_server ts;
+    cfw_fd_t client;
+    char response[8192];
+
+    cfw_test_upgrade_reset();
+    CFW_TEST_ASSERT_EQ(cfw_test_upgrade_setup(&ts, 65536,
+                                              cfw_test_upgrade_echo),
+                       0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    /* 101 without a request Upgrade header: sent as an ordinary
+     * response, no takeover, connection stays HTTP. */
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /upgrade HTTP/1.1\r\n"
+                                     "Host: t\r\n\r\n"),
+                       0);
+    memset(response, 0, sizeof(response));
+    CFW_TEST_ASSERT_TRUE(cfw_test_upgrade_recv(
+        &ts.server, &client, response, sizeof(response), "101"));
+    CFW_TEST_ASSERT_EQ(cfw_test_upgrade_calls, 0);
+
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /hello HTTP/1.1\r\n"
+                                     "Host: t\r\n\r\n"),
+                       0);
+    memset(response, 0, sizeof(response));
+    CFW_TEST_ASSERT_TRUE(cfw_test_upgrade_recv(
+        &ts.server, &client, response, sizeof(response), "srv-ok"));
+
+    cfw_fd_close(&client);
+    cfw_test_upgrade_teardown(&ts);
+    return 0;
+}
+
+static int test_server_upgrade_disabled(void)
+{
+    cfw_test_upgrade_server ts;
+    cfw_fd_t client;
+    char response[8192];
+
+    cfw_test_upgrade_reset();
+    /* No upgrade hook: 101 + Upgrade request header is just a response. */
+    CFW_TEST_ASSERT_EQ(cfw_test_upgrade_setup(&ts, 65536, NULL), 0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /upgrade HTTP/1.1\r\n"
+                                     "Host: t\r\n"
+                                     "Upgrade: cfw-test\r\n\r\n"),
+                       0);
+    memset(response, 0, sizeof(response));
+    CFW_TEST_ASSERT_TRUE(cfw_test_upgrade_recv(
+        &ts.server, &client, response, sizeof(response), "101"));
+
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /hello HTTP/1.1\r\n"
+                                     "Host: t\r\n\r\n"),
+                       0);
+    memset(response, 0, sizeof(response));
+    CFW_TEST_ASSERT_TRUE(cfw_test_upgrade_recv(
+        &ts.server, &client, response, sizeof(response), "srv-ok"));
+
+    cfw_fd_close(&client);
+    cfw_test_upgrade_teardown(&ts);
+    return 0;
+}
+
+static int test_server_upgrade_send_bound(void)
+{
+    cfw_test_upgrade_server ts;
+    cfw_fd_t client;
+    char response[8192];
+
+    cfw_test_upgrade_reset();
+    /* Tiny output bound: a 600-byte send cannot fit and must report
+     * WOULDBLOCK rather than corrupting the queue. */
+    CFW_TEST_ASSERT_EQ(cfw_test_upgrade_setup(&ts, 256,
+                                              cfw_test_upgrade_probe),
+                       0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /upgrade HTTP/1.1\r\n"
+                                     "Host: t\r\n"
+                                     "Upgrade: cfw-test\r\n\r\n"),
+                       0);
+    CFW_TEST_ASSERT_TRUE(cfw_test_upgrade_recv(
+        &ts.server, &client, response, sizeof(response), "101"));
+    {
+        int attempts;
+        for (attempts = 0; attempts < 100; attempts++) {
+            cfw_timepoint_t deadline;
+            cfw_duration_t slice;
+            cfw_duration_from_millis(20, &slice);
+            cfw_deadline_from_now(&deadline, slice);
+            CFW_TEST_ASSERT_EQ(cfw_server_step(&ts.server, &deadline),
+                               CFW_OK);
+            if (cfw_test_upgrade_last_send == CFW_ERROR_WOULDBLOCK ||
+                cfw_server_connection_count(&ts.server) == 0) {
+                break;
+            }
+        }
+    }
+    CFW_TEST_ASSERT_EQ(cfw_test_upgrade_last_send, CFW_ERROR_WOULDBLOCK);
+    CFW_TEST_ASSERT_EQ(cfw_server_connection_count(&ts.server), 0);
+
+    cfw_fd_close(&client);
+    cfw_test_upgrade_teardown(&ts);
+    return 0;
+}
+
 const cfw_test_case cfw_test_server_cases[] = {
     {"server_upload_content_length", test_server_upload_content_length},
     {"server_upload_chunked", test_server_upload_chunked},
@@ -1993,6 +2391,11 @@ const cfw_test_case cfw_test_server_cases[] = {
     {"server_expect_continue", test_server_expect_continue},
     {"server_keep_alive_timeout", test_server_keep_alive_timeout},
     {"server_dns_listen", test_server_dns_listen},
+    {"server_upgrade_echo", test_server_upgrade_echo},
+    {"server_upgrade_pipelined", test_server_upgrade_pipelined},
+    {"server_upgrade_requires_header", test_server_upgrade_requires_header},
+    {"server_upgrade_disabled", test_server_upgrade_disabled},
+    {"server_upgrade_send_bound", test_server_upgrade_send_bound},
     {NULL, NULL},
 };
 

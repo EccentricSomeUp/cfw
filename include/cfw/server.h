@@ -60,6 +60,70 @@ typedef cfw_status_t (*cfw_upload_write_fn)(void *upload,
                                             const cfw_span_t *piece);
 typedef void (*cfw_upload_end_fn)(void *upload, int completed);
 
+/* Protocol upgrade support (ADR 0034). When the `upgrade` hook is set,
+ * a handler may take over the connection by returning status 101
+ * Switching Protocols for a request that carried an `Upgrade` header.
+ * The server then stops HTTP framing and delivers readiness events to
+ * the hook; the application drives the new protocol through the
+ * cfw_upgraded_* functions. See docs/decisions/0034-protocol-upgrades.md.
+ *
+ * `events` is a bitmask of CFW_UPGRADE_EV_* flags. The hook is invoked
+ * once with CFW_UPGRADE_EV_READY immediately after takeover (the 101
+ * response head is queued but may not be flushed yet — upgraded sends
+ * queue behind it, preserving wire order), then on each readiness
+ * event. Return CFW_OK to keep the connection; any error closes it.
+ * All callbacks run on the server's event-loop thread and must not
+ * block. */
+typedef struct cfw_server_conn cfw_upgraded_conn_t;
+
+enum {
+    /* Initial invocation right after takeover; no readiness implied. */
+    CFW_UPGRADE_EV_READY = 0,
+    /* Socket is readable (or peer sent EOF — check via recv). */
+    CFW_UPGRADE_EV_READ = 1u << 0,
+    /* Previously queued upgraded output fully drained; the app may
+     * queue more via cfw_upgraded_send. */
+    CFW_UPGRADE_EV_WRITE = 1u << 1,
+    /* Peer performed an orderly shutdown (FIN received). */
+    CFW_UPGRADE_EV_HUP = 1u << 2,
+    /* Socket error condition reported by the pollset. */
+    CFW_UPGRADE_EV_ERR = 1u << 3
+};
+
+typedef cfw_status_t (*cfw_upgrade_fn)(cfw_upgraded_conn_t *conn,
+                                       uint32_t events, void *user);
+
+/* Receives raw bytes on an upgraded connection. Bytes already buffered
+ * past the HTTP request are returned first, then socket data.
+ * Returns CFW_OK with *n == 0 on orderly peer shutdown — after that
+ * the connection closes once queued output drains, so any final bytes
+ * must be sent in the same hook invocation. Returns CFW_OK with *n > 0
+ * on data, CFW_ERROR_WOULDBLOCK when no data is available, or
+ * CFW_ERROR_IO on socket errors (the connection is then dead and the
+ * handle must not be used again). Only valid inside the upgrade hook. */
+CFW_API cfw_status_t cfw_upgraded_recv(cfw_upgraded_conn_t *conn,
+                                       void *buffer, size_t capacity,
+                                       size_t *received);
+
+/* Queues raw bytes for an upgraded connection. All-or-nothing against
+ * the connection's max_out_size bound: returns CFW_ERROR_WOULDBLOCK
+ * when the whole span does not fit the pending queue — retry when
+ * CFW_UPGRADE_EV_WRITE is delivered. Returns CFW_ERROR_IO once the
+ * connection is closing or closed. Only valid inside the upgrade hook. */
+CFW_API cfw_status_t cfw_upgraded_send(cfw_upgraded_conn_t *conn,
+                                       const void *data, size_t size);
+
+/* Begins a graceful close: queued output is flushed, then the socket
+ * closes and no further upgrade events are delivered. Immediate when
+ * nothing is queued. Only valid inside the upgrade hook. */
+CFW_API void cfw_upgraded_close(cfw_upgraded_conn_t *conn);
+
+/* Per-connection application state for upgraded connections; the
+ * hook's `user` argument is shared across all upgraded connections.
+ * Pass NULL to cfw_upgraded_set_user to clear. */
+CFW_API void *cfw_upgraded_user(cfw_upgraded_conn_t *conn);
+CFW_API void cfw_upgraded_set_user(cfw_upgraded_conn_t *conn, void *user);
+
 typedef struct cfw_server_options {
     /* Listen address: numeric IP text or NULL for any-address of the
      * selected family. No DNS resolution in v1. */
@@ -99,6 +163,13 @@ typedef struct cfw_server_options {
     cfw_upload_write_fn upload_write;
     cfw_upload_end_fn upload_end;
     void *upload_user;
+    /* Optional protocol-upgrade hook (ADR 0034). When set, handlers
+     * may return 101 for requests carrying an Upgrade header to take
+     * over the connection; upgrade and upgrade_user are then invoked
+     * for the lifetime of the upgraded protocol. NULL disables
+     * upgrades (101 is sent as an ordinary response). */
+    cfw_upgrade_fn upgrade;
+    void *upgrade_user;
 } cfw_server_options_t;
 
 typedef struct cfw_server {

@@ -138,8 +138,13 @@ typedef struct cfw_response {
 } cfw_response_t;
 
 /* Protocol upgrades (e.g. WebSocket via 101 Switching Protocols) are
- * not supported: after the response the connection remains an HTTP/1.1
- * connection. Handlers must not return 101 expecting raw takeover. */
+ * handled at the server layer, not here: a handler returns
+ * CFW_HTTP_STATUS_SWITCHING_PROTOCOLS and, when the request carried an
+ * Upgrade header and the server upgrade hook is configured (ADR 0034),
+ * the connection is taken over after the 101 response is queued. See
+ * cfw_server_options_t.upgrade and cfw_upgraded_* in server.h. Without
+ * the hook, 101 is sent as an ordinary response and the connection
+ * remains HTTP/1.1. */
 
 typedef struct cfw_dispatch_options {
     cfw_router_t *router;
