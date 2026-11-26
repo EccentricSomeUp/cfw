@@ -234,14 +234,16 @@ cfw_status_t cfw_net_socket(int domain, int type, int protocol,
 #ifdef SOCK_NONBLOCK
     fd->handle = raw;
 #else
-    fd->handle = raw;
     {
         int fl = fcntl(raw, F_GETFL, 0);
         if (fl < 0 || fcntl(raw, F_SETFL, fl | O_NONBLOCK) != 0) {
+            int saved = errno;
             close(raw);
+            errno = saved;
             return cfw_net_errno(errno);
         }
     }
+    fd->handle = raw;
 #endif
     return CFW_OK;
 }

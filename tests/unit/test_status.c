@@ -16,6 +16,8 @@ static int test_known_status_strings(void)
                            "unavailable");
     CFW_TEST_ASSERT_STR_EQ(cfw_status_string(CFW_ERROR_INTERNAL), "internal");
     CFW_TEST_ASSERT_STR_EQ(cfw_status_string(CFW_ERROR_OVERFLOW), "overflow");
+    CFW_TEST_ASSERT_STR_EQ(cfw_status_string(CFW_ERROR_WOULDBLOCK),
+                           "wouldblock");
     return 0;
 }
 

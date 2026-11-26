@@ -338,7 +338,8 @@ cfw_status_t cfw_pollset_wait(cfw_pollset_t *pollset,
     cfw_status_t status;
 
     if (pollset == NULL || events == NULL || count == NULL ||
-        max_events == 0 || max_events > INT32_MAX) {
+        max_events == 0 || max_events > INT32_MAX ||
+        max_events > SIZE_MAX / sizeof(*ready)) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
 
