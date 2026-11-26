@@ -52,8 +52,8 @@ abstraction exists.
 - `platform`: OS capability detection and abstraction — page size, CSPRNG,
   file metadata (implemented; see `cfw/platform.h`, `cfw/fs.h`, `cfw/fd.h`)
 - `net`: sockets, address handling, polling/event loop primitives — internal
-  POSIX implementation with `poll` fallback where `epoll` is unavailable
-  (implemented; ADR 0014)
+  POSIX implementation: `epoll` on Linux/Android, `kqueue` on macOS/BSD,
+  `poll` fallback elsewhere (ADRs 0014/0052)
 - `http`: request/response parsing and serialization
 - `http1`: HTTP/1.1 server message reader and connection binding
   (implemented; see `cfw/http.h`, `cfw/http1.h`, `cfw/http1_conn.h`)

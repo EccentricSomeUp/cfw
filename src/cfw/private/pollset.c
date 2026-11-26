@@ -25,6 +25,14 @@
 #elif defined(_WIN32)
     /* IOCP backend is designed but not implemented (ADR 0011). */
     #define CFW_POLLF_HAVE_NONE 1
+#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || \
+    defined(__NetBSD__) || defined(__DragonFly__)
+    #include <fcntl.h>
+    #include <sys/event.h>
+    #include <sys/time.h>
+    #include <time.h>
+    #include <unistd.h>
+    #define CFW_POLLF_HAVE_KQUEUE 1
 #else
     #include <poll.h>
     #include <unistd.h>
@@ -399,6 +407,461 @@ cfw_status_t cfw_pollset_wait(cfw_pollset_t *pollset,
     free(ready);
     return CFW_OK;
 }
+
+/* ------------------------------------------------------------------ */
+/* kqueue backend (macOS/BSD, ADR 0052)                                */
+/* ------------------------------------------------------------------ */
+
+#ifdef CFW_POLLF_HAVE_KQUEUE
+
+typedef struct cfw_kqueue_record {
+    intptr_t handle;
+    void *token;
+    int want_read;
+    int want_write;
+    uint32_t ready;
+} cfw_kqueue_record_t;
+
+struct cfw_pollset {
+    int kqfd;
+    cfw_kqueue_record_t **records;
+    size_t count;
+    size_t capacity;
+};
+
+static void cfw_kqueue_evset(struct kevent *kev, intptr_t handle,
+                             int16_t filter, uint16_t flags, void *udata)
+{
+    EV_SET(kev, handle, filter, flags, 0, 0, udata);
+}
+
+static ssize_t cfw_kqueue_find(const cfw_pollset_t *pollset,
+                               intptr_t handle)
+{
+    size_t i;
+
+    for (i = 0; i < pollset->count; i++) {
+        if (pollset->records[i]->handle == handle) {
+            return (ssize_t)i;
+        }
+    }
+    return -1;
+}
+
+static cfw_status_t cfw_kqueue_reserve(cfw_pollset_t *pollset,
+                                       size_t needed)
+{
+    size_t new_capacity;
+    cfw_kqueue_record_t **new_records;
+
+    if (needed <= pollset->capacity) {
+        return CFW_OK;
+    }
+
+    new_capacity = pollset->capacity == 0 ? 8 : pollset->capacity;
+    while (new_capacity < needed) {
+        if (new_capacity > SIZE_MAX / 2) {
+            new_capacity = needed;
+            break;
+        }
+        new_capacity *= 2;
+    }
+
+    new_records = (cfw_kqueue_record_t **)realloc(
+        pollset->records, new_capacity * sizeof(*new_records));
+    if (new_records == NULL) {
+        return CFW_ERROR_NOMEM;
+    }
+    pollset->records = new_records;
+    pollset->capacity = new_capacity;
+    return CFW_OK;
+}
+
+/* Apply a changelist synchronously (nevents == 0 returns after the
+ * kernel has processed every change). */
+static cfw_status_t cfw_kqueue_apply(cfw_pollset_t *pollset,
+                                     struct kevent *changes, int nchanges)
+{
+    if (kevent(pollset->kqfd, changes, nchanges, NULL, 0, NULL) != 0) {
+        if (errno == ENOMEM || errno == EAGAIN) {
+            return CFW_ERROR_NOMEM;
+        }
+        return CFW_ERROR_IO;
+    }
+    return CFW_OK;
+}
+
+static cfw_status_t cfw_kqueue_register(cfw_pollset_t *pollset,
+                                        cfw_kqueue_record_t *record,
+                                        int want_read, int want_write)
+{
+    struct kevent changes[2];
+    int nchanges = 0;
+    cfw_status_t status;
+
+    if (want_read) {
+        cfw_kqueue_evset(&changes[nchanges++], record->handle,
+                         EVFILT_READ, EV_ADD | EV_ENABLE,
+                         record);
+    }
+    if (want_write) {
+        cfw_kqueue_evset(&changes[nchanges++], record->handle,
+                         EVFILT_WRITE, EV_ADD | EV_ENABLE,
+                         record);
+    }
+
+    status = cfw_kqueue_apply(pollset, changes, nchanges);
+    if (status != CFW_OK) {
+        /* Roll back any filter that may have been applied. */
+        for (int i = 0; i < nchanges; i++) {
+            changes[i].flags = EV_DELETE;
+        }
+        (void)cfw_kqueue_apply(pollset, changes, nchanges);
+        return status;
+    }
+    return CFW_OK;
+}
+
+static void cfw_kqueue_unregister(cfw_pollset_t *pollset,
+                                  cfw_kqueue_record_t *record)
+{
+    struct kevent changes[2];
+    int nchanges = 0;
+
+    if (record->want_read) {
+        cfw_kqueue_evset(&changes[nchanges++], record->handle,
+                         EVFILT_READ, EV_DELETE, record);
+    }
+    if (record->want_write) {
+        cfw_kqueue_evset(&changes[nchanges++], record->handle,
+                         EVFILT_WRITE, EV_DELETE, record);
+    }
+    if (nchanges > 0) {
+        (void)cfw_kqueue_apply(pollset, changes, nchanges);
+    }
+}
+
+static cfw_status_t cfw_kqueue_change_filters(cfw_pollset_t *pollset,
+                                              cfw_kqueue_record_t *record,
+                                              int want_read,
+                                              int want_write)
+{
+    struct kevent changes[4];
+    int nchanges = 0;
+
+    if (record->want_read && !want_read) {
+        cfw_kqueue_evset(&changes[nchanges++], record->handle,
+                         EVFILT_READ, EV_DELETE, record);
+    }
+    if (record->want_write && !want_write) {
+        cfw_kqueue_evset(&changes[nchanges++], record->handle,
+                         EVFILT_WRITE, EV_DELETE, record);
+    }
+    if (!record->want_read && want_read) {
+        cfw_kqueue_evset(&changes[nchanges++], record->handle,
+                         EVFILT_READ, EV_ADD | EV_ENABLE,
+                         record);
+    }
+    if (!record->want_write && want_write) {
+        cfw_kqueue_evset(&changes[nchanges++], record->handle,
+                         EVFILT_WRITE, EV_ADD | EV_ENABLE,
+                         record);
+    }
+    if (nchanges == 0) {
+        return CFW_OK;
+    }
+    return cfw_kqueue_apply(pollset, changes, nchanges);
+}
+
+cfw_status_t cfw_pollset_create(cfw_pollset_t **pollset)
+{
+    int kqfd;
+    cfw_pollset_t *set;
+
+    if (pollset == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    kqfd = kqueue();
+    if (kqfd < 0) {
+        return CFW_ERROR_UNAVAILABLE;
+    }
+    (void)fcntl(kqfd, F_SETFD, FD_CLOEXEC);
+
+    set = (cfw_pollset_t *)calloc(1, sizeof(*set));
+    if (set == NULL) {
+        close(kqfd);
+        return CFW_ERROR_NOMEM;
+    }
+    set->kqfd = kqfd;
+    *pollset = set;
+    return CFW_OK;
+}
+
+void cfw_pollset_destroy(cfw_pollset_t *pollset)
+{
+    size_t i;
+
+    if (pollset == NULL) {
+        return;
+    }
+    for (i = 0; i < pollset->count; i++) {
+        free(pollset->records[i]);
+    }
+    free(pollset->records);
+    close(pollset->kqfd);
+    free(pollset);
+}
+
+cfw_status_t cfw_pollset_add(cfw_pollset_t *pollset, intptr_t handle,
+                             uint32_t events, void *token)
+{
+    cfw_kqueue_record_t *record;
+    cfw_status_t status;
+
+    if (pollset == NULL || !cfw_pollset_handle_is_valid(handle) ||
+        !cfw_pollset_level_is_valid(events) ||
+        cfw_kqueue_find(pollset, handle) >= 0) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    status = cfw_kqueue_reserve(pollset, pollset->count + 1);
+    if (status != CFW_OK) {
+        return status;
+    }
+
+    record = (cfw_kqueue_record_t *)calloc(1, sizeof(*record));
+    if (record == NULL) {
+        return CFW_ERROR_NOMEM;
+    }
+    record->handle = handle;
+    record->token = token;
+    record->want_read = (events & CFW_POLL_IN) != 0;
+    record->want_write = (events & CFW_POLL_OUT) != 0;
+    record->ready = 0;
+
+    status = cfw_kqueue_register(pollset, record, record->want_read,
+                                 record->want_write);
+    if (status != CFW_OK) {
+        free(record);
+        return status;
+    }
+
+    pollset->records[pollset->count++] = record;
+    return CFW_OK;
+}
+
+cfw_status_t cfw_pollset_modify(cfw_pollset_t *pollset, intptr_t handle,
+                                uint32_t events, void *token)
+{
+    ssize_t index;
+    cfw_kqueue_record_t *record;
+    int want_read;
+    int want_write;
+    cfw_status_t status;
+
+    if (pollset == NULL || !cfw_pollset_handle_is_valid(handle) ||
+        !cfw_pollset_level_is_valid(events)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    index = cfw_kqueue_find(pollset, handle);
+    if (index < 0) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    record = pollset->records[index];
+    want_read = (events & CFW_POLL_IN) != 0;
+    want_write = (events & CFW_POLL_OUT) != 0;
+
+    status = cfw_kqueue_change_filters(pollset, record, want_read,
+                                       want_write);
+    if (status != CFW_OK) {
+        return status;
+    }
+
+    record->want_read = want_read;
+    record->want_write = want_write;
+    record->token = token;
+    return CFW_OK;
+}
+
+cfw_status_t cfw_pollset_remove(cfw_pollset_t *pollset, intptr_t handle)
+{
+    ssize_t index;
+
+    if (pollset == NULL || !cfw_pollset_handle_is_valid(handle)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    index = cfw_kqueue_find(pollset, handle);
+    if (index < 0) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    cfw_kqueue_unregister(pollset, pollset->records[index]);
+    free(pollset->records[index]);
+    pollset->records[index] = pollset->records[pollset->count - 1];
+    pollset->count--;
+    return CFW_OK;
+}
+
+static uint32_t cfw_kqueue_to_cfw(int16_t filter, uint32_t fflags,
+                                  uint16_t kev_flags)
+{
+    uint32_t events = 0;
+
+    if ((kev_flags & EV_ERROR) != 0) {
+        events |= CFW_POLL_ERR;
+    }
+#ifdef NOTE_ERR
+    if ((fflags & NOTE_ERR) != 0) {
+        events |= CFW_POLL_ERR;
+    }
+#endif
+    if (filter == EVFILT_READ) {
+        if ((fflags & NOTE_READ) != 0) {
+            events |= CFW_POLL_IN;
+        }
+        if ((fflags & NOTE_EOF) != 0) {
+            events |= CFW_POLL_HUP;
+        }
+#ifdef NOTE_HUP
+        if ((fflags & NOTE_HUP) != 0) {
+            events |= CFW_POLL_HUP;
+        }
+#endif
+    } else if (filter == EVFILT_WRITE) {
+        if ((fflags & NOTE_WRITE) != 0) {
+            events |= CFW_POLL_OUT;
+        }
+    }
+    return events;
+}
+
+cfw_status_t cfw_pollset_wait(cfw_pollset_t *pollset,
+                              const cfw_timepoint_t *deadline,
+                              cfw_poll_event_t *events, size_t max_events,
+                              size_t *count)
+{
+    struct kevent *ready;
+    struct timespec ts;
+    struct timespec *timeout;
+    int nready;
+    size_t i;
+    size_t produced;
+    cfw_status_t status;
+
+    if (pollset == NULL || events == NULL || count == NULL ||
+        max_events == 0 || max_events > INT32_MAX ||
+        max_events > SIZE_MAX / sizeof(*ready)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    ready = (struct kevent *)malloc(max_events * sizeof(*ready));
+    if (ready == NULL) {
+        return CFW_ERROR_NOMEM;
+    }
+
+    /* kqueue timeouts are relative; recompute on EINTR like the other
+     * backends. */
+    timeout = NULL;
+    memset(&ts, 0, sizeof(ts));
+    if (deadline != NULL) {
+        cfw_timepoint_t now;
+        cfw_duration_t remaining;
+        int64_t rem_ns;
+
+        status = cfw_time_now(&now);
+        if (status != CFW_OK) {
+            free(ready);
+            return status;
+        }
+        status = cfw_timepoint_diff(deadline, &now, &remaining);
+        if (status != CFW_OK) {
+            free(ready);
+            return status;
+        }
+        rem_ns = remaining.nanoseconds;
+        if (rem_ns < 0) {
+            rem_ns = 0;
+        }
+        ts.tv_sec = (time_t)(rem_ns / INT64_C(1000000000));
+        ts.tv_nsec = (long)(rem_ns % INT64_C(1000000000));
+        timeout = &ts;
+    }
+
+    for (;;) {
+        nready = kevent(pollset->kqfd, NULL, 0, ready, (int)max_events,
+                        timeout);
+        if (nready >= 0) {
+            break;
+        }
+        if (errno == EINTR) {
+            if (deadline != NULL) {
+                cfw_timepoint_t now;
+                cfw_duration_t remaining;
+                int64_t rem_ns;
+
+                status = cfw_time_now(&now);
+                if (status != CFW_OK) {
+                    free(ready);
+                    return status;
+                }
+                status = cfw_timepoint_diff(deadline, &now, &remaining);
+                if (status != CFW_OK) {
+                    free(ready);
+                    return status;
+                }
+                rem_ns = remaining.nanoseconds;
+                if (rem_ns < 0) {
+                    rem_ns = 0;
+                }
+                ts.tv_sec = (time_t)(rem_ns / INT64_C(1000000000));
+                ts.tv_nsec = (long)(rem_ns % INT64_C(1000000000));
+            }
+            continue;
+        }
+        free(ready);
+        return CFW_ERROR_IO;
+    }
+
+    /* Merge per-filter readiness into per-handle records, then emit one
+     * event per ready handle. Merged events cannot exceed nready. */
+    for (i = 0; i < (size_t)nready; i++) {
+        cfw_kqueue_record_t *record =
+            (cfw_kqueue_record_t *)ready[i].udata;
+        if (record == NULL) {
+            continue;
+        }
+        record->ready |= cfw_kqueue_to_cfw(ready[i].filter, ready[i].fflags,
+                                           ready[i].flags);
+    }
+
+    if (nready == 0) {
+        free(ready);
+        *count = 0;
+        return CFW_ERROR_TIMEOUT;
+    }
+
+    produced = 0;
+    for (i = 0; i < pollset->count && produced < max_events; i++) {
+        cfw_kqueue_record_t *record = pollset->records[i];
+        if (record->ready == 0) {
+            continue;
+        }
+        events[produced].handle = record->handle;
+        events[produced].events = record->ready;
+        events[produced].token = record->token;
+        record->ready = 0;
+        produced++;
+    }
+    free(ready);
+    *count = produced;
+    return CFW_OK;
+}
+
+#endif /* CFW_POLLF_HAVE_KQUEUE */
 
 /* ------------------------------------------------------------------ */
 /* poll() fallback backend (other POSIX)                               */

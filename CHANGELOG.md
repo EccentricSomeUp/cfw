@@ -31,6 +31,13 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   Scoped to spawn/join/detach only; stack sizes, cancellation, TLS,
   and pools remain deferred. Completes the application-concurrency
   story begun by the sync primitives (ADR 0050).
+- kqueue pollset backend (ADR 0052): the internal event-set
+  abstraction now uses `kqueue`/`kevent` on macOS and the BSDs
+  instead of the O(n) `poll()` fallback. Per-handle records map
+  kevent `udata` for O(1) event lookup, READ/WRITE filter readiness
+  merges into single level-triggered events, and timeouts keep
+  nanosecond precision via relative `timespec` deadlines. The `poll()`
+  fallback remains for other POSIX; abstraction contract unchanged.
 
 ## [0.2.0] - 2026-11-26
 

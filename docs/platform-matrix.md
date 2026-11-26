@@ -12,8 +12,8 @@ not yet implemented; "planned" means no contract exists yet.
 | Platform | Status | Notes |
 | --- | --- | --- |
 | Linux (glibc/musl) | Primary | `clock_gettime`, `getrandom`, `epoll`; the only CI/dev-verified target |
-| macOS | POSIX-compatible | `clock_gettime`, `arc4random_buf`, `poll` backend; `kqueue` planned; not yet verified on a macOS host or CI |
-| FreeBSD/OpenBSD/NetBSD | POSIX-compatible | `clock_gettime`, `arc4random_buf`, `poll` backend; `kqueue` planned; not yet verified on a BSD host or CI |
+| macOS | POSIX-compatible | `clock_gettime`, `arc4random_buf`, `kqueue` backend (ADR 0052); verified on macOS CI |
+| FreeBSD/OpenBSD/NetBSD | POSIX-compatible | `clock_gettime`, `arc4random_buf`, `kqueue` backend (ADR 0052); not yet verified on a BSD host |
 | Windows (MSVC/MinGW) | Not supported | core primitives compile where portable, but sockets/pollset/server/fd-close are stubs returning `CFW_STATUS_UNAVAILABLE`; IOCP pending (ADR 0011) |
 
 ## Compiler and language requirements
@@ -33,7 +33,7 @@ not yet implemented; "planned" means no contract exists yet.
 | File metadata | `stat`/`fstat`/`lseek` | `stat`/`fstat`/`lseek` | `stat`/`fstat`/`lseek` | `_stat64`/`_fstat64`/`_lseeki64` | `cfw_file_*` (implemented) |
 | Confined file open | `openat`/`O_NOFOLLOW` | `openat`/`O_NOFOLLOW` | `openat`/`O_NOFOLLOW` | lexical + `_fstat64` best-effort | `cfw_file_open_confined` internal (implemented, ADR 0037) |
 | Descriptor close | `close` | `close` | `close` | stub: `UNAVAILABLE` | `cfw_fd_close` (POSIX; Windows deferred with IOCP) |
-| Polling/event loop | `epoll` | `poll` fallback | `poll` fallback | stub | `cfw_pollset_*` internal (implemented, ADR 0014) |
+| Polling/event loop | `epoll` | `kqueue` | `kqueue` | stub | `cfw_pollset_*` internal (implemented; ADRs 0014/0052) |
 | Sockets | `socket`/`accept4` | `socket`/`accept` | `socket`/`accept` | stub | `cfw_net_*` internal (implemented on POSIX; numeric IPs plus init-time getaddrinfo for listen hosts) |
 | HTTP/1.1 + server | yes | yes (POSIX) | yes (POSIX) | stub: `UNAVAILABLE` | `cfw_http1*`, `cfw_server` (implemented; Windows pending IOCP) |
 | Threads/mutexes | `pthread` | `pthread` | `pthread` | `CreateThread`+`SRWLOCK`/`CONDITION_VARIABLE` | `cfw_thread_*`, `cfw_mutex_*`/`cfw_cond_*` (implemented, ADRs 0050/0051) |
