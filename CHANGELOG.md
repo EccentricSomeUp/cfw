@@ -125,12 +125,16 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   `cfw_max_align_t` member so no cast increases required alignment.
 - Windows build: MSVC's `<stdatomic.h>` additionally requires
   `/experimental:c11atomics` on top of `/std:c11`; C sources in
-  strict-flag targets now pass both. `InitConditionVariable` and the
-  SRWLOCK APIs were undeclared because nothing pinned
-  `_WIN32_WINNT >= 0x0600`; `platform_detect.h` now defines a modern
-  floor. `_CRT_SECURE_NO_WARNINGS` in `fs.c` was defined after
-  `<stdio.h>`/`<string.h>` had already pulled in the CRT headers, so it
-  is now defined before any include.
+  strict-flag targets now pass both. The SRWLOCK/condition-variable
+  APIs require `_WIN32_WINNT >= 0x0600`, so `platform_detect.h` now
+  pins a modern floor, and `sync.c` calls the correctly spelled
+  `InitializeConditionVariable`. `_CRT_SECURE_NO_WARNINGS` in `fs.c`
+  was defined after `<stdio.h>`/`<string.h>` had already pulled in the
+  CRT headers, so it is now defined before any include.
+- macOS/FreeBSD build: an adjacent string-literal pair in the malformed
+  multipart fixture tripped Clang's `-Wstring-concatenation` under
+  `-Werror`; the intended single literal is now explicitly
+  parenthesized.
 
 ## [0.3.0] - 2026-11-26
 

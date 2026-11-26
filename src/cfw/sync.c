@@ -201,7 +201,7 @@ cfw_status_t cfw_cond_init(cfw_cond_t *cond)
     }
     memset(cond->u.storage, 0, sizeof(cond->u.storage));
 #if CFW_PLATFORM_WINDOWS
-    InitConditionVariable((PCONDITION_VARIABLE)cond->u.storage);
+    InitializeConditionVariable((PCONDITION_VARIABLE)cond->u.storage);
     return CFW_OK;
 #else
     return cfw_sync_map_error(pthread_cond_init(

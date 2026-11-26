@@ -248,8 +248,8 @@ static int test_multipart_parse_malformed(void)
 {
     static const char *const bad[] = {
         "no delimiters at all",
-        "--XYZ\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\n"
-        "body without close",
+        ("--XYZ\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\n"
+         "body without close"),
         "--XYZ\r\nContent-Disposition: form-data; name=\"a\"",
         "--XYZ\r\nnot a header line\r\n\r\nx\r\n--XYZ--",
     };
