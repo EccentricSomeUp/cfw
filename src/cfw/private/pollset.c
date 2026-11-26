@@ -15,10 +15,13 @@
 #include <string.h>
 
 /* CFW_POLLF_FORCE_POLL is a test-only override that selects the poll()
- * backend on platforms that would otherwise use epoll, so the fallback
- * path is exercised in CI on Linux. It is never defined by the build. */
-#if (defined(__linux__) || defined(__ANDROID__)) && \
-    !defined(CFW_POLLF_FORCE_POLL)
+ * fallback backend on every platform, so the fallback path is exercised
+ * in CI on Linux and macOS alike. It is never defined by the build. */
+#if defined(CFW_POLLF_FORCE_POLL) && !defined(_WIN32)
+    #include <poll.h>
+    #include <unistd.h>
+    #define CFW_POLLF_HAVE_POLL 1
+#elif defined(__linux__) || defined(__ANDROID__)
     #include <sys/epoll.h>
     #include <unistd.h>
     #define CFW_POLLF_HAVE_EPOLL 1

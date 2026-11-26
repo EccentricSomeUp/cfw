@@ -6,8 +6,9 @@
 /*
  * Internal event-set abstraction. Not part of the public API; see
  * docs/decisions/0011-fd-ownership-and-event-design.md for the contract.
- * Level-triggered semantics. Backends: epoll on Linux/Android, poll()
- * elsewhere on POSIX, unavailable on Windows until IOCP lands.
+ * Level-triggered semantics. Backends: epoll on Linux/Android, kqueue on
+ * macOS/BSD, poll() elsewhere on POSIX, unavailable on Windows until
+ * IOCP lands.
  *
  * A pollset is not thread-safe: registration changes must not race with
  * cfw_pollset_wait on the same set. Concurrent use requires external

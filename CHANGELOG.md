@@ -22,6 +22,32 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   scoped diagnostic suppression, and `cfw_log` is annotated with a new
   portable `CFW_PRINTF_FORMAT` attribute so callers still get compile
   -time format checking.
+- macOS build: `cfw_net_socket` passed `SOCK_CLOEXEC` to `socket()`
+  unconditionally, but macOS and the BSDs do not define that flag.
+  `SOCK_CLOEXEC` is now guarded like `SOCK_NONBLOCK`, with close-on-exec
+  applied via `fcntl(F_SETFD, FD_CLOEXEC)` where the flag is unavailable;
+  the non-Linux `accept` path now sets `FD_CLOEXEC` on accepted sockets
+  as well, matching the `accept4` behavior on Linux.
+- macOS/BSD portability audit: `_POSIX_C_SOURCE` hides several Darwin
+  extensions, so affected translation units now also define
+  `_DARWIN_C_SOURCE` on `__APPLE__`. This restores `SO_NOSIGPIPE` in
+  the socket layer (previously SIGPIPE suppression silently no-oped,
+  so a client disconnect could kill the server), `O_NOFOLLOW`/`openat`
+  in the confined file open (previously returned
+  `CFW_ERROR_UNAVAILABLE`, breaking static file serving and its tests
+  on macOS), and the `arc4random_buf` declaration in the CSPRNG
+  (previously an implicit-declaration build failure).
+- macOS/BSD build: `cfw_server_init` passed `SOCK_NONBLOCK` to
+  `socketpair()`, a flag only Linux defines. The wake channel is now
+  created with plain `SOCK_STREAM` and configured nonblocking and
+  close-on-exec via `fcntl`, with `SO_NOSIGPIPE` applied where
+  available. The wakeup drain also no longer requires `MSG_DONTWAIT`,
+  which some BSDs do not define.
+- Pollset test coverage: `CFW_POLLF_FORCE_POLL` previously only
+  overrode the epoll backend, so on macOS/BSD the "poll fallback" test
+  binary still exercised kqueue and the `poll()` backend was never
+  compiled there. The override now takes precedence on every POSIX
+  platform.
 
 ## [0.3.0] - 2026-11-26
 

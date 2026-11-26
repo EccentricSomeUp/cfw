@@ -4,6 +4,11 @@
     #define _GNU_SOURCE
 #endif
 #define _POSIX_C_SOURCE 200809L
+#if defined(__APPLE__)
+    /* _POSIX_C_SOURCE hides Darwin socket extensions such as
+     * SO_NOSIGPIPE; _DARWIN_C_SOURCE exposes them again. */
+    #define _DARWIN_C_SOURCE
+#endif
 
 #if defined(_WIN32)
 
@@ -271,7 +276,7 @@ cfw_status_t cfw_net_socket(int domain, int type, int protocol,
                             cfw_fd_t *fd)
 {
     int raw;
-    int flags = SOCK_CLOEXEC;
+    int flags = 0;
 
     if (fd == NULL) {
         return CFW_ERROR_INVALID_ARGUMENT;
@@ -280,11 +285,23 @@ cfw_status_t cfw_net_socket(int domain, int type, int protocol,
 #ifdef SOCK_NONBLOCK
     flags |= SOCK_NONBLOCK;
 #endif
+#ifdef SOCK_CLOEXEC
+    flags |= SOCK_CLOEXEC;
+#endif
 
     raw = socket(domain, type | flags, protocol);
     if (raw < 0) {
         return cfw_net_errno(errno);
     }
+
+#ifndef SOCK_CLOEXEC
+    if (fcntl(raw, F_SETFD, FD_CLOEXEC) != 0) {
+        int saved = errno;
+        close(raw);
+        errno = saved;
+        return cfw_net_errno(errno);
+    }
+#endif
 
 #ifdef SOCK_NONBLOCK
     fd->handle = raw;
@@ -369,7 +386,10 @@ cfw_status_t cfw_net_accept(cfw_fd_t *fd, cfw_sockaddr_t *peer,
     raw = accept((int)fd->handle, (struct sockaddr *)&ss, &len);
     if (raw >= 0) {
         int fl = fcntl(raw, F_GETFL, 0);
-        if (fl < 0 || fcntl(raw, F_SETFL, fl | O_NONBLOCK) != 0) {
+        int fdfl = fcntl(raw, F_GETFD, 0);
+        if (fl < 0 || fdfl < 0 ||
+            fcntl(raw, F_SETFL, fl | O_NONBLOCK) != 0 ||
+            fcntl(raw, F_SETFD, fdfl | FD_CLOEXEC) != 0) {
             close(raw);
             return cfw_net_errno(errno);
         }

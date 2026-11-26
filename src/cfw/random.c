@@ -1,6 +1,11 @@
 /* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 */
 
 #define _POSIX_C_SOURCE 200809L
+#if defined(__APPLE__)
+    /* _POSIX_C_SOURCE hides arc4random_buf in <stdlib.h>; _DARWIN_C_SOURCE
+     * exposes it again. */
+    #define _DARWIN_C_SOURCE
+#endif
 
 #include <cfw/random.h>
 

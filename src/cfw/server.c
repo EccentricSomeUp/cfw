@@ -106,6 +106,7 @@ void cfw_upgraded_set_user(cfw_upgraded_conn_t *conn, void *user)
 #include "private/pollset.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1325,8 +1326,12 @@ cfw_status_t cfw_server_step(cfw_server_t *server,
 
         if (handle == cfw_fd_get(&server->wakeup[0])) {
             char drain[64];
-            while (recv((int)handle, drain, sizeof(drain), MSG_DONTWAIT) >
-                   0) {
+            int drain_flags = 0;
+#ifdef MSG_DONTWAIT
+            drain_flags = MSG_DONTWAIT;
+#endif
+            while (recv((int)handle, drain, sizeof(drain),
+                        drain_flags) > 0) {
             }
             continue;
         }
@@ -1413,11 +1418,36 @@ cfw_status_t cfw_server_init(cfw_server_t *server,
         return st;
     }
 
-    /* Wake channel for prompt stop. */
-    if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0, sv) != 0) {
+    /* Wake channel for prompt stop. SOCK_NONBLOCK/SOCK_CLOEXEC are not
+     * portable (absent on macOS/BSD), so the pair is created blocking
+     * and configured with fcntl afterwards. */
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) {
         cfw_pollset_destroy(server->pollset);
         server->pollset = NULL;
         return CFW_ERROR_IO;
+    }
+    {
+        int i;
+        for (i = 0; i < 2; i++) {
+            int fl = fcntl(sv[i], F_GETFL, 0);
+            int fdfl = fcntl(sv[i], F_GETFD, 0);
+            if (fl < 0 || fdfl < 0 ||
+                fcntl(sv[i], F_SETFL, fl | O_NONBLOCK) != 0 ||
+                fcntl(sv[i], F_SETFD, fdfl | FD_CLOEXEC) != 0) {
+                close(sv[0]);
+                close(sv[1]);
+                cfw_pollset_destroy(server->pollset);
+                server->pollset = NULL;
+                return CFW_ERROR_IO;
+            }
+#if !defined(MSG_NOSIGNAL) && defined(SO_NOSIGPIPE)
+            {
+                int one = 1;
+                (void)setsockopt(sv[i], SOL_SOCKET, SO_NOSIGPIPE, &one,
+                                 sizeof(one));
+            }
+#endif
+        }
     }
     server->wakeup[0].handle = sv[0];
     server->wakeup[1].handle = sv[1];

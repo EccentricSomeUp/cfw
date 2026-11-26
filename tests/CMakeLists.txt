@@ -93,8 +93,8 @@ cfw_apply_sanitizer_flags(cfw_security_tests)
 add_test(NAME cfw_security COMMAND cfw_security_tests)
 
 # Poll-backend variant: compiles the pollset suite against the poll()
-# fallback (CFW_POLLF_FORCE_POLL) so the non-epoll path is verified on
-# Linux, where it would otherwise only run on macOS/BSD.
+# fallback (CFW_POLLF_FORCE_POLL) so the non-epoll/kqueue path is
+# verified on every POSIX CI host.
 if(NOT WIN32)
     add_executable(cfw_pollset_poll_tests
         ../src/cfw/private/pollset.c
