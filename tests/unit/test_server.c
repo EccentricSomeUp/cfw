@@ -125,7 +125,7 @@ static void cfw_test_server_options(cfw_server_options_t *options,
     options->http.max_head_size = 8192;
     options->http.max_body_size = 65536;
     options->http.max_pending_size = 65536;
-    options->max_out_size = 8192;
+    options->max_out_size = 65536;
     options->max_connections = 8;
     options->keep_alive_timeout.nanoseconds = 0;
     options->request_timeout.nanoseconds = 0;
@@ -290,6 +290,84 @@ static int test_server_request_response(void)
     response[n] = '\0';
     CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n, "404"));
     CFW_TEST_ASSERT_EQ(cfw_server_requests_total(&ts.server), 2);
+
+    cfw_fd_close(&client);
+    cfw_test_server_teardown(&ts);
+    return 0;
+}
+
+static char cfw_test_pad_names[28][12];
+static char cfw_test_pad_value[280];
+
+static cfw_status_t cfw_test_big_head_handler(cfw_request_t *req,
+                                              cfw_response_t *res,
+                                              void *user)
+{
+    static const char body[] = "big-head";
+    cfw_strview_t hv;
+    int i;
+
+    (void)req;
+    (void)user;
+    res->status = CFW_HTTP_STATUS_OK;
+    res->body.data = (const uint8_t *)body;
+    res->body.size = sizeof(body) - 1;
+
+    /* ~8.2 KiB of headers: exceeds the initial head scratch
+     * (max_head_size) so the server must grow it once and retry. */
+    memset(cfw_test_pad_value, 'a', sizeof(cfw_test_pad_value) - 1);
+    cfw_test_pad_value[sizeof(cfw_test_pad_value) - 1] = '\0';
+    cfw_strview_init(&hv, cfw_test_pad_value,
+                     sizeof(cfw_test_pad_value) - 1);
+    for (i = 0; i < 28; i++) {
+        cfw_strview_t hn;
+        if (cfw_test_pad_names[i][0] == '\0') {
+            snprintf(cfw_test_pad_names[i],
+                     sizeof(cfw_test_pad_names[i]), "X-Pad-%02d", i);
+        }
+        cfw_strview_from_cstr(&hn, cfw_test_pad_names[i]);
+        cfw_response_header_add(res, &hn, &hv);
+    }
+    return CFW_OK;
+}
+
+static int test_server_large_response_head(void)
+{
+    cfw_test_server ts;
+    cfw_fd_t client;
+    cfw_strview_t pattern;
+    char response[16384];
+    ssize_t n;
+
+    CFW_TEST_ASSERT_EQ(cfw_test_server_setup(&ts,
+                                             (cfw_duration_t){0},
+                                             (cfw_duration_t){0}, 8),
+                       0);
+    cfw_strview_from_cstr(&pattern, "/big");
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(&ts.dispatch,
+                                              CFW_HTTP_METHOD_GET,
+                                              &pattern,
+                                              cfw_test_big_head_handler,
+                                              NULL),
+                       CFW_OK);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /big HTTP/1.1\r\n"
+                                     "Host: big\r\n\r\n"),
+                       0);
+    n = cfw_test_serve_recv(&ts.server, &client, response,
+                            sizeof(response) - 1);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    response[n] = '\0';
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                           "HTTP/1.1 200 OK"));
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                           "X-Pad-27"));
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                           "big-head"));
 
     cfw_fd_close(&client);
     cfw_test_server_teardown(&ts);
@@ -1903,6 +1981,7 @@ const cfw_test_case cfw_test_server_cases[] = {
     {"server_streaming_response", test_server_streaming_response},
     {"server_streaming_http10", test_server_streaming_http10},
     {"server_request_response", test_server_request_response},
+    {"server_large_response_head", test_server_large_response_head},
     {"server_post_body", test_server_post_body},
     {"server_remote_addr", test_server_remote_addr},
     {"server_request_timeout", test_server_request_timeout},
