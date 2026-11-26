@@ -28,7 +28,9 @@ application tokens: SHA-256/HMAC-SHA256 and constant-time comparison
 token envelopes for cookies/CSRF/reset tokens (ADR 0048), and portable
 mutex/condition-variable primitives and thread spawn/join/detach for
 application-owned concurrency (`cfw/sync.h`, `cfw/thread.h`, ADRs
-0050/0051). TLS is out
+0050/0051), and a per-request completion audit hook delivering status,
+byte counts, duration, and peer address for every parsed request
+(ADR 0055). TLS is out
 of scope (ADR 0030).
 
 ## Priorities

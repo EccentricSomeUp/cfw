@@ -162,6 +162,17 @@ struct cfw_server_conn {
     void *upload;
     cfw_timepoint_t deadline;
     int deadline_set;
+    /* Request audit state (ADR 0055): armed at each parsed head and
+     * emitted exactly once — when the final response is queued, an
+     * upgrade activates, a stream finishes, or the conn closes with a
+     * record pending. audit_status holds the last response status
+     * determined (0 until a response head is queued). */
+    int audit_pending;
+    int audit_stream;
+    int audit_status;
+    uint64_t audit_request_bytes;
+    uint64_t audit_response_bytes;
+    cfw_timepoint_t audit_start;
     intptr_t handle;
     cfw_server_conn_t *next;
 };
@@ -181,6 +192,42 @@ static void cfw_server_conn_deadline(cfw_server_conn_t *conn,
     }
     conn->deadline_set =
         cfw_deadline_from_now(&conn->deadline, timeout) == CFW_OK;
+}
+
+/* Emits the pending per-request audit record (ADR 0055) exactly
+ * once. conn->head still describes the audited request: emission
+ * always precedes parsing of any subsequent pipelined head. */
+static void cfw_server_emit_request_done(cfw_server_t *server,
+                                         cfw_server_conn_t *conn,
+                                         int upgraded)
+{
+    cfw_request_record_t record;
+    cfw_duration_t duration;
+    cfw_timepoint_t now;
+
+    if (!conn->audit_pending) {
+        return;
+    }
+    conn->audit_pending = 0;
+    conn->audit_stream = 0;
+    if (server->options.request_done == NULL) {
+        return;
+    }
+    memset(&record, 0, sizeof(record));
+    record.method = conn->head.request_line.method;
+    record.target = conn->head.request_line.target;
+    record.version = conn->head.request_line.version;
+    record.status = conn->audit_status;
+    record.request_bytes = conn->audit_request_bytes;
+    record.response_bytes = conn->audit_response_bytes;
+    record.duration = (cfw_duration_t){0};
+    if (cfw_time_now(&now) == CFW_OK) {
+        (void)cfw_timepoint_diff(&now, &conn->audit_start, &duration);
+        record.duration = duration;
+    }
+    record.remote_addr = &conn->remote_addr;
+    record.upgraded = upgraded;
+    server->options.request_done(&record, server->options.request_done_user);
 }
 
 static void cfw_server_close_conn(cfw_server_t *server,
@@ -210,6 +257,10 @@ static void cfw_server_close_conn(cfw_server_t *server,
         (void)server->options.upgrade(conn, CFW_UPGRADE_EV_CLOSE,
                                       server->options.upgrade_user);
     }
+    /* A record still pending means the request ended without a
+     * finalized response (abort, timeout, teardown): emit it with
+     * whatever status/bytes were determined. */
+    cfw_server_emit_request_done(server, conn, conn->upgraded);
     cfw_pollset_remove(server->pollset, conn->handle);
     cfw_http1_conn_free(&conn->http);
     cfw_buffer_free(&conn->body);
@@ -376,6 +427,13 @@ static void cfw_server_send_error(cfw_server_t *server,
         cfw_http1_conn_queue(&conn->http, head_buf, written);
     }
     server->errors_total++;
+    if (conn->audit_pending) {
+        conn->audit_status = (int)status;
+        conn->audit_response_bytes += written;
+        if (!conn->audit_stream) {
+            cfw_server_emit_request_done(server, conn, 0);
+        }
+    }
     if (server->options.logger != NULL) {
         cfw_log(server->options.logger, CFW_LOG_WARN, "request error: %s",
                 log_detail);
@@ -583,6 +641,20 @@ static void cfw_server_handle_done(cfw_server_t *server,
         return;
     }
 
+    /* Audit accounting (ADR 0055): count exactly what was queued —
+     * the serialized head plus the body payload when one was emitted
+     * (streams carry res.body.size == 0 here and are counted by the
+     * pump instead). */
+    if (conn->audit_pending) {
+        conn->audit_status = (int)res.status;
+        conn->audit_response_bytes += written;
+        if (res.body.size != 0 &&
+            cfw_http_response_has_body(conn->head.request_line.method,
+                                       res.status)) {
+            conn->audit_response_bytes += res.body.size;
+        }
+    }
+
     cfw_buffer_clear(&conn->body);
     if (conn->stream_fn != NULL) {
         cfw_server_stream_pump(server, conn);
@@ -595,6 +667,15 @@ static void cfw_server_handle_done(cfw_server_t *server,
     cfw_server_conn_deadline(conn, server->options.keep_alive_timeout);
     if (upgrade) {
         cfw_server_activate_upgrade(server, conn);
+    }
+    /* Non-stream responses are complete now; streamed ones emit when
+     * the pump finishes (or the conn closes mid-stream). A stream
+     * that already finished inside the pump has cleared audit_pending,
+     * making this a no-op. */
+    if (conn->stream_fn != NULL) {
+        conn->audit_stream = 1;
+    } else {
+        cfw_server_emit_request_done(server, conn, upgrade);
     }
 }
 
@@ -765,6 +846,8 @@ static void cfw_server_stream_pump(cfw_server_t *server,
                 conn->stream_end(conn->stream_user);
                 conn->stream_end = NULL;
             }
+            /* Stream fully emitted: the audit record is complete. */
+            cfw_server_emit_request_done(server, conn, 0);
             return;
         }
 
@@ -837,6 +920,7 @@ static void cfw_server_stream_pump(cfw_server_t *server,
         }
         conn->stream_pos += n;
         conn->stream_sent += n;
+        conn->audit_response_bytes += n;
         /* Progress was made: re-arm the drain deadline so the timeout
          * measures stream *inactivity* (a stalled client is still
          * killed), not total stream duration. */
@@ -1004,6 +1088,13 @@ static void cfw_server_service_read(cfw_server_t *server,
         case CFW_HTTP1_EV_HEAD:
             conn->head = event.head;
             conn->have_head = 1;
+            /* Arm the audit record for this request (ADR 0055). */
+            conn->audit_pending = 1;
+            conn->audit_stream = 0;
+            conn->audit_status = 0;
+            conn->audit_request_bytes = 0;
+            conn->audit_response_bytes = 0;
+            (void)cfw_time_now(&conn->audit_start);
             cfw_buffer_clear(&conn->body);
             /* Defensive: a previous request's upload should already be
              * ended; if one leaked, report it incomplete. */
@@ -1075,6 +1166,7 @@ static void cfw_server_service_read(cfw_server_t *server,
                                      server->options.request_timeout);
             break;
         case CFW_HTTP1_EV_BODY:
+            conn->audit_request_bytes += event.body.size;
             if (conn->upload != NULL) {
                 if (server->options.upload_write(conn->upload,
                                                  &event.body) != CFW_OK) {

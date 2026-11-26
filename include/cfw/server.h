@@ -138,6 +138,42 @@ CFW_API size_t cfw_upgraded_out_free(cfw_upgraded_conn_t *conn);
 CFW_API void *cfw_upgraded_user(cfw_upgraded_conn_t *conn);
 CFW_API void cfw_upgraded_set_user(cfw_upgraded_conn_t *conn, void *user);
 
+/* Per-request completion record (ADR 0055). Delivered exactly once
+ * per fully parsed request head — after the final response is queued,
+ * when an upgraded connection activates, when a response stream
+ * finishes, or when the connection closes with a record still pending
+ * (mid-stream abort, request timeout, teardown). `status` is the final
+ * response status (cfw_http_status_t value), or 0 when the connection
+ * ended before any response status was produced.
+ *
+ * `method`, `target`, and `remote_addr` are borrowed views valid only
+ * for the duration of the callback; copy anything retained. The hook
+ * runs on the server's event-loop thread, must not block, and must
+ * not call back into the same server. */
+typedef struct cfw_request_record {
+    cfw_http_method_t method;
+    cfw_strview_t target;
+    cfw_http_version_t version;
+    int status;
+    /* Decoded request-body bytes received for this request. */
+    uint64_t request_bytes;
+    /* Bytes of the final response handed to the HTTP/1.1 writer:
+     * serialized head plus body payload. Chunked-transfer framing
+     * overhead and interim 100 Continue responses are excluded; for
+     * streamed responses this counts payload bytes emitted up to the
+     * record. */
+    uint64_t response_bytes;
+    /* Monotonic time from request-head receipt to record emission;
+     * zero when the clock is unavailable. */
+    cfw_duration_t duration;
+    const cfw_strview_t *remote_addr;
+    /* Nonzero when the transaction ended in a 101 protocol takeover. */
+    int upgraded;
+} cfw_request_record_t;
+
+typedef void (*cfw_request_done_fn)(const cfw_request_record_t *record,
+                                    void *user);
+
 typedef struct cfw_server_options {
     /* Listen address: numeric IP text or NULL for any-address of the
      * selected family. No DNS resolution in v1. */
@@ -184,6 +220,12 @@ typedef struct cfw_server_options {
      * upgrades (101 is sent as an ordinary response). */
     cfw_upgrade_fn upgrade;
     void *upgrade_user;
+    /* Optional per-request completion hook (ADR 0055); may be NULL.
+     * Invoked once per parsed request head with the final status,
+     * byte counts, duration, and peer address. See
+     * cfw_request_record_t for field semantics and lifetimes. */
+    cfw_request_done_fn request_done;
+    void *request_done_user;
 } cfw_server_options_t;
 
 typedef struct cfw_server {

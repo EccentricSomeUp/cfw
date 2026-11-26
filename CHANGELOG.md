@@ -9,6 +9,20 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ## [Unreleased]
 
+### Added
+
+- Per-request completion audit hook (ADR 0055): new optional
+  `request_done`/`request_done_user` fields on `cfw_server_options_t`
+  deliver a `cfw_request_record_t` exactly once per parsed request
+  head — method, target, version, final status (0 when no response
+  was produced), decoded request-body bytes, response bytes handed to
+  the writer, monotonic duration, peer address, and an upgraded flag.
+  Records cover dispatched responses, server-generated errors and
+  rejections, finished or aborted streams, 101 upgrades, and
+  connections killed mid-request. This closes the roadmap's deferred
+  "structured audit logging" item; applications can build access logs
+  and security monitoring on it without per-request allocation.
+
 ## [0.4.0] - 2026-11-26
 
 ### Added

@@ -2767,6 +2767,411 @@ static int test_server_upgrade_send_bound(void)
     return 0;
 }
 
+/* ---------------- Request audit hook (ADR 0055) ---------------- */
+
+typedef struct {
+    int calls;
+    int statuses[8];
+    int last_status;
+    int last_upgraded;
+    cfw_http_method_t last_method;
+    char last_target[96];
+    size_t last_target_len;
+    uint64_t last_request_bytes;
+    uint64_t last_response_bytes;
+    int last_remote_ok;
+    int64_t last_duration_nanos;
+} cfw_test_audit;
+
+typedef struct {
+    cfw_arena_t *arena;
+    cfw_router_t router;
+    cfw_dispatch_t dispatch;
+    cfw_server_t server;
+    cfw_test_stream_state stream;
+    cfw_test_audit audit;
+} cfw_test_audit_server;
+
+static void cfw_test_audit_done(const cfw_request_record_t *record,
+                                void *user)
+{
+    cfw_test_audit_server *ts = user;
+    cfw_test_audit *a = &ts->audit;
+
+    a->calls++;
+    if (a->calls <= 8) {
+        a->statuses[a->calls - 1] = record->status;
+    }
+    a->last_status = record->status;
+    a->last_upgraded = record->upgraded;
+    a->last_method = record->method;
+    a->last_request_bytes = record->request_bytes;
+    a->last_response_bytes = record->response_bytes;
+    a->last_target_len = 0;
+    if (record->target.size < sizeof(a->last_target)) {
+        memcpy(a->last_target, record->target.data, record->target.size);
+        a->last_target[record->target.size] = '\0';
+        a->last_target_len = record->target.size;
+    }
+    a->last_remote_ok =
+        record->remote_addr != NULL && record->remote_addr->size != 0;
+    (void)cfw_duration_to_nanos(&record->duration,
+                                &a->last_duration_nanos);
+}
+
+static int cfw_test_audit_setup(cfw_test_audit_server *ts,
+                                cfw_upgrade_fn upgrade,
+                                cfw_duration_t request_timeout)
+{
+    cfw_server_options_t options;
+    cfw_dispatch_options_t doptions;
+    cfw_strview_t pattern;
+
+    memset(ts, 0, sizeof(*ts));
+    ts->arena = cfw_arena_create(65536);
+    CFW_TEST_ASSERT_TRUE(ts->arena != NULL);
+    CFW_TEST_ASSERT_EQ(cfw_router_init(&ts->router, ts->arena), CFW_OK);
+
+    memset(&doptions, 0, sizeof(doptions));
+    doptions.router = &ts->router;
+    doptions.handler = cfw_test_ok_handler;
+    doptions.max_middleware = 4;
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_init(&ts->dispatch, ts->arena,
+                                         &doptions),
+                       CFW_OK);
+
+    cfw_strview_from_cstr(&pattern, "/hello");
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(&ts->dispatch,
+                                              CFW_HTTP_METHOD_GET,
+                                              &pattern, cfw_test_ok_handler,
+                                              NULL),
+                       CFW_OK);
+    cfw_strview_from_cstr(&pattern, "/submit");
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(&ts->dispatch,
+                                              CFW_HTTP_METHOD_POST,
+                                              &pattern, cfw_test_ok_handler,
+                                              NULL),
+                       CFW_OK);
+    cfw_strview_from_cstr(&pattern, "/stream");
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(&ts->dispatch,
+                                              CFW_HTTP_METHOD_GET,
+                                              &pattern,
+                                              cfw_test_stream_handler,
+                                              &ts->stream),
+                       CFW_OK);
+    cfw_strview_from_cstr(&pattern, "/upgrade");
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(&ts->dispatch,
+                                              CFW_HTTP_METHOD_GET,
+                                              &pattern,
+                                              cfw_test_upgrade_handler,
+                                              NULL),
+                       CFW_OK);
+
+    ts->stream.parts = cfw_test_stream_parts;
+    ts->stream.count = sizeof(cfw_test_stream_parts) /
+                       sizeof(cfw_test_stream_parts[0]);
+
+    memset(&options, 0, sizeof(options));
+    options.host = "127.0.0.1";
+    options.port = 0;
+    options.backlog = 16;
+    options.dispatch = &ts->dispatch;
+    options.http.max_head_size = 8192;
+    options.http.max_body_size = 65536;
+    options.http.max_pending_size = 65536;
+    options.max_out_size = 65536;
+    options.max_connections = 8;
+    options.max_headers = 32;
+    options.max_params = 16;
+    options.request_timeout = request_timeout;
+    options.upgrade = upgrade;
+    options.request_done = cfw_test_audit_done;
+    options.request_done_user = ts;
+    CFW_TEST_ASSERT_EQ(cfw_server_init(&ts->server, &options), CFW_OK);
+    CFW_TEST_ASSERT_TRUE(cfw_server_port(&ts->server) != 0);
+    return 0;
+}
+
+static void cfw_test_audit_teardown(cfw_test_audit_server *ts)
+{
+    cfw_server_free(&ts->server);
+    cfw_arena_destroy(ts->arena);
+}
+
+static int test_server_request_audit(void)
+{
+    cfw_test_audit_server ts;
+    cfw_fd_t client;
+    char response[8192];
+    size_t used;
+
+    CFW_TEST_ASSERT_EQ(cfw_test_audit_setup(&ts, NULL,
+                                            (cfw_duration_t){0}), 0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /hello HTTP/1.1\r\n"
+                                     "Host: t\r\n\r\n"),
+                       0);
+    memset(response, 0, sizeof(response));
+    used = 0;
+    CFW_TEST_ASSERT_TRUE(cfw_test_recv_until(&ts.server, &client,
+                                             response, sizeof(response),
+                                             "srv-ok", &used) > 0);
+    CFW_TEST_ASSERT_EQ(ts.audit.calls, 1);
+    CFW_TEST_ASSERT_EQ(ts.audit.last_status, CFW_HTTP_STATUS_OK);
+    CFW_TEST_ASSERT_EQ(ts.audit.last_method, CFW_HTTP_METHOD_GET);
+    CFW_TEST_ASSERT_EQ(ts.audit.last_target_len, 6);
+    CFW_TEST_ASSERT_EQ(memcmp(ts.audit.last_target, "/hello", 6), 0);
+    CFW_TEST_ASSERT_EQ(ts.audit.last_request_bytes, 0);
+    CFW_TEST_ASSERT_TRUE(ts.audit.last_response_bytes > 0);
+    CFW_TEST_ASSERT_TRUE(ts.audit.last_remote_ok);
+    CFW_TEST_ASSERT_EQ(ts.audit.last_upgraded, 0);
+    CFW_TEST_ASSERT_TRUE(ts.audit.last_duration_nanos >= 0);
+
+    /* Keep-alive POST with a 10-byte body on the same connection. */
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "POST /submit HTTP/1.1\r\n"
+                                     "Host: t\r\n"
+                                     "Content-Length: 10\r\n\r\n"
+                                     "0123456789"),
+                       0);
+    memset(response, 0, sizeof(response));
+    used = 0;
+    CFW_TEST_ASSERT_TRUE(cfw_test_recv_until(&ts.server, &client,
+                                             response, sizeof(response),
+                                             "srv-ok", &used) > 0);
+    CFW_TEST_ASSERT_EQ(ts.audit.calls, 2);
+    CFW_TEST_ASSERT_EQ(ts.audit.last_status, CFW_HTTP_STATUS_OK);
+    CFW_TEST_ASSERT_EQ(ts.audit.last_method, CFW_HTTP_METHOD_POST);
+    CFW_TEST_ASSERT_EQ(ts.audit.last_request_bytes, 10);
+
+    /* Routed 404 is a normal dispatched response. */
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /missing HTTP/1.1\r\n"
+                                     "Host: t\r\n\r\n"),
+                       0);
+    memset(response, 0, sizeof(response));
+    used = 0;
+    CFW_TEST_ASSERT_TRUE(cfw_test_recv_until(&ts.server, &client,
+                                             response, sizeof(response),
+                                             "404", &used) > 0);
+    CFW_TEST_ASSERT_EQ(ts.audit.calls, 3);
+    CFW_TEST_ASSERT_EQ(ts.audit.statuses[2], CFW_HTTP_STATUS_NOT_FOUND);
+
+    cfw_fd_close(&client);
+    cfw_test_audit_teardown(&ts);
+    return 0;
+}
+
+static int test_server_request_audit_stream(void)
+{
+    cfw_test_audit_server ts;
+    cfw_fd_t client;
+    char response[8192];
+    size_t used;
+
+    CFW_TEST_ASSERT_EQ(cfw_test_audit_setup(&ts, NULL,
+                                            (cfw_duration_t){0}), 0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /stream HTTP/1.1\r\n"
+                                     "Host: t\r\n\r\n"),
+                       0);
+    memset(response, 0, sizeof(response));
+    used = 0;
+    /* The record is emitted when the stream finishes, i.e. once the
+     * terminal chunk has been queued. */
+    CFW_TEST_ASSERT_TRUE(cfw_test_recv_until(&ts.server, &client,
+                                             response, sizeof(response),
+                                             "0\r\n\r\n", &used) > 0);
+    CFW_TEST_ASSERT_EQ(ts.audit.calls, 1);
+    CFW_TEST_ASSERT_EQ(ts.audit.last_status, CFW_HTTP_STATUS_OK);
+    /* Stream payload ("Hello, streaming world!" = 23 bytes) plus the
+     * serialized head must be counted. */
+    CFW_TEST_ASSERT_TRUE(ts.audit.last_response_bytes >= 23);
+
+    /* Keep-alive still works after the deferred emission. */
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /hello HTTP/1.1\r\n"
+                                     "Host: t\r\n\r\n"),
+                       0);
+    memset(response, 0, sizeof(response));
+    used = 0;
+    CFW_TEST_ASSERT_TRUE(cfw_test_recv_until(&ts.server, &client,
+                                             response, sizeof(response),
+                                             "srv-ok", &used) > 0);
+    CFW_TEST_ASSERT_EQ(ts.audit.calls, 2);
+
+    cfw_fd_close(&client);
+    cfw_test_audit_teardown(&ts);
+    return 0;
+}
+
+static int test_server_request_audit_errors(void)
+{
+    cfw_test_audit_server ts;
+    cfw_fd_t client;
+    char response[8192];
+    size_t used;
+
+    CFW_TEST_ASSERT_EQ(cfw_test_audit_setup(&ts, NULL,
+                                            (cfw_duration_t){0}), 0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+
+    /* Server-generated 404 goes through the normal response path. */
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /missing HTTP/1.1\r\n"
+                                     "Host: t\r\n\r\n"),
+                       0);
+    memset(response, 0, sizeof(response));
+    used = 0;
+    CFW_TEST_ASSERT_TRUE(cfw_test_recv_until(&ts.server, &client,
+                                             response, sizeof(response),
+                                             "404", &used) > 0);
+    CFW_TEST_ASSERT_EQ(ts.audit.calls, 1);
+    CFW_TEST_ASSERT_EQ(ts.audit.statuses[0], CFW_HTTP_STATUS_NOT_FOUND);
+
+    /* Missing Host on HTTP/1.1 is rejected with 400 by the server. */
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /hello HTTP/1.1\r\n\r\n"),
+                       0);
+    memset(response, 0, sizeof(response));
+    used = 0;
+    CFW_TEST_ASSERT_TRUE(cfw_test_recv_until(&ts.server, &client,
+                                             response, sizeof(response),
+                                             "400", &used) > 0);
+    CFW_TEST_ASSERT_EQ(ts.audit.calls, 2);
+    CFW_TEST_ASSERT_EQ(ts.audit.statuses[1], CFW_HTTP_STATUS_BAD_REQUEST);
+    CFW_TEST_ASSERT_TRUE(ts.audit.last_response_bytes > 0);
+
+    cfw_fd_close(&client);
+
+    /* A head that never parses produces no record: garbage bytes fail
+     * before any request head exists. */
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client, "garbage\r\n\r\n"), 0);
+    memset(response, 0, sizeof(response));
+    used = 0;
+    CFW_TEST_ASSERT_TRUE(cfw_test_recv_until(&ts.server, &client,
+                                             response, sizeof(response),
+                                             "400", &used) > 0);
+    CFW_TEST_ASSERT_EQ(ts.audit.calls, 2);
+
+    cfw_fd_close(&client);
+    cfw_test_audit_teardown(&ts);
+    return 0;
+}
+
+static int test_server_request_audit_upgrade(void)
+{
+    cfw_test_audit_server ts;
+    cfw_fd_t client;
+    char response[8192];
+    size_t used;
+
+    cfw_test_upgrade_reset();
+    CFW_TEST_ASSERT_EQ(cfw_test_audit_setup(&ts, cfw_test_upgrade_echo,
+                                            (cfw_duration_t){0}), 0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /upgrade HTTP/1.1\r\n"
+                                     "Host: t\r\n"
+                                     "Upgrade: cfw-test\r\n"
+                                     "Connection: upgrade\r\n\r\n"),
+                       0);
+    memset(response, 0, sizeof(response));
+    used = 0;
+    CFW_TEST_ASSERT_TRUE(cfw_test_recv_until(&ts.server, &client,
+                                             response, sizeof(response),
+                                             "101", &used) > 0);
+    CFW_TEST_ASSERT_EQ(ts.audit.calls, 1);
+    CFW_TEST_ASSERT_EQ(ts.audit.last_status,
+                       CFW_HTTP_STATUS_SWITCHING_PROTOCOLS);
+    CFW_TEST_ASSERT_EQ(ts.audit.last_upgraded, 1);
+    CFW_TEST_ASSERT_EQ(ts.audit.last_target_len, 8);
+    CFW_TEST_ASSERT_EQ(memcmp(ts.audit.last_target, "/upgrade", 8), 0);
+
+    /* Closing the upgraded connection must not emit a second record. */
+    cfw_fd_close(&client);
+    {
+        int attempts;
+        for (attempts = 0; attempts < 100 &&
+                        cfw_server_connection_count(&ts.server) != 0;
+             attempts++) {
+            cfw_timepoint_t deadline;
+            cfw_duration_t slice;
+            cfw_duration_from_millis(20, &slice);
+            cfw_deadline_from_now(&deadline, slice);
+            CFW_TEST_ASSERT_EQ(cfw_server_step(&ts.server, &deadline),
+                               CFW_OK);
+        }
+    }
+    CFW_TEST_ASSERT_EQ(ts.audit.calls, 1);
+
+    cfw_test_audit_teardown(&ts);
+    return 0;
+}
+
+static int test_server_request_audit_abort(void)
+{
+    cfw_test_audit_server ts;
+    cfw_fd_t client;
+    cfw_duration_t request_timeout;
+    int attempts;
+
+    cfw_duration_from_millis(50, &request_timeout);
+    CFW_TEST_ASSERT_EQ(cfw_test_audit_setup(&ts, NULL, request_timeout),
+                       0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    /* Head declares a 100-byte body that never arrives; the request
+     * deadline kills the connection mid-request. */
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "POST /submit HTTP/1.1\r\n"
+                                     "Host: t\r\n"
+                                     "Content-Length: 100\r\n\r\n"),
+                       0);
+    for (attempts = 0; attempts < 200; attempts++) {
+        cfw_timepoint_t deadline;
+        cfw_duration_t slice;
+        cfw_duration_from_millis(50, &slice);
+        cfw_deadline_from_now(&deadline, slice);
+        CFW_TEST_ASSERT_EQ(cfw_server_step(&ts.server, &deadline),
+                           CFW_OK);
+        if (cfw_server_connection_count(&ts.server) == 0) {
+            break;
+        }
+    }
+    CFW_TEST_ASSERT_EQ(cfw_server_connection_count(&ts.server), 0);
+    /* Exactly one record: the parsed head is audited even though no
+     * response was ever produced (status 0). */
+    CFW_TEST_ASSERT_EQ(ts.audit.calls, 1);
+    CFW_TEST_ASSERT_EQ(ts.audit.last_status, 0);
+    CFW_TEST_ASSERT_EQ(ts.audit.last_method, CFW_HTTP_METHOD_POST);
+    CFW_TEST_ASSERT_EQ(ts.audit.last_request_bytes, 0);
+
+    cfw_fd_close(&client);
+    cfw_test_audit_teardown(&ts);
+    return 0;
+}
+
 const cfw_test_case cfw_test_server_cases[] = {
     {"server_upload_content_length", test_server_upload_content_length},
     {"server_upload_chunked", test_server_upload_chunked},
@@ -2805,6 +3210,11 @@ const cfw_test_case cfw_test_server_cases[] = {
     {"server_upgrade_requires_header", test_server_upgrade_requires_header},
     {"server_upgrade_disabled", test_server_upgrade_disabled},
     {"server_upgrade_send_bound", test_server_upgrade_send_bound},
+    {"server_request_audit", test_server_request_audit},
+    {"server_request_audit_stream", test_server_request_audit_stream},
+    {"server_request_audit_errors", test_server_request_audit_errors},
+    {"server_request_audit_upgrade", test_server_request_audit_upgrade},
+    {"server_request_audit_abort", test_server_request_audit_abort},
     {NULL, NULL},
 };
 
