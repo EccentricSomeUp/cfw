@@ -9,6 +9,7 @@ extern const cfw_test_case cfw_test_arena_cases[];
 extern const cfw_test_case cfw_test_buffer_cases[];
 extern const cfw_test_case cfw_test_checked_arithmetic_cases[];
 extern const cfw_test_case cfw_test_fd_cases[];
+extern const cfw_test_case cfw_test_fs_cases[];
 extern const cfw_test_case cfw_test_log_cases[];
 extern const cfw_test_case cfw_test_platform_cases[];
 extern const cfw_test_case cfw_test_random_cases[];
@@ -28,6 +29,7 @@ static const cfw_test_suite cfw_test_suites[] = {
     {"buffer", cfw_test_buffer_cases},
     {"checked_arithmetic", cfw_test_checked_arithmetic_cases},
     {"fd", cfw_test_fd_cases},
+    {"fs", cfw_test_fs_cases},
     {"log", cfw_test_log_cases},
     {"platform", cfw_test_platform_cases},
     {"random", cfw_test_random_cases},

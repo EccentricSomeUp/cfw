@@ -31,6 +31,8 @@ semantic versioning once a stable release policy is adopted.
   and release semantics per the Phase 2 design record
 - Cryptographic random-source boundary: OS CSPRNG bytes, `u64` draws, and
   unbiased bounded generation via rejection sampling
+- Filesystem boundary primitives for regular-file size and directory checks
+- Documented platform support matrix covering Linux, macOS, BSD, and Windows
 - CMake build, presets, sanitizer configuration, install rules, and CMake
   package config
 - Custom unit-test harness with debug, release, and sanitizer verification

@@ -32,6 +32,7 @@ set(CFW_SOURCES
     src/cfw/buffer.c
     src/cfw/checked_arithmetic.c
     src/cfw/fd.c
+    src/cfw/fs.c
     src/cfw/log.c
     src/cfw/platform.c
     src/cfw/random.c
