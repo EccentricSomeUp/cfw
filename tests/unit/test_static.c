@@ -275,6 +275,7 @@ static int test_static_get_file(void)
                        0);
     CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_OK);
     CFW_TEST_ASSERT_EQ(nexted, 0);
+    CFW_TEST_ASSERT_EQ(res.stream_size, 18);
     ct = cfw_test_header(&res, "Content-Type");
     CFW_TEST_ASSERT_TRUE(ct != NULL);
     CFW_TEST_ASSERT_TRUE(strstr(ct, "text/plain") != NULL);
@@ -352,6 +353,8 @@ static int test_static_head_and_mime(void)
     CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_OK);
     CFW_TEST_ASSERT_EQ(nexted, 0);
     CFW_TEST_ASSERT_TRUE(res.stream == NULL);
+    /* HEAD declares the same length GET would stream. */
+    CFW_TEST_ASSERT_EQ(res.stream_size, 18);
     ct = cfw_test_header(&res, "Content-Type");
     CFW_TEST_ASSERT_TRUE(ct != NULL);
 
@@ -703,6 +706,7 @@ static int test_static_range_requests(void)
                            hdrs, 8, &status, &nexted),
                        0);
     CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_PARTIAL_CONTENT);
+    CFW_TEST_ASSERT_EQ(res.stream_size, 5);
     cr = cfw_test_header(&res, "Content-Range");
     CFW_TEST_ASSERT_TRUE(cr != NULL);
     CFW_TEST_ASSERT_EQ(strcmp(cr, "bytes 0-4/18"), 0);

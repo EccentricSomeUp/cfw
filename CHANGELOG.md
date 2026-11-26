@@ -72,6 +72,14 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   206/`Content-Range` (416 when unsatisfiable). New fs primitives
   `cfw_file_fstat` and `cfw_file_seek` provide handle-relative
   metadata and positioned reads; new status codes 206, 412, 416.
+- Known-length streaming responses (ADR 0041): `cfw_response_t` gains
+  `stream_size`/`CFW_STREAM_SIZE_UNKNOWN`. A stream with a declared
+  length is framed with `Content-Length` + identity bytes on every
+  HTTP version (no chunked TE), keeps keep-alive (including HTTP/1.0),
+  emits exactly the declared bytes (over-long sources truncated), and
+  closes the connection if the stream ends early. HEAD responses now
+  report the real `Content-Length`. The static middleware declares
+  file/range sizes, so static downloads lose chunk framing entirely.
 - Static entity-tag validators (ADR 0040): the static middleware now
   emits a strong `ETag` (`"<mtime>-<size>"`) and honors the full
   RFC 9110 conditional model — `If-Match` (strong), `If-None-Match`

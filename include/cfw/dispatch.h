@@ -12,6 +12,7 @@
 #include <cfw/strview.h>
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -74,6 +75,21 @@ typedef struct cfw_route_binding {
 typedef cfw_status_t (*cfw_response_stream_fn)(void *user,
                                                cfw_span_t *chunk,
                                                int *eof);
+
+/* Declared total body size for a streaming response, in bytes, when
+ * known before streaming begins (e.g. a file size). The default
+ * CFW_STREAM_SIZE_UNKNOWN selects chunked transfer-encoding
+ * (HTTP/1.1) or close-delimited framing (older). When set, the server
+ * emits Content-Length: <stream_size> instead — on every HTTP version
+ * — and pulls exactly stream_size bytes from the stream: the stream
+ * need not signal eof (once the declared length is emitted the
+ * response completes and stream_end still runs), and source bytes
+ * beyond the declared length are never emitted. A stream that signals
+ * eof before stream_size bytes have been emitted closes the
+ * connection. For HEAD requests (which never install the stream) it
+ * still determines the Content-Length header. It is ignored for
+ * non-streaming responses on methods that carry a body. */
+#define CFW_STREAM_SIZE_UNKNOWN UINT64_MAX
 
 /* Optional stream cleanup hook. Invoked exactly once with `stream_user`
  * when the stream finishes (after the terminal chunk is queued) or when
@@ -138,14 +154,19 @@ typedef struct cfw_response {
     void *user;
     /* Optional streaming body source. When set (and the method/status
      * permit a body), the server pulls chunks after the response head
-     * is queued, framing them as chunked transfer-encoding for
-     * HTTP/1.1 or close-delimited for older versions. `body` is ignored
-     * when stream is set. */
+     * is queued. With stream_size == CFW_STREAM_SIZE_UNKNOWN the
+     * framing is chunked transfer-encoding for HTTP/1.1 or
+     * close-delimited for older versions; with a known stream_size the
+     * server emits Content-Length and raw identity bytes instead.
+     * `body` is ignored when stream is set. */
     cfw_response_stream_fn stream;
     void *stream_user;
     /* Optional cleanup hook run once when the stream ends or is
      * abandoned; receives stream_user. See cfw_response_stream_end_fn. */
     cfw_response_stream_end_fn stream_end;
+    /* Declared stream length; see CFW_STREAM_SIZE_UNKNOWN. Appended
+     * last per the struct-extension convention (docs/api-stability.md). */
+    uint64_t stream_size;
 } cfw_response_t;
 
 /* Protocol upgrades (e.g. WebSocket via 101 Switching Protocols) are
@@ -218,10 +239,12 @@ CFW_API cfw_status_t cfw_dispatch_add_route(cfw_dispatch_t *dispatch,
  * - res: output response. The caller must set res->headers and
  *   res->header_capacity to its scratch array before the call; the
  *   function resets status (200), header_count, body, stream,
- *   stream_user, and user. The server owns response framing: it strips
+ *   stream_user, stream_size (CFW_STREAM_SIZE_UNKNOWN), stream_end,
+ *   and user. The server owns response framing: it strips
  *   handler-supplied Transfer-Encoding and Content-Length whenever the
  *   response may carry a body, then emits a correct Content-Length
- *   (including "0" for empty bodies) or chunked streaming framing.
+ *   (including "0" for empty bodies), known-length stream framing, or
+ *   chunked streaming framing.
  *
  * Returns CFW_OK when a response was produced (including error-mapped
  * ones); CFW_ERROR_INVALID_ARGUMENT on invalid arguments. Routing,

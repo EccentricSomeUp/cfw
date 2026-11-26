@@ -128,6 +128,8 @@ struct cfw_server_conn {
     void *stream_user;
     cfw_span_t stream_chunk;
     size_t stream_pos;
+    uint64_t stream_size;
+    uint64_t stream_sent;
     int stream_eof;
     int stream_chunked;
     int stream_hold_close;
@@ -489,6 +491,8 @@ static void cfw_server_handle_done(cfw_server_t *server,
         conn->stream_fn = res.stream;
         conn->stream_end = res.stream_end;
         conn->stream_user = res.stream_user;
+        conn->stream_size = res.stream_size;
+        conn->stream_sent = 0;
         conn->stream_chunk = (cfw_span_t){0};
         conn->stream_pos = 0;
         conn->stream_eof = 0;
@@ -496,9 +500,14 @@ static void cfw_server_handle_done(cfw_server_t *server,
         conn->http.close_after_write = 0;
         memset(&res.body, 0, sizeof(res.body));
         conn->stream_chunked = 0;
-        if (conn->head.request_line.version.major > 1 ||
-            (conn->head.request_line.version.major == 1 &&
-             conn->head.request_line.version.minor >= 1)) {
+        /* Known-length streams use identity framing with a
+         * server-emitted Content-Length on every HTTP version;
+         * unknown-length streams keep chunked (1.1+) or
+         * close-delimited framing. */
+        if (conn->stream_size == CFW_STREAM_SIZE_UNKNOWN &&
+            (conn->head.request_line.version.major > 1 ||
+             (conn->head.request_line.version.major == 1 &&
+              conn->head.request_line.version.minor >= 1))) {
             cfw_strview_t hn, hv;
             cfw_strview_from_cstr(&hn, "Transfer-Encoding");
             cfw_strview_from_cstr(&hv, "chunked");
@@ -524,7 +533,8 @@ static void cfw_server_handle_done(cfw_server_t *server,
         int will_close = conn->http.close_after_write ||
                          (conn->stream_fn != NULL &&
                           (conn->stream_hold_close ||
-                           !conn->stream_chunked));
+                           (conn->stream_size == CFW_STREAM_SIZE_UNKNOWN &&
+                            !conn->stream_chunked)));
         const char *token = will_close ? "close"
                                        : (is_http10 ? "keep-alive" : NULL);
         if (token != NULL) {
@@ -692,8 +702,18 @@ static void cfw_server_stream_pump(cfw_server_t *server,
         size_t overhead;
         size_t n;
 
+        /* A declared-length stream is complete once stream_size
+         * bytes have been queued; the response does not require the
+         * stream to signal eof, and source bytes beyond the declared
+         * length are simply never emitted. */
+        if (conn->stream_size != CFW_STREAM_SIZE_UNKNOWN &&
+            conn->stream_sent == conn->stream_size) {
+            conn->stream_eof = 1;
+        }
+
         /* Fetch the next chunk when the current one is exhausted. */
-        if (conn->stream_pos >= conn->stream_chunk.size) {
+        if (!conn->stream_eof &&
+            conn->stream_pos >= conn->stream_chunk.size) {
             int eof = 0;
             cfw_span_t next;
             memset(&next, 0, sizeof(next));
@@ -715,7 +735,16 @@ static void cfw_server_stream_pump(cfw_server_t *server,
         }
 
         if (conn->stream_eof) {
-            /* Terminal chunk for chunked; close-delimited needs none. */
+            /* A declared-length stream must have yielded exactly
+             * stream_size bytes; a mismatch would corrupt framing,
+             * so the connection is closed instead of guessing. */
+            if (conn->stream_size != CFW_STREAM_SIZE_UNKNOWN &&
+                conn->stream_sent != conn->stream_size) {
+                conn->dead = 1;
+                return;
+            }
+            /* Terminal chunk for chunked; close-delimited needs
+             * none; known-length identity keeps the connection. */
             if (conn->stream_chunked) {
                 static const char terminal[] = "0\r\n\r\n";
                 if (cfw_http1_conn_queue(&conn->http, terminal,
@@ -723,8 +752,10 @@ static void cfw_server_stream_pump(cfw_server_t *server,
                     return; /* retry on next pump */
                 }
                 conn->http.close_after_write = conn->stream_hold_close;
-            } else {
+            } else if (conn->stream_size == CFW_STREAM_SIZE_UNKNOWN) {
                 conn->http.close_after_write = 1;
+            } else {
+                conn->http.close_after_write = conn->stream_hold_close;
             }
             conn->stream_fn = NULL;
             if (conn->stream_end != NULL) {
@@ -755,6 +786,12 @@ static void cfw_server_stream_pump(cfw_server_t *server,
         }
         if (n > free_bytes - overhead) {
             n = free_bytes - overhead;
+        }
+        if (conn->stream_size != CFW_STREAM_SIZE_UNKNOWN) {
+            uint64_t remaining = conn->stream_size - conn->stream_sent;
+            if ((uint64_t)n > remaining) {
+                n = (size_t)remaining;
+            }
         }
         if (n == 0) {
             return;
@@ -796,6 +833,7 @@ static void cfw_server_stream_pump(cfw_server_t *server,
             }
         }
         conn->stream_pos += n;
+        conn->stream_sent += n;
         /* Progress was made: re-arm the drain deadline so the timeout
          * measures stream *inactivity* (a stalled client is still
          * killed), not total stream duration. */

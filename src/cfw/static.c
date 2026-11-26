@@ -1009,6 +1009,15 @@ cfw_status_t cfw_static_serve(cfw_request_t *req, cfw_response_t *res,
             }
         }
 
+        /* Declare the body length for known-size plans so the server
+         * emits Content-Length + identity framing instead of chunked
+         * (GET) and so HEAD reports the real length. */
+        if (plan.action == CFW_STATIC_PLAN_FULL) {
+            res->stream_size = fstat.size;
+        } else if (plan.action == CFW_STATIC_PLAN_RANGE) {
+            res->stream_size = (uint64_t)(plan.end - plan.start + 1u);
+        }
+
         if (!serve_body) {
             cfw_file_close(&file);
             res->status = http_status;

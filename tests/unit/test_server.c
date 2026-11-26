@@ -878,6 +878,8 @@ typedef struct {
     size_t pos;
     int fail;
     int empty;
+    int sized;
+    uint64_t stream_size;
 } cfw_test_stream_state;
 
 static const char *const cfw_test_stream_parts[] = {
@@ -914,6 +916,10 @@ static cfw_status_t cfw_test_stream_handler(cfw_request_t *req,
     res->status = CFW_HTTP_STATUS_OK;
     res->stream = cfw_test_stream_fn;
     res->stream_user = user;
+    if (((cfw_test_stream_state *)user)->sized) {
+        res->stream_size =
+            ((cfw_test_stream_state *)user)->stream_size;
+    }
     return CFW_OK;
 }
 
@@ -1079,6 +1085,157 @@ static int test_server_streaming_http10(void)
         }
     }
     CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, used, "world!"));
+
+    cfw_fd_close(&client);
+    cfw_test_server_teardown(&ts);
+    return 0;
+}
+
+/* Known-length streams (ADR 0041): Content-Length + identity framing
+ * on HTTP/1.1, exact-length emission (truncation of over-long
+ * sources), keep-alive survival, and connection close when the stream
+ * ends before the declared length. */
+static int test_server_stream_known_length(void)
+{
+    cfw_test_server ts;
+    cfw_fd_t client;
+    cfw_test_stream_state st;
+    char response[8192];
+    size_t used = 0;
+    ssize_t n;
+    int attempts;
+
+    memset(&st, 0, sizeof(st));
+    st.parts = cfw_test_stream_parts;
+    st.count = sizeof(cfw_test_stream_parts) /
+               sizeof(cfw_test_stream_parts[0]);
+    st.sized = 1;
+    st.stream_size = 23; /* "Hello, streaming world!" */
+    CFW_TEST_ASSERT_EQ(cfw_test_server_setup(&ts, (cfw_duration_t){0},
+                                             (cfw_duration_t){0}, 8),
+                       0);
+    CFW_TEST_ASSERT_EQ(cfw_test_stream_route(&ts, &st), 0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /stream HTTP/1.1\r\n"
+                                     "Host: stream\r\n\r\n"),
+                       0);
+    memset(response, 0, sizeof(response));
+    n = cfw_test_recv_until(&ts.server, &client, response,
+                            sizeof(response), "world!", &used);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, used,
+                                           "Content-Length: 23"));
+    CFW_TEST_ASSERT_TRUE(!cfw_test_contains(response, used,
+                                            "Transfer-Encoding"));
+    /* Identity framing emits the body contiguously. */
+    CFW_TEST_ASSERT_TRUE(strstr(response, "Hello, streaming world!") !=
+                         NULL);
+
+    /* Keep-alive survives a known-length stream. */
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /hello HTTP/1.1\r\n"
+                                     "Host: stream\r\n\r\n"),
+                       0);
+    used = 0;
+    memset(response, 0, sizeof(response));
+    n = cfw_test_recv_until(&ts.server, &client, response,
+                            sizeof(response), "srv-ok", &used);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, used, "srv-ok"));
+
+    /* Over-long source: declared 10 of 23 bytes → exactly the first
+     * 10 are emitted and framing stays intact. */
+    st.pos = 0;
+    st.stream_size = 10;
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /stream HTTP/1.1\r\n"
+                                     "Host: stream\r\n\r\n"),
+                       0);
+    used = 0;
+    memset(response, 0, sizeof(response));
+    /* Drain what arrives; the truncated body has no terminator
+     * marker, so step and recv directly. */
+    for (attempts = 0; attempts < 40 && used + 1 < sizeof(response);
+         attempts++) {
+        cfw_timepoint_t deadline;
+        cfw_duration_t slice;
+        ssize_t r;
+        cfw_duration_from_millis(20, &slice);
+        cfw_deadline_from_now(&deadline, slice);
+        CFW_TEST_ASSERT_EQ(cfw_server_step(&ts.server, &deadline),
+                           CFW_OK);
+        r = recv((int)cfw_fd_get(&client), response + used,
+                 sizeof(response) - used - 1, MSG_DONTWAIT);
+        if (r > 0) {
+            used += (size_t)r;
+            response[used] = '\0';
+        } else if (r == 0) {
+            break;
+        }
+    }
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, used,
+                                           "Content-Length: 10"));
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, used,
+                                           "Hello, str"));
+    CFW_TEST_ASSERT_TRUE(!cfw_test_contains(response, used,
+                                            "aming world!"));
+
+    /* The truncated response kept framing: a further request works. */
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /hello HTTP/1.1\r\n"
+                                     "Host: stream\r\n\r\n"),
+                       0);
+    used = 0;
+    memset(response, 0, sizeof(response));
+    n = cfw_test_recv_until(&ts.server, &client, response,
+                            sizeof(response), "srv-ok", &used);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, used, "srv-ok"));
+
+    /* Short stream: declared 30 but only 23 bytes exist → the server
+     * closes the connection rather than emit a bad frame. */
+    st.pos = 0;
+    st.stream_size = 30;
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /stream HTTP/1.1\r\n"
+                                     "Host: stream\r\n\r\n"),
+                       0);
+    used = 0;
+    memset(response, 0, sizeof(response));
+    n = cfw_test_recv_until(&ts.server, &client, response,
+                            sizeof(response), "world!", &used);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, used,
+                                           "Content-Length: 30"));
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, used,
+                                           "Hello, streaming world!"));
+    /* Drain until EOF: the connection must close. */
+    {
+        int closed = 0;
+        for (attempts = 0; attempts < 200 && used + 1 <
+             sizeof(response); attempts++) {
+            cfw_timepoint_t deadline;
+            cfw_duration_t slice;
+            ssize_t r;
+            cfw_duration_from_millis(20, &slice);
+            cfw_deadline_from_now(&deadline, slice);
+            CFW_TEST_ASSERT_EQ(cfw_server_step(&ts.server, &deadline),
+                               CFW_OK);
+            r = recv((int)cfw_fd_get(&client), response + used,
+                     sizeof(response) - used - 1, MSG_DONTWAIT);
+            if (r > 0) {
+                used += (size_t)r;
+            } else if (r == 0) {
+                closed = 1;
+                break;
+            }
+        }
+        CFW_TEST_ASSERT_TRUE(closed);
+    }
 
     cfw_fd_close(&client);
     cfw_test_server_teardown(&ts);
@@ -2629,6 +2786,7 @@ const cfw_test_case cfw_test_server_cases[] = {
     {"server_error_logging", test_server_error_logging},
     {"server_streaming_response", test_server_streaming_response},
     {"server_streaming_http10", test_server_streaming_http10},
+    {"server_stream_known_length", test_server_stream_known_length},
     {"server_file_stream_response", test_server_file_stream_response},
     {"server_stream_end_on_close", test_server_stream_end_on_close},
     {"server_request_response", test_server_request_response},

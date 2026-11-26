@@ -204,6 +204,7 @@ cfw_status_t cfw_dispatch_request_ex(
     memset(&res->body, 0, sizeof(res->body));
     res->stream = NULL;
     res->stream_user = NULL;
+    res->stream_size = CFW_STREAM_SIZE_UNKNOWN;
     res->stream_end = NULL;
     res->user = NULL;
 
@@ -410,6 +411,7 @@ cfw_status_t cfw_dispatch_response_head_format(
     size_t i;
     int need_length;
     int body_allowed;
+    uint64_t declared_size;
     cfw_status_t st;
     size_t n;
 
@@ -422,7 +424,9 @@ cfw_status_t cfw_dispatch_response_head_format(
     /* Responses that may carry a body always get a Content-Length —
      * "0" for empty bodies — unless the caller supplied framing
      * headers. HEAD mirrors the GET decision: it emits the same
-     * headers (body bytes are suppressed at the transport layer). */
+     * headers (body bytes are suppressed at the transport layer). A
+     * declared stream_size takes precedence over the (empty) body
+     * span for streams and for HEAD, which never installs one. */
     body_allowed = cfw_http_response_has_body(req->method, res->status) ||
                    (req->method == CFW_HTTP_METHOD_HEAD &&
                     cfw_http_response_has_body(CFW_HTTP_METHOD_GET,
@@ -434,6 +438,13 @@ cfw_status_t cfw_dispatch_response_head_format(
                   !cfw_dispatch_has_framing_header(
                       res, "transfer-encoding",
                       sizeof("transfer-encoding") - 1);
+    if (need_length &&
+        (res->stream != NULL || req->method == CFW_HTTP_METHOD_HEAD) &&
+        res->stream_size != CFW_STREAM_SIZE_UNKNOWN) {
+        declared_size = res->stream_size;
+    } else {
+        declared_size = (uint64_t)res->body.size;
+    }
 
     /* Status line, written directly into the output buffer. */
     n = 0;
@@ -464,7 +475,7 @@ cfw_status_t cfw_dispatch_response_head_format(
         if (cfw_dispatch_write(buffer, capacity, &offset, cl,
                                sizeof(cl) - 1) != CFW_OK ||
             cfw_dispatch_write_u64(buffer, capacity, &offset,
-                                   (uint64_t)res->body.size) != CFW_OK ||
+                                   declared_size) != CFW_OK ||
             cfw_dispatch_write(buffer, capacity, &offset, crlf,
                                sizeof(crlf) - 1) != CFW_OK) {
             return CFW_ERROR_INVALID_ARGUMENT;

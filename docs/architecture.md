@@ -59,8 +59,9 @@ abstraction exists.
   (implemented; see `cfw/http.h`, `cfw/http1.h`, `cfw/http1_conn.h`)
 - `router`: route matching and parameters (implemented; see `cfw/route.h`)
 - `dispatch`: middleware chain, per-route handlers, error mapping,
-  response-head serialization, and pull-style streaming bodies
-  (implemented; see `cfw/dispatch.h`, ADR 0031)
+  response-head serialization, and pull-style streaming bodies with
+  optional known-length Content-Length framing
+  (implemented; see `cfw/dispatch.h`, ADRs 0031/0041)
 - `server`: listener, event loop, connection limits/timeouts,
   graceful stop, streaming request-body upload hooks (ADR 0033), and
   peer-address exposure (ADR 0032) (implemented; see `cfw/server.h`)
