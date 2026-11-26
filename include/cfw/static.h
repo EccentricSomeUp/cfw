@@ -14,10 +14,14 @@ extern "C" {
 #endif
 
 /*
- * Static file serving (ADR 0036). cfw_static_serve is a dispatch
- * middleware that intercepts GET/HEAD requests under a configured URL
- * prefix and streams the matching file from a document root. All other
- * requests pass through to the router.
+ * Static file serving (ADR 0036, conditional requests and Range per
+ * ADR 0039). cfw_static_serve is a dispatch middleware that intercepts
+ * GET/HEAD requests under a configured URL prefix and streams the
+ * matching file from a document root. It emits Last-Modified and
+ * Accept-Ranges, honors If-Modified-Since (304), If-Unmodified-Since
+ * (412), If-Range, and single-range Range requests (206/416); entity-tag
+ * conditionals are not yet supported. All other requests pass through
+ * to the router.
  *
  * Install once per dispatch:
  *
@@ -41,8 +45,9 @@ typedef struct cfw_static_options {
      * '/'; must not end with '/' unless it is exactly "/". */
     const char *url_prefix;
     /* Maximum concurrent file streams for this mount; exhaustion
-     * yields 503. Slot memory is fixed: max_concurrent *
-     * (sizeof(cfw_file_stream_t) + buffer_size), allocated once. */
+     * yields 503. Slot memory is fixed: max_concurrent * (stream state
+     * + buffer_size) plus a small header-value scratch ring, all
+     * allocated once. */
     size_t max_concurrent;
     /* Per-slot read scratch, reused for every chunk. */
     size_t buffer_size;

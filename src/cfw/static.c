@@ -12,10 +12,44 @@
 
 #define CFW_STATIC_PATH_CAP 4096u
 
-/* Per-slot layout: cfw_file_stream_t followed by buffer_size scratch
- * bytes. The slot base doubles as the cfw_file_stream_t pointer (the
- * stream is the first member of the layout), so stream_user works for
- * both cfw_file_stream_read and cfw_file_stream_end. */
+/* Per-slot layout: cfw_static_stream_t followed by buffer_size
+ * scratch bytes. The slot base doubles as the stream pointer (the
+ * stream struct is the first member of the layout), so stream_user
+ * works for both the read and end hooks. `remaining` bounds how many
+ * bytes the stream emits, which is what makes HTTP Range responses
+ * possible without a second stream type. */
+typedef struct {
+    cfw_file_t file;
+    unsigned char *buffer;
+    size_t buffer_size;
+    uint64_t remaining;
+    int eof;
+} cfw_static_stream_t;
+
+/* Response-header value scratch. Dynamic values (Last-Modified,
+ * Content-Range) must stay valid until the transport serializes the
+ * response head, which happens after cfw_static_serve returns — stack
+ * storage would dangle, and the dispatch arena is
+ * configuration-lifetime. A small ring carved from the same arena
+ * allocation as the stream slots provides bounded, allocation-free
+ * per-response storage. Values are only needed until the head is
+ * serialized, which always precedes the next request on the
+ * single-threaded server, so ring reuse is safe; a mount shared
+ * across threads requires external synchronization, exactly like the
+ * slot pool. */
+#define CFW_STATIC_SCRATCH_SLOTS 8u
+#define CFW_STATIC_SCRATCH_SLOT_SIZE 192u
+
+typedef struct {
+    char last_modified[30];
+    char content_range[80];
+    char spare[82]; /* reserved for future validators (ETag) */
+} cfw_static_scratch_slot_t;
+
+typedef struct {
+    size_t next;
+    cfw_static_scratch_slot_t slots[CFW_STATIC_SCRATCH_SLOTS];
+} cfw_static_scratch_t;
 
 static size_t cfw_static_align_up(size_t n, size_t a)
 {
@@ -183,6 +217,24 @@ static cfw_status_t cfw_static_set_type(cfw_response_t *res,
     return cfw_response_header_add(res, &name, &value);
 }
 
+/* The scratch ring lives in the same arena allocation, directly after
+ * the slot array (slot_stride is a multiple of the pointer alignment,
+ * so the base stays suitably aligned). */
+static cfw_static_scratch_t *cfw_static_scratch(cfw_static_mount_t *mount)
+{
+    return (cfw_static_scratch_t *)(mount->slots +
+                                    mount->slot_count * mount->slot_stride);
+}
+
+static cfw_static_scratch_slot_t *cfw_static_scratch_acquire(
+    cfw_static_mount_t *mount)
+{
+    cfw_static_scratch_t *scratch = cfw_static_scratch(mount);
+    cfw_static_scratch_slot_t *slot = &scratch->slots[scratch->next];
+    scratch->next = (scratch->next + 1u) % CFW_STATIC_SCRATCH_SLOTS;
+    return slot;
+}
+
 cfw_status_t cfw_static_mount_init(cfw_static_mount_t *mount,
                                    const cfw_static_options_t *options)
 {
@@ -204,13 +256,18 @@ cfw_status_t cfw_static_mount_init(cfw_static_mount_t *mount,
         return CFW_ERROR_INVALID_ARGUMENT;
     }
 
-    stride = cfw_static_align_up(sizeof(cfw_file_stream_t) +
+    stride = cfw_static_align_up(sizeof(cfw_static_stream_t) +
                                      options->buffer_size,
                                  2u * sizeof(void *));
     if (options->max_concurrent > (size_t)-1 / stride) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
-    total = stride * options->max_concurrent;
+    if ((size_t)-1 - stride * options->max_concurrent <
+        sizeof(cfw_static_scratch_t)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    total = stride * options->max_concurrent +
+           sizeof(cfw_static_scratch_t);
 
     memset(mount, 0, sizeof(*mount));
     if (cfw_arena_alloc_zeroed(options->arena, total,
@@ -227,11 +284,14 @@ cfw_status_t cfw_static_mount_init(cfw_static_mount_t *mount,
 
     for (i = 0; i < mount->slot_count; i++) {
         unsigned char *slot = mount->slots + i * stride;
-        cfw_file_stream_t *stream = (cfw_file_stream_t *)slot;
+        cfw_static_stream_t *stream = (cfw_static_stream_t *)slot;
         cfw_file_init(&stream->file);
-        stream->buffer = slot + sizeof(cfw_file_stream_t);
+        stream->buffer = slot + sizeof(cfw_static_stream_t);
         stream->buffer_size = mount->buffer_size;
+        stream->remaining = 0;
+        stream->eof = 0;
     }
+    memset(cfw_static_scratch(mount), 0, sizeof(cfw_static_scratch_t));
     mount->ready = 1;
     return CFW_OK;
 }
@@ -243,7 +303,7 @@ static unsigned char *cfw_static_acquire(cfw_static_mount_t *mount)
 
     for (i = 0; i < mount->slot_count; i++) {
         unsigned char *slot = mount->slots + i * mount->slot_stride;
-        cfw_file_stream_t *stream = (cfw_file_stream_t *)slot;
+        cfw_static_stream_t *stream = (cfw_static_stream_t *)slot;
         if (!cfw_file_valid(&stream->file)) {
             return slot;
         }
@@ -251,10 +311,308 @@ static unsigned char *cfw_static_acquire(cfw_static_mount_t *mount)
     return NULL;
 }
 
+static cfw_status_t cfw_static_stream_read(void *user, cfw_span_t *chunk,
+                                           int *eof)
+{
+    cfw_static_stream_t *stream = user;
+    size_t want;
+    size_t got = 0;
+    cfw_status_t status;
+
+    if (stream == NULL || chunk == NULL || eof == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    *eof = 0;
+    cfw_span_init(chunk, NULL, 0);
+
+    if (stream->eof || stream->remaining == 0) {
+        stream->eof = 1;
+        *eof = 1;
+        return CFW_OK;
+    }
+    want = stream->buffer_size;
+    if (stream->remaining < (uint64_t)want) {
+        want = (size_t)stream->remaining;
+    }
+    status = cfw_file_read(&stream->file, stream->buffer, want, &got);
+    if (status != CFW_OK) {
+        return status;
+    }
+    if (got == 0) {
+        stream->eof = 1;
+        *eof = 1;
+        return CFW_OK;
+    }
+    stream->remaining -= (uint64_t)got;
+    return cfw_span_init(chunk, stream->buffer, got);
+}
+
+static void cfw_static_stream_end(void *user)
+{
+    cfw_static_stream_t *stream = user;
+    if (stream != NULL) {
+        cfw_file_close(&stream->file);
+    }
+}
+
 static void cfw_static_respond(cfw_response_t *res,
                                cfw_http_status_t status)
 {
     res->status = status;
+}
+
+typedef enum {
+    CFW_STATIC_PLAN_FULL = 0,
+    CFW_STATIC_PLAN_RANGE,
+    CFW_STATIC_PLAN_NOT_MODIFIED,
+    CFW_STATIC_PLAN_PRECONDITION_FAILED,
+    CFW_STATIC_PLAN_RANGE_UNSATISFIABLE
+} cfw_static_plan_action_t;
+
+typedef struct {
+    cfw_static_plan_action_t action;
+    uint64_t start;
+    uint64_t end; /* inclusive */
+} cfw_static_plan_t;
+
+/* Parses an HTTP-date request header; returns 1 and *out on success.
+ * Absent or malformed values are ignored (return 0), matching RFC 9110
+ * guidance that invalid field values do not make a request
+ * unprocessable here. */
+static int cfw_static_header_date(cfw_request_t *req, const char *name,
+                                  int64_t *out)
+{
+    cfw_strview_t hn;
+    cfw_strview_t value;
+
+    cfw_strview_from_cstr(&hn, name);
+    if (cfw_request_header(req, &hn, &value) != CFW_OK) {
+        return 0;
+    }
+    return cfw_http_date_parse(&value, out) == CFW_OK;
+}
+
+static int cfw_static_parse_u64(const unsigned char **p,
+                                const unsigned char *end, uint64_t *out)
+{
+    uint64_t v = 0;
+    int digits = 0;
+
+    while (*p < end && **p >= '0' && **p <= '9') {
+        uint64_t d = (uint64_t)(**p - '0');
+        if (v > (UINT64_MAX - d) / 10u) {
+            return 0;
+        }
+        v = v * 10u + d;
+        (*p)++;
+        digits++;
+    }
+    if (digits == 0) {
+        return 0;
+    }
+    *out = v;
+    return 1;
+}
+
+static int cfw_static_is_digit(unsigned char c)
+{
+    return c >= '0' && c <= '9';
+}
+
+/* Parses a Range header value for a single byte range. Returns 1 with
+ * the start/end out-params set (inclusive, clamped to the
+ * representation) when the range is satisfiable, 0 when the header
+ * must be ignored (unknown
+ * unit, malformed syntax, multiple ranges, or an invalid
+ * last-byte-pos < first-byte-pos spec), and -1 when the range is
+ * well-formed but unsatisfiable for `size`. */
+static int cfw_static_parse_range(const cfw_strview_t *value,
+                                  uint64_t size, uint64_t *start,
+                                  uint64_t *end)
+{
+    static const char unit[] = "bytes=";
+    const unsigned char *p;
+    const unsigned char *limit;
+    uint64_t first;
+    uint64_t last = UINT64_MAX;
+    int suffix_form = 0;
+    size_t i;
+
+    if (value->data == NULL || value->size < sizeof(unit) - 1u) {
+        return 0;
+    }
+    p = (const unsigned char *)value->data;
+    limit = p + value->size;
+    for (i = 0; i < sizeof(unit) - 1u; i++) {
+        unsigned char c = p[i];
+        if (c >= 'A' && c <= 'Z') {
+            c = (unsigned char)(c - 'A' + 'a');
+        }
+        if (c != (unsigned char)unit[i]) {
+            return 0;
+        }
+    }
+    p += sizeof(unit) - 1u;
+
+    if (p < limit && *p == '-') {
+        suffix_form = 1;
+        p++;
+        if (!cfw_static_parse_u64(&p, limit, &first)) {
+            return 0;
+        }
+    } else {
+        if (!cfw_static_parse_u64(&p, limit, &first)) {
+            return 0;
+        }
+        if (p >= limit || *p != '-') {
+            return 0;
+        }
+        p++;
+        if (p < limit && cfw_static_is_digit(*p) &&
+            !cfw_static_parse_u64(&p, limit, &last)) {
+            return 0;
+        }
+    }
+    /* Only trailing HTTP whitespace may follow the range; anything
+     * else (commas, extra specs, junk) makes the whole header
+     * ignorable. */
+    while (p < limit && (*p == ' ' || *p == '\t')) {
+        p++;
+    }
+    if (p != limit) {
+        return 0;
+    }
+
+    if (suffix_form) {
+        if (first == 0 || size == 0) {
+            return -1;
+        }
+        if (first >= size) {
+            *start = 0;
+            *end = size - 1u;
+        } else {
+            *start = size - first;
+            *end = size - 1u;
+        }
+        return 1;
+    }
+    if (first > last || size == 0 || first >= size) {
+        return first > last ? 0 : -1;
+    }
+    *start = first;
+    *end = last >= size - 1u ? size - 1u : last;
+    return 1;
+}
+
+/* Evaluates the conditional headers (RFC 9110 section 13.2.2 order,
+ * restricted to the validators this mount emits: Last-Modified only)
+ * and the Range header gated by If-Range. Entity-tag conditionals
+ * (If-Match, If-None-Match, If-Range entity-tags) are not supported
+ * yet and are ignored; see ADR 0039. */
+static void cfw_static_plan(cfw_request_t *req, int64_t mtime,
+                            uint64_t size, cfw_static_plan_t *plan)
+{
+    cfw_strview_t hn;
+    cfw_strview_t range_value;
+    cfw_strview_t if_range_value;
+    int64_t date;
+    int pr;
+
+    plan->action = CFW_STATIC_PLAN_FULL;
+    plan->start = 0;
+    plan->end = 0;
+
+    if (cfw_static_header_date(req, "If-Unmodified-Since", &date) &&
+        mtime > date) {
+        plan->action = CFW_STATIC_PLAN_PRECONDITION_FAILED;
+        return;
+    }
+    if (cfw_static_header_date(req, "If-Modified-Since", &date) &&
+        mtime <= date) {
+        plan->action = CFW_STATIC_PLAN_NOT_MODIFIED;
+        return;
+    }
+
+    cfw_strview_from_cstr(&hn, "Range");
+    if (cfw_request_header(req, &hn, &range_value) != CFW_OK) {
+        return;
+    }
+    cfw_strview_from_cstr(&hn, "If-Range");
+    if (cfw_request_header(req, &hn, &if_range_value) == CFW_OK) {
+        /* If-Range carries either an HTTP-date or an entity-tag. A
+         * date honors the range only when the file is unchanged since
+         * then; anything else (including every entity-tag, which this
+         * mount never emits) fails validation and yields the full
+         * representation. */
+        if (cfw_http_date_parse(&if_range_value, &date) != CFW_OK ||
+            mtime > date) {
+            return;
+        }
+    }
+    pr = cfw_static_parse_range(&range_value, size, &plan->start,
+                                &plan->end);
+    if (pr < 0) {
+        plan->action = CFW_STATIC_PLAN_RANGE_UNSATISFIABLE;
+    } else if (pr > 0) {
+        plan->action = CFW_STATIC_PLAN_RANGE;
+    }
+}
+
+static size_t cfw_static_u64_dec(uint64_t value, char *out)
+{
+    char digits[20];
+    size_t count = 0;
+    size_t i = 0;
+
+    do {
+        digits[count++] = (char)('0' + value % 10u);
+        value /= 10u;
+    } while (value != 0);
+    while (count != 0) {
+        out[i++] = digits[--count];
+    }
+    out[i] = '\0';
+    return i;
+}
+
+/* Writes the Content-Range value "bytes <start>-<end>/<size>", or the
+ * complete-length form "bytes star/<size>" when complete is 0, into
+ * out, which must hold at least 69 bytes. */
+static void cfw_static_content_range(char *out, int complete,
+                                     uint64_t start, uint64_t end,
+                                     uint64_t size)
+{
+    static const char prefix[] = "bytes ";
+    char *w = out;
+    size_t i;
+
+    for (i = 0; i < sizeof(prefix) - 1u; i++) {
+        *w++ = prefix[i];
+    }
+    if (complete) {
+        w += cfw_static_u64_dec(start, w);
+        *w++ = '-';
+        w += cfw_static_u64_dec(end, w);
+    } else {
+        *w++ = '*';
+    }
+    *w++ = '/';
+    w += cfw_static_u64_dec(size, w);
+    *w = '\0';
+}
+
+static cfw_status_t cfw_static_header(cfw_response_t *res,
+                                      const char *name,
+                                      const char *value, size_t vlen)
+{
+    cfw_strview_t hn;
+    cfw_strview_t hv;
+
+    cfw_strview_from_cstr(&hn, name);
+    if (cfw_strview_init(&hv, value, vlen) != CFW_OK) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    return cfw_response_header_add(res, &hn, &hv);
 }
 
 cfw_status_t cfw_static_serve(cfw_request_t *req, cfw_response_t *res,
@@ -272,7 +630,6 @@ cfw_status_t cfw_static_serve(cfw_request_t *req, cfw_response_t *res,
     size_t dlen = 0;
     size_t rootlen;
     int is_dir = 0;
-    uint64_t fsize = 0;
     cfw_status_t status;
     int is_head;
 
@@ -364,59 +721,155 @@ cfw_status_t cfw_static_serve(cfw_request_t *req, cfw_response_t *res,
         }
         memcpy(rel + rlen, "index.html", 11u);
     }
-    status = cfw_file_size(fspath, &fsize);
-    if (status != CFW_OK) {
-        /* Missing file, or a directory without index.html. */
-        cfw_static_respond(res, is_dir ? CFW_HTTP_STATUS_FORBIDDEN
-                                       : CFW_HTTP_STATUS_NOT_FOUND);
-        (void)fsize;
-        return CFW_OK;
-    }
+    /* Open the confined file first so size and mtime come from fstat
+     * on the descriptor the stream will actually read — the same
+     * object, with no stat-then-open gap (ADR 0039). */
+    {
+        cfw_file_t file;
+        cfw_file_stat_t fstat;
+        cfw_static_plan_t plan;
+        cfw_static_scratch_slot_t *scratch;
+        cfw_http_status_t http_status;
+        int serve_body;
 
-    if (is_head) {
-        cfw_file_t probe;
-        cfw_file_init(&probe);
-        if (cfw_file_open_confined(&probe, mount->root, rel) != CFW_OK) {
-            cfw_static_respond(res, CFW_HTTP_STATUS_NOT_FOUND);
+        cfw_file_init(&file);
+        status = cfw_file_open_confined(&file, mount->root, rel);
+        if (status != CFW_OK) {
+            /* Missing file, or a directory without index.html. */
+            cfw_static_respond(res, is_dir ? CFW_HTTP_STATUS_FORBIDDEN
+                                           : CFW_HTTP_STATUS_NOT_FOUND);
             return CFW_OK;
         }
-        cfw_file_close(&probe);
-        if (cfw_static_set_type(res, cfw_static_content_type(fspath)) !=
-            CFW_OK) {
+        status = cfw_file_fstat(&file, &fstat);
+        if (status != CFW_OK) {
+            cfw_file_close(&file);
             cfw_static_respond(res, CFW_HTTP_STATUS_INTERNAL_SERVER_ERROR);
             return CFW_OK;
         }
-        res->status = CFW_HTTP_STATUS_OK;
-        return CFW_OK;
-    }
 
-    {
-        unsigned char *slot = cfw_static_acquire(mount);
-        cfw_file_stream_t *stream;
-        if (slot == NULL) {
+        cfw_static_plan(req, fstat.mtime_seconds, fstat.size, &plan);
+        switch (plan.action) {
+        case CFW_STATIC_PLAN_NOT_MODIFIED:
+            http_status = CFW_HTTP_STATUS_NOT_MODIFIED;
+            break;
+        case CFW_STATIC_PLAN_PRECONDITION_FAILED:
+            http_status = CFW_HTTP_STATUS_PRECONDITION_FAILED;
+            break;
+        case CFW_STATIC_PLAN_RANGE_UNSATISFIABLE:
+            http_status = CFW_HTTP_STATUS_RANGE_NOT_SATISFIABLE;
+            break;
+        case CFW_STATIC_PLAN_RANGE:
+            http_status = CFW_HTTP_STATUS_PARTIAL_CONTENT;
+            break;
+        default:
+            http_status = CFW_HTTP_STATUS_OK;
+            break;
+        }
+        serve_body = !is_head &&
+                     (plan.action == CFW_STATIC_PLAN_FULL ||
+                      plan.action == CFW_STATIC_PLAN_RANGE);
+
+        /* Pre-flight the slot pool so a 503 does not carry file
+         * headers; acquire() does not reserve, so the real acquire
+         * happens again after the headers are written. */
+        if (serve_body && cfw_static_acquire(mount) == NULL) {
+            cfw_file_close(&file);
             cfw_static_respond(res, CFW_HTTP_STATUS_SERVICE_UNAVAILABLE);
             return CFW_OK;
         }
-        stream = (cfw_file_stream_t *)slot;
-        stream->buffer = slot + sizeof(cfw_file_stream_t);
-        stream->buffer_size = mount->buffer_size;
-        stream->eof = 0;
-        cfw_file_init(&stream->file);
-        if (cfw_file_open_confined(&stream->file, mount->root, rel) !=
-            CFW_OK) {
-            cfw_static_respond(res, CFW_HTTP_STATUS_NOT_FOUND);
+
+        scratch = cfw_static_scratch_acquire(mount);
+        if ((plan.action == CFW_STATIC_PLAN_FULL ||
+             plan.action == CFW_STATIC_PLAN_RANGE ||
+             plan.action == CFW_STATIC_PLAN_NOT_MODIFIED) &&
+            cfw_static_set_type(res,
+                                cfw_static_content_type(fspath)) !=
+                CFW_OK) {
+            goto header_error;
+        }
+        if (plan.action == CFW_STATIC_PLAN_FULL ||
+            plan.action == CFW_STATIC_PLAN_RANGE ||
+            plan.action == CFW_STATIC_PLAN_NOT_MODIFIED ||
+            plan.action == CFW_STATIC_PLAN_RANGE_UNSATISFIABLE) {
+            if (cfw_http_date_format(fstat.mtime_seconds,
+                                     scratch->last_modified,
+                                     sizeof(scratch->last_modified)) ==
+                    CFW_OK &&
+                cfw_static_header(res, "Last-Modified",
+                                  scratch->last_modified, 29) != CFW_OK) {
+                goto header_error;
+            }
+            if (cfw_static_header(res, "Accept-Ranges", "bytes", 5) !=
+                CFW_OK) {
+                goto header_error;
+            }
+        }
+        if (plan.action == CFW_STATIC_PLAN_RANGE) {
+            cfw_static_content_range(scratch->content_range, 1,
+                                     plan.start, plan.end, fstat.size);
+            if (cfw_static_header(res, "Content-Range",
+                                  scratch->content_range,
+                                  strlen(scratch->content_range)) !=
+                CFW_OK) {
+                goto header_error;
+            }
+        } else if (plan.action == CFW_STATIC_PLAN_RANGE_UNSATISFIABLE) {
+            cfw_static_content_range(scratch->content_range, 0, 0, 0,
+                                     fstat.size);
+            if (cfw_static_header(res, "Content-Range",
+                                  scratch->content_range,
+                                  strlen(scratch->content_range)) !=
+                CFW_OK) {
+                goto header_error;
+            }
+        }
+
+        if (!serve_body) {
+            cfw_file_close(&file);
+            res->status = http_status;
             return CFW_OK;
         }
-        if (cfw_static_set_type(res, cfw_static_content_type(fspath)) !=
-            CFW_OK) {
-            cfw_file_stream_end(stream);
-            cfw_static_respond(res, CFW_HTTP_STATUS_INTERNAL_SERVER_ERROR);
+
+        {
+            unsigned char *slot = cfw_static_acquire(mount);
+            cfw_static_stream_t *stream;
+
+            if (slot == NULL) {
+                cfw_file_close(&file);
+                cfw_static_respond(res, CFW_HTTP_STATUS_SERVICE_UNAVAILABLE);
+                return CFW_OK;
+            }
+            stream = (cfw_static_stream_t *)slot;
+            stream->buffer = slot + sizeof(cfw_static_stream_t);
+            stream->buffer_size = mount->buffer_size;
+            stream->remaining = plan.action == CFW_STATIC_PLAN_RANGE
+                                    ? plan.end - plan.start + 1u
+                                    : fstat.size;
+            stream->eof = 0;
+            cfw_file_init(&stream->file);
+            if (plan.action == CFW_STATIC_PLAN_RANGE &&
+                cfw_file_seek(&file, plan.start) != CFW_OK) {
+                cfw_static_respond(res, CFW_HTTP_STATUS_INTERNAL_SERVER_ERROR);
+                goto seek_error;
+            }
+            /* Transfer handle ownership into the slot. */
+            stream->file = file;
+            cfw_file_init(&file);
+
+            res->status = http_status;
+            res->stream = cfw_static_stream_read;
+            res->stream_user = slot;
+            res->stream_end = cfw_static_stream_end;
+            return CFW_OK;
+
+        seek_error:
+            cfw_file_close(&file);
             return CFW_OK;
         }
-        res->status = CFW_HTTP_STATUS_OK;
-        res->stream = cfw_file_stream_read;
-        res->stream_user = slot;
-        res->stream_end = cfw_file_stream_end;
+
+    header_error:
+        cfw_file_close(&file);
+        cfw_static_respond(res, CFW_HTTP_STATUS_INTERNAL_SERVER_ERROR);
+        return CFW_OK;
     }
-    return CFW_OK;
 }

@@ -179,6 +179,8 @@ const char *cfw_http_status_reason(cfw_http_status_t status)
         return "Accepted";
     case CFW_HTTP_STATUS_NO_CONTENT:
         return "No Content";
+    case CFW_HTTP_STATUS_PARTIAL_CONTENT:
+        return "Partial Content";
     case CFW_HTTP_STATUS_MOVED_PERMANENTLY:
         return "Moved Permanently";
     case CFW_HTTP_STATUS_FOUND:
@@ -199,12 +201,16 @@ const char *cfw_http_status_reason(cfw_http_status_t status)
         return "Request Timeout";
     case CFW_HTTP_STATUS_CONFLICT:
         return "Conflict";
+    case CFW_HTTP_STATUS_PRECONDITION_FAILED:
+        return "Precondition Failed";
     case CFW_HTTP_STATUS_PAYLOAD_TOO_LARGE:
         return "Payload Too Large";
     case CFW_HTTP_STATUS_URI_TOO_LONG:
         return "URI Too Long";
     case CFW_HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE:
         return "Unsupported Media Type";
+    case CFW_HTTP_STATUS_RANGE_NOT_SATISFIABLE:
+        return "Range Not Satisfiable";
     case CFW_HTTP_STATUS_EXPECTATION_FAILED:
         return "Expectation Failed";
     case CFW_HTTP_STATUS_TOO_MANY_REQUESTS:
@@ -237,6 +243,7 @@ cfw_status_t cfw_http_status_parse(uint32_t code, cfw_http_status_t *status)
     case 201: *status = CFW_HTTP_STATUS_CREATED; return CFW_OK;
     case 202: *status = CFW_HTTP_STATUS_ACCEPTED; return CFW_OK;
     case 204: *status = CFW_HTTP_STATUS_NO_CONTENT; return CFW_OK;
+    case 206: *status = CFW_HTTP_STATUS_PARTIAL_CONTENT; return CFW_OK;
     case 301: *status = CFW_HTTP_STATUS_MOVED_PERMANENTLY; return CFW_OK;
     case 302: *status = CFW_HTTP_STATUS_FOUND; return CFW_OK;
     case 304: *status = CFW_HTTP_STATUS_NOT_MODIFIED; return CFW_OK;
@@ -247,9 +254,11 @@ cfw_status_t cfw_http_status_parse(uint32_t code, cfw_http_status_t *status)
     case 405: *status = CFW_HTTP_STATUS_METHOD_NOT_ALLOWED; return CFW_OK;
     case 408: *status = CFW_HTTP_STATUS_REQUEST_TIMEOUT; return CFW_OK;
     case 409: *status = CFW_HTTP_STATUS_CONFLICT; return CFW_OK;
+    case 412: *status = CFW_HTTP_STATUS_PRECONDITION_FAILED; return CFW_OK;
     case 413: *status = CFW_HTTP_STATUS_PAYLOAD_TOO_LARGE; return CFW_OK;
     case 414: *status = CFW_HTTP_STATUS_URI_TOO_LONG; return CFW_OK;
     case 415: *status = CFW_HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE; return CFW_OK;
+    case 416: *status = CFW_HTTP_STATUS_RANGE_NOT_SATISFIABLE; return CFW_OK;
     case 417: *status = CFW_HTTP_STATUS_EXPECTATION_FAILED; return CFW_OK;
     case 429: *status = CFW_HTTP_STATUS_TOO_MANY_REQUESTS; return CFW_OK;
     case 500: *status = CFW_HTTP_STATUS_INTERNAL_SERVER_ERROR; return CFW_OK;

@@ -2,11 +2,16 @@
 
 #if !defined(_WIN32)
     #define _POSIX_C_SOURCE 200809L
+    #if !defined(_FILE_OFFSET_BITS)
+        #define _FILE_OFFSET_BITS 64
+    #endif
 #endif
 
 #include <cfw/fs.h>
 #include "private/fs_confined.h"
 
+#include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #if defined(_WIN32)
@@ -20,6 +25,7 @@
     #define CFW_FILE_OPEN_FUNC _open
     #define CFW_FILE_READ_FUNC _read
     #define CFW_FILE_CLOSE_FUNC _close
+    #define CFW_FILE_SEEK_FUNC _lseeki64
 #else
     #include <fcntl.h>
     #include <sys/stat.h>
@@ -32,6 +38,7 @@
     #define CFW_FILE_OPEN_FUNC open
     #define CFW_FILE_READ_FUNC read
     #define CFW_FILE_CLOSE_FUNC close
+    #define CFW_FILE_SEEK_FUNC lseek
 #endif
 
 #define CFW_FILE_INVALID ((intptr_t)-1)
@@ -324,6 +331,35 @@ cfw_status_t cfw_file_read(cfw_file_t *file, void *buffer,
         return CFW_ERROR_IO;
     }
     *out_size = (size_t)got;
+    return CFW_OK;
+}
+
+cfw_status_t cfw_file_fstat(const cfw_file_t *file,
+                            cfw_file_stat_t *stat)
+{
+    CFW_STAT_STRUCT st;
+
+    if (file == NULL || stat == NULL || !cfw_file_valid(file)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (CFW_FILE_STAT_FUNC((int)file->handle, &st) != 0) {
+        return CFW_ERROR_IO;
+    }
+    stat->size = (uint64_t)st.st_size;
+    stat->mtime_seconds = (int64_t)st.st_mtime;
+    return CFW_OK;
+}
+
+cfw_status_t cfw_file_seek(cfw_file_t *file, uint64_t offset)
+{
+    if (file == NULL || !cfw_file_valid(file) ||
+        offset > (uint64_t)INT64_MAX) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (CFW_FILE_SEEK_FUNC((int)file->handle, (int64_t)offset,
+                           SEEK_SET) < 0) {
+        return CFW_ERROR_IO;
+    }
     return CFW_OK;
 }
 

@@ -30,7 +30,7 @@ not yet implemented; "planned" means no contract exists yet.
 | Monotonic clock | yes | yes | yes | yes | `cfw_time_now` (implemented) |
 | Page size | yes | yes | yes | yes | `cfw_platform_page_size` (implemented) |
 | CSPRNG | `getrandom` | `arc4random_buf` | `arc4random_buf` | `BCryptGenRandom` | `cfw_random_*` (implemented) |
-| File metadata | `stat` | `stat` | `stat` | `_stat64` | `cfw_file_*` (implemented) |
+| File metadata | `stat`/`fstat`/`lseek` | `stat`/`fstat`/`lseek` | `stat`/`fstat`/`lseek` | `_stat64`/`_fstat64`/`_lseeki64` | `cfw_file_*` (implemented) |
 | Confined file open | `openat`/`O_NOFOLLOW` | `openat`/`O_NOFOLLOW` | `openat`/`O_NOFOLLOW` | lexical + `_fstat64` best-effort | `cfw_file_open_confined` internal (implemented, ADR 0037) |
 | Descriptor close | `close` | `close` | `close` | stub: `UNAVAILABLE` | `cfw_fd_close` (POSIX; Windows deferred with IOCP) |
 | Polling/event loop | `epoll` | `poll` fallback | `poll` fallback | stub | `cfw_pollset_*` internal (implemented, ADR 0014) |

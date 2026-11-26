@@ -250,6 +250,73 @@ static int test_fs_file_stream(void)
     return 0;
 }
 
+static int test_fs_file_fstat_seek(void)
+{
+    const char *path = "cfw_test_fs_stat.bin";
+    const char payload[] = "cfw-fstat-seek-payload";
+    FILE *file;
+    cfw_file_t fh;
+    cfw_file_stat_t st;
+    unsigned char buf[8];
+    size_t got;
+
+    file = fopen(path, "wb");
+    CFW_TEST_ASSERT(file != NULL);
+    CFW_TEST_ASSERT_EQ(fwrite(payload, 1, sizeof(payload) - 1, file),
+                       sizeof(payload) - 1);
+    CFW_TEST_ASSERT_EQ(fclose(file), 0);
+
+    cfw_file_init(&fh);
+    CFW_TEST_ASSERT_EQ(cfw_file_fstat(NULL, &st),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_file_fstat(&fh, NULL),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    {
+        cfw_file_t bad;
+        cfw_file_init(&bad);
+        CFW_TEST_ASSERT_EQ(cfw_file_fstat(&bad, &st),
+                           CFW_ERROR_INVALID_ARGUMENT);
+        CFW_TEST_ASSERT_EQ(cfw_file_seek(&bad, 0),
+                           CFW_ERROR_INVALID_ARGUMENT);
+    }
+
+    CFW_TEST_ASSERT_EQ(cfw_file_open(&fh, path), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_file_fstat(&fh, &st), CFW_OK);
+    CFW_TEST_ASSERT_EQ(st.size, sizeof(payload) - 1);
+    CFW_TEST_ASSERT_TRUE(st.mtime_seconds > 0);
+
+    CFW_TEST_ASSERT_EQ(cfw_file_seek(NULL, 0),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_file_seek(&fh, (uint64_t)INT64_MAX + 1u),
+                       CFW_ERROR_INVALID_ARGUMENT);
+
+    /* Seek mid-file and read the tail. */
+    CFW_TEST_ASSERT_EQ(cfw_file_seek(&fh, 5), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_file_read(&fh, buf, sizeof(buf), &got),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(got, sizeof(buf));
+    CFW_TEST_ASSERT_EQ(memcmp(buf, payload + 5, got), 0);
+
+    /* Seek back to the start and verify the head again. */
+    CFW_TEST_ASSERT_EQ(cfw_file_seek(&fh, 0), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_file_read(&fh, buf, sizeof(buf), &got),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(got, sizeof(buf));
+    CFW_TEST_ASSERT_EQ(memcmp(buf, payload, got), 0);
+
+    /* Seeking past EOF yields EOF on the next read. */
+    CFW_TEST_ASSERT_EQ(cfw_file_seek(&fh,
+                                     (uint64_t)sizeof(payload)),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_file_read(&fh, buf, sizeof(buf), &got),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(got, 0);
+
+    CFW_TEST_ASSERT_EQ(cfw_file_close(&fh), CFW_OK);
+    CFW_TEST_ASSERT_EQ(remove(path), 0);
+    return 0;
+}
+
 #if !defined(CFW_BUILD_SHARED)
 static int test_fs_file_open_confined(void)
 {
@@ -319,6 +386,7 @@ const cfw_test_case cfw_test_fs_cases[] = {
     {"fs_file_open_read_close", test_fs_file_open_read_close},
     {"fs_file_open_errors", test_fs_file_open_errors},
     {"fs_file_stream", test_fs_file_stream},
+    {"fs_file_fstat_seek", test_fs_file_fstat_seek},
 #if !defined(CFW_BUILD_SHARED)
     {"fs_file_open_confined", test_fs_file_open_confined},
 #endif

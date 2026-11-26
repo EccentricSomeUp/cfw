@@ -65,6 +65,14 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   ANSI C `asctime` timestamps, validate calendar fields, and resolve
   RFC 850 two-digit years against an explicit or wall-clock reference
   time per the RFC 9110 50-year rule.
+- Static conditional requests and Range support (ADR 0039): the static
+  middleware now emits `Last-Modified`/`Accept-Ranges`, returns 304
+  for satisfied `If-Modified-Since`, 412 for failed
+  `If-Unmodified-Since`, and honors single-range `Range` requests with
+  206/`Content-Range` (416 when unsatisfiable). New fs primitives
+  `cfw_file_fstat` and `cfw_file_seek` provide handle-relative
+  metadata and positioned reads; new status codes 206, 412, 416.
+  Entity-tag conditionals remain unsupported.
 
 ## [0.1.0] - 2026-11-26
 

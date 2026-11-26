@@ -57,6 +57,8 @@ static int cfw_test_static_setup(cfw_static_mount_t *mount,
                        0);
     snprintf(path, sizeof(path), "%s/noext", CFW_TEST_STATIC_ROOT);
     CFW_TEST_ASSERT_EQ(cfw_test_write_file(path, "no extension"), 0);
+    snprintf(path, sizeof(path), "%s/empty.txt", CFW_TEST_STATIC_ROOT);
+    CFW_TEST_ASSERT_EQ(cfw_test_write_file(path, ""), 0);
     snprintf(path, sizeof(path), "%s/UPPER.HTML",
              CFW_TEST_STATIC_ROOT);
     CFW_TEST_ASSERT_EQ(cfw_test_write_file(path, "upper"), 0);
@@ -113,14 +115,15 @@ static int cfw_test_static_teardown(cfw_static_mount_t *mount,
     return 0;
 }
 
-/* Runs cfw_static_serve for `path` with the given method. Returns 0 on
- * success; the response status and whether next() ran are reported via
- * out-params. */
-static int cfw_test_serve(cfw_static_mount_t *mount,
-                          cfw_http_method_t method, const char *path,
-                          cfw_response_t *res,
-                          cfw_http_header_t *hdrs, size_t hdrcap,
-                          cfw_http_status_t *status_out, int *nexted)
+/* Runs cfw_static_serve for `path` with the given method and optional
+ * request headers. Returns 0 on success; the response status and
+ * whether next() ran are reported via out-params. */
+static int cfw_test_serve_ex(cfw_static_mount_t *mount,
+                             cfw_http_method_t method, const char *path,
+                             const cfw_http_header_t *req_headers,
+                             size_t req_hcount, cfw_response_t *res,
+                             cfw_http_header_t *hdrs, size_t hdrcap,
+                             cfw_http_status_t *status_out, int *nexted)
 {
     cfw_request_t req;
     cfw_strview_t path_sv;
@@ -129,6 +132,8 @@ static int cfw_test_serve(cfw_static_mount_t *mount,
     req.method = method;
     cfw_strview_from_cstr(&path_sv, path);
     req.path = path_sv;
+    req.headers = req_headers;
+    req.header_count = req_hcount;
 
     memset(res, 0, sizeof(*res));
     res->headers = hdrs;
@@ -143,6 +148,24 @@ static int cfw_test_serve(cfw_static_mount_t *mount,
     *status_out = res->status;
     *nexted = cfw_test_next_calls;
     return 0;
+}
+
+static int cfw_test_serve(cfw_static_mount_t *mount,
+                          cfw_http_method_t method, const char *path,
+                          cfw_response_t *res,
+                          cfw_http_header_t *hdrs, size_t hdrcap,
+                          cfw_http_status_t *status_out, int *nexted)
+{
+    return cfw_test_serve_ex(mount, method, path, NULL, 0, res, hdrs,
+                             hdrcap, status_out, nexted);
+}
+
+/* Builds a one-entry request header array from name/value literals. */
+static void cfw_test_req_header(cfw_http_header_t *hdr,
+                                const char *name, const char *value)
+{
+    cfw_strview_from_cstr(&hdr->name, name);
+    cfw_strview_from_cstr(&hdr->value, value);
 }
 
 /* Pulls the whole stream body (if any) into out; returns 0 and sets
@@ -541,6 +564,331 @@ static int test_static_slot_exhaustion(void)
     CFW_TEST_ASSERT_EQ(cfw_test_static_teardown(&mount, arena), 0);
     return 0;
 }
+
+static int test_static_conditional_requests(void)
+{
+    cfw_static_mount_t mount;
+    cfw_arena_t *arena;
+    cfw_http_header_t hdrs[8];
+    cfw_http_header_t req_hdrs[2];
+    cfw_response_t res;
+    cfw_http_status_t status;
+    int nexted;
+    const char *lm;
+    const char *ar;
+    char body[64];
+    size_t len = 0;
+
+    CFW_TEST_ASSERT_EQ(cfw_test_static_setup(&mount, &arena, 4), 0);
+
+    /* A plain GET exposes the validators conditional requests need. */
+    CFW_TEST_ASSERT_EQ(cfw_test_serve(&mount, CFW_HTTP_METHOD_GET,
+                                      "/static/hello.txt", &res, hdrs,
+                                      8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_OK);
+    lm = cfw_test_header(&res, "Last-Modified");
+    CFW_TEST_ASSERT_TRUE(lm != NULL);
+    ar = cfw_test_header(&res, "Accept-Ranges");
+    CFW_TEST_ASSERT_TRUE(ar != NULL);
+    CFW_TEST_ASSERT_EQ(strcmp(ar, "bytes"), 0);
+    CFW_TEST_ASSERT_EQ(cfw_test_pull_body(&res, body, sizeof(body),
+                                          &len),
+                       0);
+
+    /* If-Modified-Since at the emitted Last-Modified yields 304 for
+     * both GET and HEAD, with no stream and no slot held. */
+    cfw_test_req_header(&req_hdrs[0], "If-Modified-Since", lm);
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 1, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_NOT_MODIFIED);
+    CFW_TEST_ASSERT_TRUE(res.stream == NULL);
+    CFW_TEST_ASSERT_EQ(nexted, 0);
+    CFW_TEST_ASSERT_TRUE(cfw_test_header(&res, "Last-Modified") != NULL);
+
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_HEAD,
+                           "/static/hello.txt", req_hdrs, 1, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_NOT_MODIFIED);
+    CFW_TEST_ASSERT_TRUE(res.stream == NULL);
+
+    /* A stale If-Modified-Since still serves the file. */
+    cfw_test_req_header(&req_hdrs[0], "If-Modified-Since",
+                        "Sun, 06 Nov 1994 08:49:37 GMT");
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 1, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_pull_body(&res, body, sizeof(body),
+                                          &len),
+                       0);
+
+    /* A malformed date is ignored, not fatal. */
+    cfw_test_req_header(&req_hdrs[0], "If-Modified-Since",
+                        "not a date");
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 1, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_pull_body(&res, body, sizeof(body),
+                                          &len),
+                       0);
+
+    /* If-Unmodified-Since in the past rejects the changed file. */
+    cfw_test_req_header(&req_hdrs[0], "If-Unmodified-Since",
+                        "Sun, 06 Nov 1994 08:49:37 GMT");
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 1, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_PRECONDITION_FAILED);
+    CFW_TEST_ASSERT_TRUE(res.stream == NULL);
+
+    /* At the emitted Last-Modified the file counts as unmodified. */
+    CFW_TEST_ASSERT_EQ(cfw_test_serve(&mount, CFW_HTTP_METHOD_GET,
+                                      "/static/hello.txt", &res, hdrs,
+                                      8, &status, &nexted),
+                       0);
+    lm = cfw_test_header(&res, "Last-Modified");
+    CFW_TEST_ASSERT_TRUE(lm != NULL);
+    CFW_TEST_ASSERT_EQ(cfw_test_pull_body(&res, body, sizeof(body),
+                                          &len),
+                       0);
+    cfw_test_req_header(&req_hdrs[0], "If-Unmodified-Since", lm);
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 1, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_pull_body(&res, body, sizeof(body),
+                                          &len),
+                       0);
+
+    CFW_TEST_ASSERT_EQ(cfw_test_static_teardown(&mount, arena), 0);
+    return 0;
+}
+
+static int test_static_range_requests(void)
+{
+    cfw_static_mount_t mount;
+    cfw_arena_t *arena;
+    cfw_http_header_t hdrs[8];
+    cfw_http_header_t req_hdrs[2];
+    cfw_response_t res;
+    cfw_http_status_t status;
+    int nexted;
+    const char *cr;
+    const char *lm;
+    char body[64];
+    size_t len = 0;
+
+    CFW_TEST_ASSERT_EQ(cfw_test_static_setup(&mount, &arena, 4), 0);
+
+    /* Explicit bounds: "bytes=0-4" of "hello static world" (18 B). */
+    cfw_test_req_header(&req_hdrs[0], "Range", "bytes=0-4");
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 1, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_PARTIAL_CONTENT);
+    cr = cfw_test_header(&res, "Content-Range");
+    CFW_TEST_ASSERT_TRUE(cr != NULL);
+    CFW_TEST_ASSERT_EQ(strcmp(cr, "bytes 0-4/18"), 0);
+    CFW_TEST_ASSERT_EQ(cfw_test_pull_body(&res, body, sizeof(body),
+                                          &len),
+                       0);
+    CFW_TEST_ASSERT_EQ(len, 5);
+    CFW_TEST_ASSERT_EQ(memcmp(body, "hello", 5), 0);
+
+    /* Open-ended and suffix forms. */
+    cfw_test_req_header(&req_hdrs[0], "Range", "bytes=6-");
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 1, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_PARTIAL_CONTENT);
+    cr = cfw_test_header(&res, "Content-Range");
+    CFW_TEST_ASSERT_EQ(strcmp(cr, "bytes 6-17/18"), 0);
+    CFW_TEST_ASSERT_EQ(cfw_test_pull_body(&res, body, sizeof(body),
+                                          &len),
+                       0);
+    CFW_TEST_ASSERT_EQ(len, 12);
+    CFW_TEST_ASSERT_EQ(memcmp(body, "static world", 12), 0);
+
+    cfw_test_req_header(&req_hdrs[0], "Range", "bytes=-5");
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 1, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_PARTIAL_CONTENT);
+    cr = cfw_test_header(&res, "Content-Range");
+    CFW_TEST_ASSERT_EQ(strcmp(cr, "bytes 13-17/18"), 0);
+    CFW_TEST_ASSERT_EQ(cfw_test_pull_body(&res, body, sizeof(body),
+                                          &len),
+                       0);
+    CFW_TEST_ASSERT_EQ(len, 5);
+    CFW_TEST_ASSERT_EQ(memcmp(body, "world", 5), 0);
+
+    /* An end past EOF clamps to the last byte. */
+    cfw_test_req_header(&req_hdrs[0], "Range", "bytes=0-100");
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 1, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_PARTIAL_CONTENT);
+    cr = cfw_test_header(&res, "Content-Range");
+    CFW_TEST_ASSERT_EQ(strcmp(cr, "bytes 0-17/18"), 0);
+    CFW_TEST_ASSERT_EQ(cfw_test_pull_body(&res, body, sizeof(body),
+                                          &len),
+                       0);
+    CFW_TEST_ASSERT_EQ(len, 18);
+
+    /* Unsatisfiable ranges → 416 with the complete length. */
+    cfw_test_req_header(&req_hdrs[0], "Range", "bytes=18-");
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 1, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_RANGE_NOT_SATISFIABLE);
+    CFW_TEST_ASSERT_TRUE(res.stream == NULL);
+    cr = cfw_test_header(&res, "Content-Range");
+    CFW_TEST_ASSERT_TRUE(cr != NULL);
+    CFW_TEST_ASSERT_EQ(strcmp(cr, "bytes */18"), 0);
+
+    cfw_test_req_header(&req_hdrs[0], "Range", "bytes=-0");
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 1, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_RANGE_NOT_SATISFIABLE);
+
+    /* Any range on an empty file is unsatisfiable. */
+    cfw_test_req_header(&req_hdrs[0], "Range", "bytes=0-");
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/empty.txt", req_hdrs, 1, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_RANGE_NOT_SATISFIABLE);
+    cr = cfw_test_header(&res, "Content-Range");
+    CFW_TEST_ASSERT_EQ(strcmp(cr, "bytes */0"), 0);
+
+    /* Malformed, multi-range, and foreign-unit headers are ignored
+     * and yield the full 200 response. */
+    {
+        static const char *const ignored[] = {
+            "bytes=5-3", "bytes=0-1,3-4", "items=0-1",
+            "bytes=abc", "bytes=", "bytes=1-2-3",
+        };
+        size_t i;
+        for (i = 0; i < sizeof(ignored) / sizeof(ignored[0]); i++) {
+            cfw_test_req_header(&req_hdrs[0], "Range", ignored[i]);
+            CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                                   &mount, CFW_HTTP_METHOD_GET,
+                                   "/static/hello.txt", req_hdrs, 1,
+                                   &res, hdrs, 8, &status, &nexted),
+                               0);
+            CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_OK);
+            CFW_TEST_ASSERT_EQ(cfw_test_pull_body(&res, body,
+                                                  sizeof(body),
+                                                  &len),
+                               0);
+            CFW_TEST_ASSERT_EQ(len, 18);
+        }
+    }
+
+    /* HEAD with a range reports 206 headers and no body. */
+    cfw_test_req_header(&req_hdrs[0], "Range", "bytes=0-4");
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_HEAD,
+                           "/static/hello.txt", req_hdrs, 1, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_PARTIAL_CONTENT);
+    CFW_TEST_ASSERT_TRUE(res.stream == NULL);
+    cr = cfw_test_header(&res, "Content-Range");
+    CFW_TEST_ASSERT_EQ(strcmp(cr, "bytes 0-4/18"), 0);
+
+    /* If-Range with the emitted Last-Modified honors the range; a
+     * stale date or an entity-tag falls back to the full body. */
+    CFW_TEST_ASSERT_EQ(cfw_test_serve(&mount, CFW_HTTP_METHOD_GET,
+                                      "/static/hello.txt", &res, hdrs,
+                                      8, &status, &nexted),
+                       0);
+    lm = cfw_test_header(&res, "Last-Modified");
+    CFW_TEST_ASSERT_TRUE(lm != NULL);
+    CFW_TEST_ASSERT_EQ(cfw_test_pull_body(&res, body, sizeof(body),
+                                          &len),
+                       0);
+
+    cfw_test_req_header(&req_hdrs[0], "Range", "bytes=0-4");
+    cfw_test_req_header(&req_hdrs[1], "If-Range", lm);
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 2, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_PARTIAL_CONTENT);
+    CFW_TEST_ASSERT_EQ(cfw_test_pull_body(&res, body, sizeof(body),
+                                          &len),
+                       0);
+    CFW_TEST_ASSERT_EQ(len, 5);
+
+    cfw_test_req_header(&req_hdrs[1], "If-Range",
+                        "Sun, 06 Nov 1994 08:49:37 GMT");
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 2, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_pull_body(&res, body, sizeof(body),
+                                          &len),
+                       0);
+    CFW_TEST_ASSERT_EQ(len, 18);
+
+    cfw_test_req_header(&req_hdrs[1], "If-Range", "\"abc123\"");
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 2, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_pull_body(&res, body, sizeof(body),
+                                          &len),
+                       0);
+
+    /* A satisfied If-Modified-Since wins over Range → 304. */
+    cfw_test_req_header(&req_hdrs[0], "Range", "bytes=0-4");
+    cfw_test_req_header(&req_hdrs[1], "If-Modified-Since", lm);
+    CFW_TEST_ASSERT_EQ(cfw_test_serve_ex(
+                           &mount, CFW_HTTP_METHOD_GET,
+                           "/static/hello.txt", req_hdrs, 2, &res,
+                           hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_NOT_MODIFIED);
+    CFW_TEST_ASSERT_TRUE(res.stream == NULL);
+
+    CFW_TEST_ASSERT_EQ(cfw_test_static_teardown(&mount, arena), 0);
+    return 0;
+}
 #endif /* !_WIN32 */
 
 const cfw_test_case cfw_test_static_cases[] = {
@@ -554,6 +902,9 @@ const cfw_test_case cfw_test_static_cases[] = {
      test_static_errors_and_passthrough},
     {"static_symlink_confinement", test_static_symlink_confinement},
     {"static_slot_exhaustion", test_static_slot_exhaustion},
+    {"static_conditional_requests",
+     test_static_conditional_requests},
+    {"static_range_requests", test_static_range_requests},
 #endif
     {NULL, NULL},
 };

@@ -50,6 +50,21 @@ CFW_API cfw_status_t cfw_file_read(cfw_file_t *file, void *buffer,
                                    size_t capacity, size_t *out_size);
 CFW_API cfw_status_t cfw_file_close(cfw_file_t *file);
 
+/* Metadata for an open file, obtained from the handle itself so the
+ * values describe the same object the reads will see. */
+typedef struct cfw_file_stat {
+    uint64_t size;
+    /* Modification time in seconds since the Unix epoch; may be
+     * negative for timestamps before 1970. */
+    int64_t mtime_seconds;
+} cfw_file_stat_t;
+
+CFW_API cfw_status_t cfw_file_fstat(const cfw_file_t *file,
+                                    cfw_file_stat_t *stat);
+/* Repositions an open file to `offset` bytes from the start
+ * (SEEK_SET). Offsets are limited to INT64_MAX. */
+CFW_API cfw_status_t cfw_file_seek(cfw_file_t *file, uint64_t offset);
+
 /*
  * cfw_file_stream_t adapts an open file to the pull-style streaming
  * body contract used by cfw_response_t.stream (see dispatch.h): assign
