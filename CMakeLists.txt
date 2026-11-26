@@ -50,6 +50,7 @@ set(CFW_SOURCES
     src/cfw/random.c
     src/cfw/route.c
     src/cfw/server.c
+    src/cfw/signed.c
     src/cfw/span.c
     src/cfw/static.c
     src/cfw/status.c

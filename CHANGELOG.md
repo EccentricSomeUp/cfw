@@ -72,6 +72,15 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   206/`Content-Range` (416 when unsatisfiable). New fs primitives
   `cfw_file_fstat` and `cfw_file_seek` provide handle-relative
   metadata and positioned reads; new status codes 206, 412, 416.
+- Signed tokens (ADR 0048): new `cfw/signed.h` module —
+  `cfw_signed_encode`/`cfw_signed_decode` implement a
+  versioned `v1.<base64(payload)>.<base64(HMAC-SHA256)>` envelope
+  for signed cookies, CSRF tokens, and similar caller-bound values.
+  Allocation-free encode (payload segment encoded in place, MAC over
+  the contiguous encoded prefix), constant-time verification, strict
+  canonical-base64 parsing, and `cfw_signed_encode_bound` for
+  capacity planning. Integrity only — no confidentiality, expiry, or
+  replay protection (callers embed those in the payload).
 - Byte-to-text codecs (ADR 0047): new `cfw/codec.h` module with
   canonical RFC 4648 base64 (`cfw_base64_encode`/`decode` +
   `cfw_base64_encode_bound`) and hex (`cfw_hex_encode`/`decode` +

@@ -22,6 +22,7 @@
 #include <cfw/random.h>
 #include <cfw/route.h>
 #include <cfw/server.h>
+#include <cfw/signed.h>
 #include <cfw/span.h>
 #include <cfw/static.h>
 #include <cfw/status.h>
