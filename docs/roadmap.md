@@ -72,7 +72,8 @@ integration tests over real loopback TCP
 - Operational logging and diagnostics — met (counters + optional
   logger events; structured audit logging deferred)
 
-Exit criteria remaining: stability soak tests and DoS audit.
+Exit criteria met: bounded soak test (server_soak) and DoS
+audit (audits/2026-11-26-http-server-dos-audit.md) with three fixes.
 
 ## Phase 6: Optional TLS boundary
 

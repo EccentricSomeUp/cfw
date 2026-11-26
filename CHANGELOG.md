@@ -76,6 +76,8 @@ semantic versioning once a stable release policy is adopted.
   loop (`cfw_server_run`/`cfw_server_step`), connection limits,
   keep-alive/request timeouts, graceful stop via wake pipe, and
   accept/error/request diagnostics counters (ADR 0029)
+- `Connection: close` response header on non-keep-alive requests and
+  correct deadline handling during response drain
 - CMake build, presets, sanitizer configuration, install rules, and CMake
   package config
 - Custom unit-test harness with debug, release, and sanitizer verification

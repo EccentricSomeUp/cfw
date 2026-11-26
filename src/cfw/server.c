@@ -263,6 +263,15 @@ static void cfw_server_handle_done(cfw_server_t *server,
         return;
     }
 
+    /* Signal close to the client when the connection will not be
+     * reused; header_add failure (full scratch) is non-fatal. */
+    if (conn->http.close_after_write) {
+        cfw_strview_t hn, hv;
+        cfw_strview_from_cstr(&hn, "Connection");
+        cfw_strview_from_cstr(&hv, "close");
+        cfw_response_header_add(&res, &hn, &hv);
+    }
+
     memset(&req_view, 0, sizeof(req_view));
     req_view.method = conn->head.request_line.method;
     req_view.version = conn->head.request_line.version;
@@ -299,12 +308,11 @@ static void cfw_server_handle_done(cfw_server_t *server,
     }
 
     cfw_buffer_clear(&conn->body);
-    if (conn->http.close_after_write || conn->http.input_closed) {
-        /* http1_conn closes the socket once the queue drains. */
-    } else {
-        cfw_server_conn_deadline(conn,
-                                 server->options.keep_alive_timeout);
-    }
+
+    /* Always re-arm: the request deadline must not fire while the
+     * response drains. keep_alive_timeout doubles as the drain deadline
+     * for closing connections (0 disables, matching keep-alive). */
+    cfw_server_conn_deadline(conn, server->options.keep_alive_timeout);
 }
 
 static void cfw_server_service_read(cfw_server_t *server,
