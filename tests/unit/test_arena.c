@@ -146,6 +146,12 @@ static int test_arena_invalid_arguments(void)
     CFW_TEST_ASSERT_EQ(cfw_arena_alloc_zeroed(arena, 1, NULL),
                        CFW_ERROR_INVALID_ARGUMENT);
 
+    /* Sizes that cannot be alignment-padded must fail closed. */
+    CFW_TEST_ASSERT_EQ(cfw_arena_alloc(arena, SIZE_MAX, &out),
+                       CFW_ERROR_OVERFLOW);
+    CFW_TEST_ASSERT_EQ(cfw_arena_alloc_zeroed(arena, SIZE_MAX, &out),
+                       CFW_ERROR_OVERFLOW);
+
     cfw_arena_destroy(arena);
     return 0;
 }

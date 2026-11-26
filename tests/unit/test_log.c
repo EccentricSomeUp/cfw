@@ -177,6 +177,33 @@ static int test_log_long_message_is_bounded_and_marked(void)
     return 0;
 }
 
+static int test_log_min_level_setter_and_message_throttle(void)
+{
+    cfw_logger_t logger;
+    cfw_test_sink_t sink;
+    cfw_strview_t msg;
+
+    cfw_test_logger_setup(&logger, &sink);
+
+    /* The setter validates the level; invalid values are ignored. */
+    cfw_logger_set_min_level(&logger, CFW_LOG_ERROR);
+    CFW_TEST_ASSERT_EQ(logger.min_level, CFW_LOG_ERROR);
+    cfw_logger_set_min_level(&logger, (cfw_log_level_t)99);
+    CFW_TEST_ASSERT_EQ(logger.min_level, CFW_LOG_ERROR);
+
+    /* cfw_log_message honors the rate limiter: the second message in
+     * the window is dropped and counted. */
+    CFW_TEST_ASSERT_EQ(cfw_strview_from_cstr(&msg, "m"), CFW_OK);
+    cfw_logger_set_rate_limit(&logger, 1);
+    CFW_TEST_ASSERT_EQ(cfw_log_message(&logger, CFW_LOG_ERROR, &msg),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_log_message(&logger, CFW_LOG_ERROR, &msg),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(sink.count, 1);
+    CFW_TEST_ASSERT_EQ(cfw_logger_dropped_count(&logger), 1);
+    return 0;
+}
+
 const cfw_test_case cfw_test_log_cases[] = {
     {"log_init_defaults", test_log_init_defaults},
     {"log_level_filtering", test_log_level_filtering},
@@ -184,6 +211,8 @@ const cfw_test_case cfw_test_log_cases[] = {
     {"log_message_passthrough", test_log_message_passthrough},
     {"log_invalid_arguments", test_log_invalid_arguments},
     {"log_rate_limit", test_log_rate_limit},
+    {"log_min_level_setter_and_message_throttle",
+     test_log_min_level_setter_and_message_throttle},
     {"log_long_message_is_bounded_and_marked",
      test_log_long_message_is_bounded_and_marked},
     {NULL, NULL},

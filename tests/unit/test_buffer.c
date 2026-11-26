@@ -97,6 +97,20 @@ static int test_buffer_reserve_rejects_invalid_state(void)
                        CFW_ERROR_INVALID_ARGUMENT);
     CFW_TEST_ASSERT_EQ(cfw_buffer_append(&oversized, "x", 1),
                        CFW_ERROR_INVALID_ARGUMENT);
+
+    /* NULL and invalid buffers are rejected or ignored safely. */
+    cfw_buffer_free(NULL);
+    cfw_buffer_clear(NULL);
+    cfw_buffer_clear(&oversized);
+    {
+        cfw_span_t span;
+        CFW_TEST_ASSERT_EQ(cfw_buffer_span(&oversized, &span),
+                           CFW_ERROR_INVALID_ARGUMENT);
+        CFW_TEST_ASSERT_EQ(cfw_buffer_span(NULL, &span),
+                           CFW_ERROR_INVALID_ARGUMENT);
+        CFW_TEST_ASSERT_EQ(cfw_buffer_append(NULL, "x", 1),
+                           CFW_ERROR_INVALID_ARGUMENT);
+    }
     return 0;
 }
 

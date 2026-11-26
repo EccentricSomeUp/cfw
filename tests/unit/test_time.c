@@ -253,6 +253,40 @@ static int test_time_wall_now(void)
     return 0;
 }
 
+static int test_time_null_output_args(void)
+{
+    cfw_duration_t dur;
+    cfw_duration_t dur2;
+    cfw_timepoint_t tp;
+
+    CFW_TEST_ASSERT_EQ(cfw_duration_from_millis(5, &dur), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_duration_from_millis(7, &dur2), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_time_now(&tp), CFW_OK);
+
+    CFW_TEST_ASSERT_EQ(cfw_duration_sub(&dur, &dur2, NULL),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_duration_compare(&dur, &dur2, NULL),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_duration_to_nanos(&dur, NULL),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_duration_to_micros(&dur, NULL),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_duration_to_millis(&dur, NULL),
+                       CFW_ERROR_INVALID_ARGUMENT);
+
+    CFW_TEST_ASSERT_EQ(cfw_timepoint_add(&tp, &dur, NULL),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_timepoint_sub(&tp, &dur, NULL),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_timepoint_diff(&tp, &tp, NULL),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_timepoint_compare(&tp, &tp, NULL),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_deadline_from_now(NULL, dur),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    return 0;
+}
+
 const cfw_test_case cfw_test_time_cases[] = {
     {"duration_from_units", test_duration_from_units},
     {"duration_from_rejects_null", test_duration_from_rejects_null},
@@ -268,5 +302,6 @@ const cfw_test_case cfw_test_time_cases[] = {
      test_deadline_future_timeout_not_expired},
     {"deadline_past_is_expired", test_deadline_past_is_expired},
     {"time_wall_now", test_time_wall_now},
+    {"time_null_output_args", test_time_null_output_args},
     {NULL, NULL},
 };

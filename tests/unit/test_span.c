@@ -85,6 +85,12 @@ static int test_span_subspan_boundaries(void)
                        CFW_OK);
     CFW_TEST_ASSERT(subspan.data == bytes + sizeof(bytes) - 1);
     CFW_TEST_ASSERT_EQ(subspan.size, 1);
+
+    /* Subspan of an empty NULL-data span stays NULL. */
+    CFW_TEST_ASSERT_EQ(cfw_span_init(&span, NULL, 0), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_span_subspan(&span, 0, 0, &subspan), CFW_OK);
+    CFW_TEST_ASSERT(subspan.data == NULL);
+    CFW_TEST_ASSERT_EQ(subspan.size, 0);
     return 0;
 }
 

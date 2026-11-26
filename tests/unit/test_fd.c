@@ -20,6 +20,7 @@ static int test_fd_init_and_valid(void)
     CFW_TEST_ASSERT_EQ(cfw_fd_get(NULL), (intptr_t)-1);
     CFW_TEST_ASSERT_EQ(cfw_fd_release(NULL), (intptr_t)-1);
     CFW_TEST_ASSERT_EQ(cfw_fd_close(NULL), CFW_ERROR_INVALID_ARGUMENT);
+    cfw_fd_init(NULL); /* must be a safe no-op */
     return 0;
 }
 
