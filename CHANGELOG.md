@@ -11,6 +11,12 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ### Fixed
 
+- macOS build: the kqueue pollset backend was nested inside the epoll
+  `#ifdef` branch, so on macOS/BSD it never compiled — the pollset fell
+  through to the unavailable-backend stubs and the shared helpers were
+  unused, failing `-Werror` builds. The backend selection is now a flat
+  `epoll / kqueue / poll / none` conditional chain, so kqueue actually
+  builds on Apple/BSD targets.
 - macOS build: `cfw_file_open_mode` was compiled whenever `O_NOFOLLOW`
   was visible, but macOS hides that BSD extension under
   `_POSIX_C_SOURCE 200809L`, leaving the helper unused and failing

@@ -415,7 +415,7 @@ cfw_status_t cfw_pollset_wait(cfw_pollset_t *pollset,
 /* kqueue backend (macOS/BSD, ADR 0052)                                */
 /* ------------------------------------------------------------------ */
 
-#ifdef CFW_POLLF_HAVE_KQUEUE
+#elif defined(CFW_POLLF_HAVE_KQUEUE)
 
 typedef struct cfw_kqueue_record {
     intptr_t handle;
@@ -863,8 +863,6 @@ cfw_status_t cfw_pollset_wait(cfw_pollset_t *pollset,
     *count = produced;
     return CFW_OK;
 }
-
-#endif /* CFW_POLLF_HAVE_KQUEUE */
 
 /* ------------------------------------------------------------------ */
 /* poll() fallback backend (other POSIX)                               */
