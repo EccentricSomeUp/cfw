@@ -33,8 +33,8 @@ static uint64_t cfw_test_rng(void)
 static const char *cfw_test_seeds[] = {
     "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n",
     "POST /submit?a=1 HTTP/1.1\r\nContent-Length: 11\r\n\r\nhello world",
-    "PUT /x HTTP/1.0\r\nTransfer-Encoding: chunked\r\n\r\n"
-    "4\r\nWiki\r\n5\r\npedia\r\n0\r\nX-T: y\r\n\r\n",
+    ("PUT /x HTTP/1.0\r\nTransfer-Encoding: chunked\r\n\r\n"
+     "4\r\nWiki\r\n5\r\npedia\r\n0\r\nX-T: y\r\n\r\n"),
     "OPTIONS * HTTP/1.1\r\nConnection: keep-alive, Upgrade\r\n\r\n",
     "DELETE /admin HTTP/1.1\r\nContent-Length: 0\r\n\r\n",
     "POST / HTTP/1.1\r\nContent-Length: 5\r\nContent-Length: 5\r\n\r\nabcde",
@@ -43,8 +43,8 @@ static const char *cfw_test_seeds[] = {
     "PATCH /p HTTP/1.1\r\nContent-Length: 18446744073709551615\r\n\r\n",
     "POST /x HTTP/1.1\r\nContent-Length: 4\r\nContent-Length: 5\r\n\r\n",
     "GET /x HTTP/1.1\nHost: bare-lf\n\n",
-    "POST /x HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
-    "Z\r\n",
+    ("POST /x HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+     "Z\r\n"),
     "GET /x HTTP/1.1\r\nX-Fold:\r\n continued\r\n\r\n",
     "POST /x HTTP/1.1\r\nTransfer-Encoding: gzip, chunked\r\n\r\n",
     "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n",

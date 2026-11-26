@@ -1575,8 +1575,8 @@ static int test_server_expect_rejected(void)
     ssize_t n;
     static const char *const bad_expects[] = {
         "GET /hello HTTP/1.1\r\nHost: x\r\nExpect: foobar\r\n\r\n",
-        "GET /hello HTTP/1.1\r\nHost: x\r\n"
-        "Expect: 100-continue, foobar\r\n\r\n",
+        ("GET /hello HTTP/1.1\r\nHost: x\r\n"
+         "Expect: 100-continue, foobar\r\n\r\n"),
         "GET /hello HTTP/1.1\r\nHost: x\r\nExpect:\r\n\r\n",
     };
     size_t i;

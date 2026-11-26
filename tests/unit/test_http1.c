@@ -205,15 +205,15 @@ static int test_http1_protocol_errors(void)
     static const char *bad[] = {
         "GARBAGE\r\n\r\n",
         "GET / HTTP/1.1\r\nBad Header\r\n\r\n",
-        "POST / HTTP/1.1\r\nContent-Length: 5\r\n"
-        "Transfer-Encoding: chunked\r\n\r\n",
-        "POST / HTTP/1.1\r\nContent-Length: 5\r\n"
-        "Content-Length: 6\r\n\r\n",
+        ("POST / HTTP/1.1\r\nContent-Length: 5\r\n"
+         "Transfer-Encoding: chunked\r\n\r\n"),
+        ("POST / HTTP/1.1\r\nContent-Length: 5\r\n"
+         "Content-Length: 6\r\n\r\n"),
         "POST / HTTP/1.1\r\nTransfer-Encoding: gzip\r\n\r\n",
-        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
-        "Z\r\n",
-        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
-        "4\r\nabcdXY0\r\n\r\n",
+        ("POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+         "Z\r\n"),
+        ("POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+         "4\r\nabcdXY0\r\n\r\n"),
     };
     cfw_http1_server_options_t options = {4096, 0, 65536};
     cfw_http1_server_t server;
