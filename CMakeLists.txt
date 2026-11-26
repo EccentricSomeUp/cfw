@@ -172,6 +172,12 @@ if(CFW_BUILD_EXAMPLES)
     cfw_apply_strict_flags(cfw_example_threaded_server)
     cfw_apply_hardening_flags(cfw_example_threaded_server)
     cfw_apply_sanitizer_flags(cfw_example_threaded_server)
+
+    add_executable(cfw_example_access_log examples/access_log.c)
+    target_link_libraries(cfw_example_access_log PRIVATE cfw)
+    cfw_apply_strict_flags(cfw_example_access_log)
+    cfw_apply_hardening_flags(cfw_example_access_log)
+    cfw_apply_sanitizer_flags(cfw_example_access_log)
 endif()
 
 if(CFW_BUILD_TESTING)
