@@ -6,6 +6,7 @@ add_executable(cfw_unit_tests
     unit/test_arena.c
     unit/test_buffer.c
     unit/test_checked_arithmetic.c
+    unit/test_dispatch.c
     unit/test_fd.c
     unit/test_fs.c
     unit/test_http.c

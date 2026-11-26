@@ -65,6 +65,9 @@ semantic versioning once a stable release policy is adopted.
   priority, duplicate-parameter rejection, and arena-backed storage (ADR 0026)
 - HTTP target path extraction supporting origin-form, absolute-form, and
   OPTIONS `*` targets
+- Request dispatch pipeline: ordered onion-model middleware with
+  short-circuit cancellation, terminal handler, configurable error
+  mapping (400/404/500), and automatic Content-Length response heads
 - CMake build, presets, sanitizer configuration, install rules, and CMake
   package config
 - Custom unit-test harness with debug, release, and sanitizer verification

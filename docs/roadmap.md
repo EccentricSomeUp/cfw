@@ -53,8 +53,8 @@ bounded resource behavior (head/body/pending caps) — met.
 
 - Route table design and matching semantics — met (ADR 0026)
 - Path parameter extraction — met
-- Middleware ordering and cancellation
-- Error handling and response pipeline
+- Middleware ordering and cancellation — met (ADR 0027)
+- Error handling and response pipeline — met (ADR 0027)
 - Extensibility hooks for applications and plugins
 
 Exit criteria: API stability review and integration tests.

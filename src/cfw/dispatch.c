@@ -1,0 +1,374 @@
+/* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 */
+
+#include <cfw/dispatch.h>
+
+#include <stdint.h>
+#include <string.h>
+
+struct cfw_dispatch_frame {
+    const cfw_dispatch_t *dispatch;
+    cfw_request_t *req;
+    cfw_response_t *res;
+    size_t next_index;
+};
+
+cfw_status_t cfw_dispatch_init(cfw_dispatch_t *dispatch, cfw_arena_t *arena,
+                               const cfw_dispatch_options_t *options)
+{
+    void *storage = NULL;
+
+    if (dispatch == NULL || arena == NULL || options == NULL ||
+        options->router == NULL || options->handler == NULL ||
+        options->max_middleware == 0) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    if (cfw_arena_alloc_zeroed(arena,
+                               options->max_middleware *
+                                   sizeof(cfw_dispatch_middleware_t),
+                               &storage) != CFW_OK) {
+        return CFW_ERROR_NOMEM;
+    }
+
+    memset(dispatch, 0, sizeof(*dispatch));
+    dispatch->router = options->router;
+    dispatch->middleware = storage;
+    dispatch->middleware_capacity = options->max_middleware;
+    dispatch->handler = options->handler;
+    dispatch->handler_user = options->handler_user;
+    dispatch->error_handler = options->error_handler;
+    dispatch->error_user = options->error_user;
+    return CFW_OK;
+}
+
+cfw_status_t cfw_dispatch_use(cfw_dispatch_t *dispatch,
+                              cfw_middleware_fn fn, void *user)
+{
+    if (dispatch == NULL || fn == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (dispatch->middleware_count >= dispatch->middleware_capacity) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    dispatch->middleware[dispatch->middleware_count].fn = fn;
+    dispatch->middleware[dispatch->middleware_count].user = user;
+    dispatch->middleware_count++;
+    return CFW_OK;
+}
+
+cfw_status_t cfw_response_header_add(cfw_response_t *res,
+                                     const cfw_strview_t *name,
+                                     const cfw_strview_t *value)
+{
+    cfw_http_header_t *slot;
+
+    if (res == NULL || name == NULL || value == NULL ||
+        name->size == 0 || name->data == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (res->header_count >= res->header_capacity) {
+        return CFW_ERROR_NOMEM;
+    }
+    slot = &res->headers[res->header_count++];
+    slot->name = *name;
+    slot->value = *value;
+    return CFW_OK;
+}
+
+static void cfw_dispatch_default_error(cfw_request_t *req,
+                                       cfw_response_t *res,
+                                       cfw_http_status_t status_hint,
+                                       void *user)
+{
+    (void)req;
+    (void)user;
+    res->status = status_hint;
+    res->header_count = 0;
+    memset(&res->body, 0, sizeof(res->body));
+}
+
+static cfw_status_t cfw_dispatch_fail(const cfw_dispatch_t *dispatch,
+                                      cfw_request_t *req,
+                                      cfw_response_t *res,
+                                      cfw_http_status_t hint)
+{
+    cfw_dispatch_error_fn fn =
+        dispatch->error_handler != NULL ? dispatch->error_handler
+                                        : cfw_dispatch_default_error;
+    void *user =
+        dispatch->error_handler != NULL ? dispatch->error_user : NULL;
+    fn(req, res, hint, user);
+    return CFW_OK;
+}
+
+static cfw_status_t cfw_dispatch_chain_next(cfw_dispatch_frame_t *frame)
+{
+    const cfw_dispatch_t *dispatch = frame->dispatch;
+    size_t index = frame->next_index++;
+
+    if (index < dispatch->middleware_count) {
+        return dispatch->middleware[index].fn(
+            frame->req, frame->res, cfw_dispatch_chain_next, frame,
+            dispatch->middleware[index].user);
+    }
+    return dispatch->handler(frame->req, frame->res,
+                             dispatch->handler_user);
+}
+
+static int cfw_dispatch_body_consistent(const cfw_http_message_framing_t *f,
+                                        const cfw_span_t *body)
+{
+    size_t size = body != NULL ? body->size : 0;
+
+    switch (f->framing) {
+    case CFW_HTTP_BODY_NONE:
+        return size == 0;
+    case CFW_HTTP_BODY_CONTENT_LENGTH:
+        return f->content_length <= SIZE_MAX &&
+               (uint64_t)size == f->content_length;
+    case CFW_HTTP_BODY_CHUNKED:
+        return 1;
+    }
+    return 0;
+}
+
+cfw_status_t cfw_dispatch_request(
+    const cfw_dispatch_t *dispatch, const cfw_http_request_head_t *head,
+    const cfw_span_t *body, cfw_http_header_t *headers,
+    size_t header_capacity, cfw_route_param_t *params,
+    size_t param_capacity, cfw_response_t *res)
+{
+    cfw_request_t req;
+    cfw_http_message_framing_t framing;
+    cfw_strview_t path;
+    size_t cursor = 0;
+    cfw_dispatch_frame_t frame;
+    cfw_status_t status;
+
+    if (dispatch == NULL || head == NULL || res == NULL ||
+        (header_capacity != 0 && headers == NULL) ||
+        (param_capacity != 0 && params == NULL)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    /* Reset the response; the caller-provided header scratch is kept. */
+    res->status = CFW_HTTP_STATUS_OK;
+    res->header_count = 0;
+    memset(&res->body, 0, sizeof(res->body));
+    res->user = NULL;
+
+    memset(&req, 0, sizeof(req));
+    req.method = head->request_line.method;
+    req.target = head->request_line.target;
+    req.version = head->request_line.version;
+    req.headers = headers;
+    req.body = body != NULL ? *body : (cfw_span_t){0};
+
+    /* Transport-independent validation: framing rules and body size. */
+    if (cfw_http_request_framing(head, &framing) != CFW_OK ||
+        !cfw_dispatch_body_consistent(&framing, body)) {
+        return cfw_dispatch_fail(dispatch, &req, res,
+                                 CFW_HTTP_STATUS_BAD_REQUEST);
+    }
+
+    /* Routing path; targets without a path component simply match
+     * nothing (404 via the error handler). */
+    if (cfw_http_target_path(&head->request_line.target, &path) != CFW_OK) {
+        memset(&path, 0, sizeof(path));
+    }
+    req.path = path;
+
+    /* Parse header fields into caller scratch. */
+    for (;;) {
+        cfw_http_header_t field;
+        int done = 0;
+        if (cfw_http_headers_next(&head->headers, &cursor, &field,
+                                  &done) != CFW_OK) {
+            return cfw_dispatch_fail(dispatch, &req, res,
+                                     CFW_HTTP_STATUS_BAD_REQUEST);
+        }
+        if (done) {
+            break;
+        }
+        if (req.header_count < header_capacity) {
+            headers[req.header_count++] = field;
+        } else {
+            req.headers_dropped++;
+        }
+    }
+
+    /* Route match. */
+    if (cfw_router_match(dispatch->router, req.method, &req.path, params,
+                         param_capacity, &req.match) != CFW_OK) {
+        return CFW_ERROR_INTERNAL;
+    }
+    req.params = params;
+    req.params_written = req.match.params_written;
+    req.route_user = req.match.user;
+    if (req.match.route == NULL) {
+        return cfw_dispatch_fail(dispatch, &req, res,
+                                 CFW_HTTP_STATUS_NOT_FOUND);
+    }
+
+    /* Middleware chain → terminal handler. */
+    frame.dispatch = dispatch;
+    frame.req = &req;
+    frame.res = res;
+    frame.next_index = 0;
+    status = cfw_dispatch_chain_next(&frame);
+    if (status != CFW_OK) {
+        return cfw_dispatch_fail(dispatch, &req, res,
+                                 CFW_HTTP_STATUS_INTERNAL_SERVER_ERROR);
+    }
+    return CFW_OK;
+}
+
+cfw_status_t cfw_request_header(const cfw_request_t *req,
+                                const cfw_strview_t *name,
+                                cfw_strview_t *value)
+{
+    size_t i;
+
+    if (req == NULL || name == NULL || value == NULL || name->size == 0 ||
+        name->data == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    for (i = 0; i < req->header_count; i++) {
+        int equal = 0;
+        if (req->headers[i].name.size == name->size &&
+            cfw_strview_equal_nocase(&req->headers[i].name, name,
+                                     &equal) == CFW_OK &&
+            equal) {
+            *value = req->headers[i].value;
+            return CFW_OK;
+        }
+    }
+    return CFW_ERROR_INVALID_ARGUMENT;
+}
+
+static int cfw_dispatch_has_framing_header(const cfw_response_t *res,
+                                           const char *name, size_t len)
+{
+    cfw_strview_t wanted;
+    size_t i;
+
+    memset(&wanted, 0, sizeof(wanted));
+    wanted.data = name;
+    wanted.size = len;
+    for (i = 0; i < res->header_count; i++) {
+        int equal = 0;
+        if (cfw_strview_equal_nocase(&res->headers[i].name, &wanted,
+                                     &equal) == CFW_OK &&
+            equal) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static cfw_status_t cfw_dispatch_write(char *buffer, size_t capacity,
+                                       size_t *offset, const void *data,
+                                       size_t size)
+{
+    if (size > capacity - *offset) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    memcpy(buffer + *offset, data, size);
+    *offset += size;
+    return CFW_OK;
+}
+
+static cfw_status_t cfw_dispatch_write_u64(char *buffer, size_t capacity,
+                                           size_t *offset, uint64_t value)
+{
+    char digits[20];
+    size_t count = 0;
+    size_t i;
+
+    do {
+        digits[count++] = (char)('0' + value % 10);
+        value /= 10;
+    } while (value != 0);
+    for (i = 0; i < count; i++) {
+        char c = digits[count - 1 - i];
+        if (cfw_dispatch_write(buffer, capacity, offset, &c, 1) != CFW_OK) {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+    }
+    return CFW_OK;
+}
+
+cfw_status_t cfw_dispatch_response_head_format(
+    const cfw_request_t *req, const cfw_response_t *res, char *buffer,
+    size_t capacity, size_t *written)
+{
+    static const char crlf[] = "\r\n";
+    cfw_http_version_t version;
+    size_t offset = 0;
+    size_t i;
+    int need_length;
+    int body_allowed;
+    cfw_status_t st;
+    size_t n;
+
+    if (req == NULL || res == NULL || buffer == NULL || written == NULL ||
+        res->headers == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    version = req->version;
+    body_allowed = cfw_http_response_has_body(req->method, res->status) &&
+                   res->body.size != 0;
+    need_length = body_allowed &&
+                  !cfw_dispatch_has_framing_header(
+                      res, "content-length",
+                      sizeof("content-length") - 1) &&
+                  !cfw_dispatch_has_framing_header(
+                      res, "transfer-encoding",
+                      sizeof("transfer-encoding") - 1);
+
+    /* Status line, written directly into the output buffer. */
+    n = 0;
+    st = cfw_http_status_line_format(&version, res->status, buffer,
+                                     capacity, &n);
+    if (st != CFW_OK) {
+        return st == CFW_ERROR_INVALID_ARGUMENT ? CFW_ERROR_INVALID_ARGUMENT
+                                                : CFW_ERROR_INTERNAL;
+    }
+    offset += n;
+
+    /* Caller headers. */
+    for (i = 0; i < res->header_count; i++) {
+        n = 0;
+        st = cfw_http_header_line_format(&res->headers[i].name,
+                                         &res->headers[i].value,
+                                         buffer + offset, capacity - offset,
+                                         &n);
+        if (st != CFW_OK) {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+        offset += n;
+    }
+
+    /* Auto Content-Length. */
+    if (need_length) {
+        static const char cl[] = "Content-Length: ";
+        if (cfw_dispatch_write(buffer, capacity, &offset, cl,
+                               sizeof(cl) - 1) != CFW_OK ||
+            cfw_dispatch_write_u64(buffer, capacity, &offset,
+                                   (uint64_t)res->body.size) != CFW_OK ||
+            cfw_dispatch_write(buffer, capacity, &offset, crlf,
+                               sizeof(crlf) - 1) != CFW_OK) {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+    }
+
+    /* Terminating empty line. */
+    if (cfw_dispatch_write(buffer, capacity, &offset, crlf,
+                           sizeof(crlf) - 1) != CFW_OK) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    *written = offset;
+    return CFW_OK;
+}
