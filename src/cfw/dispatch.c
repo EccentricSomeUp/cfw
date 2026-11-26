@@ -397,14 +397,14 @@ cfw_status_t cfw_dispatch_response_head_format(
     }
 
     version = req->version;
-    /* HEAD responses carry the headers GET would have produced,
-     * including Content-Length, but never body bytes (suppressed by
-     * cfw_http_response_has_body at the transport layer). */
-    body_allowed = res->body.size != 0 &&
-                   (cfw_http_response_has_body(req->method, res->status) ||
-                    (req->method == CFW_HTTP_METHOD_HEAD &&
-                     cfw_http_response_has_body(CFW_HTTP_METHOD_GET,
-                                                res->status)));
+    /* Responses that may carry a body always get a Content-Length —
+     * "0" for empty bodies — unless the caller supplied framing
+     * headers. HEAD mirrors the GET decision: it emits the same
+     * headers (body bytes are suppressed at the transport layer). */
+    body_allowed = cfw_http_response_has_body(req->method, res->status) ||
+                   (req->method == CFW_HTTP_METHOD_HEAD &&
+                    cfw_http_response_has_body(CFW_HTTP_METHOD_GET,
+                                               res->status));
     need_length = body_allowed &&
                   !cfw_dispatch_has_framing_header(
                       res, "content-length",

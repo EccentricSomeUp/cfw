@@ -89,6 +89,11 @@ semantic versioning once a stable release policy is adopted.
   at request-head time so waiting clients are not stalled
 - DNS resolution for server listen hosts via getaddrinfo (init-time
   only; first address in the configured family)
+- Response framing hardening: body-allowed responses now always emit a
+  correct Content-Length ("0" for empty bodies, previously omitted —
+  which broke keep-alive delimiting), and handler-supplied
+  Content-Length is stripped whenever the server manages framing,
+  preventing client hangs from mismatched values
 - HEAD requests fall back to GET routes and emit Content-Length like
   GET; method mismatches now return `405 Method Not Allowed` with an
   `Allow` header instead of 404 (`allowed_methods` bitmask added to

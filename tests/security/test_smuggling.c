@@ -28,6 +28,29 @@ static cfw_status_t cfw_sec_ok_handler(cfw_request_t *req,
     return CFW_OK;
 }
 
+/* Handler that attempts response-splitting via conflicting framing
+ * headers; the server must strip Transfer-Encoding and manage
+ * Content-Length itself. */
+static cfw_status_t cfw_sec_framing_evil_handler(cfw_request_t *req,
+                                                 cfw_response_t *res,
+                                                 void *user)
+{
+    static const char body[] = "routed";
+    cfw_strview_t hn, hv;
+    (void)req;
+    (void)user;
+    res->status = CFW_HTTP_STATUS_OK;
+    res->body.data = (const uint8_t *)body;
+    res->body.size = sizeof(body) - 1;
+    cfw_strview_from_cstr(&hn, "Transfer-Encoding");
+    cfw_strview_from_cstr(&hv, "chunked");
+    cfw_response_header_add(res, &hn, &hv);
+    cfw_strview_from_cstr(&hn, "Content-Length");
+    cfw_strview_from_cstr(&hv, "999999");
+    cfw_response_header_add(res, &hn, &hv);
+    return CFW_OK;
+}
+
 static int cfw_sec_connect(cfw_fd_t *client, uint16_t port)
 {
     cfw_sockaddr_t addr;
@@ -102,6 +125,11 @@ static int cfw_sec_setup(cfw_sec_server *ss)
                                               CFW_HTTP_METHOD_GET,
                                               &pattern, cfw_sec_ok_handler,
                                               NULL),
+                       CFW_OK);
+    cfw_strview_from_cstr(&pattern, "/evil");
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(
+                           &ss->dispatch, CFW_HTTP_METHOD_GET, &pattern,
+                           cfw_sec_framing_evil_handler, NULL),
                        CFW_OK);
 
     memset(&sopt, 0, sizeof(sopt));
@@ -307,6 +335,39 @@ static int test_sec_legit_request_still_works(void)
     return 0;
 }
 
+static int test_sec_response_framing_headers(void)
+{
+    cfw_sec_server ss;
+    cfw_fd_t client;
+    char response[4096];
+    size_t len = 0;
+    ssize_t n;
+
+    CFW_TEST_ASSERT_EQ(cfw_sec_setup(&ss), 0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_sec_connect(&client,
+                                       cfw_server_port(&ss.server)),
+                       0);
+    n = cfw_sec_roundtrip(
+        &ss, &client,
+        "GET /evil HTTP/1.1\r\nHost: x\r\n\r\n",
+        response, sizeof(response), &len);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    /* Transfer-Encoding must be stripped entirely. */
+    CFW_TEST_ASSERT_TRUE(!cfw_sec_contains(response, len,
+                                           "Transfer-Encoding"));
+    /* The bogus Content-Length must not survive; the server emits the
+     * correct one for the 6-byte body. */
+    CFW_TEST_ASSERT_TRUE(!cfw_sec_contains(response, len, "999999"));
+    CFW_TEST_ASSERT_TRUE(cfw_sec_contains(response, len,
+                                          "Content-Length: 6"));
+    CFW_TEST_ASSERT_TRUE(cfw_sec_contains(response, len, "routed"));
+
+    cfw_fd_close(&client);
+    cfw_sec_teardown(&ss);
+    return 0;
+}
+
 const cfw_test_case cfw_test_security_cases[] = {
     {"smuggling_cl_te_conflict", test_sec_cl_te_conflict},
     {"smuggling_duplicate_cl", test_sec_duplicate_cl_mismatch},
@@ -317,10 +378,44 @@ const cfw_test_case cfw_test_security_cases[] = {
     {"smuggling_cl_garbage", test_sec_cl_garbage},
     {"smuggling_chunked_bare_lf", test_sec_chunked_bare_lf},
     {"legit_request_unaffected", test_sec_legit_request_still_works},
+    {"response_framing_headers", test_sec_response_framing_headers},
     {NULL, NULL},
 };
 
 #else /* _WIN32 */
+
+static int test_sec_response_framing_headers(void)
+{
+    cfw_sec_server ss;
+    cfw_fd_t client;
+    char response[4096];
+    size_t len = 0;
+    ssize_t n;
+
+    CFW_TEST_ASSERT_EQ(cfw_sec_setup(&ss), 0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_sec_connect(&client,
+                                       cfw_server_port(&ss.server)),
+                       0);
+    n = cfw_sec_roundtrip(
+        &ss, &client,
+        "GET /evil HTTP/1.1\r\nHost: x\r\n\r\n",
+        response, sizeof(response), &len);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    /* Transfer-Encoding must be stripped entirely. */
+    CFW_TEST_ASSERT_TRUE(!cfw_sec_contains(response, len,
+                                           "Transfer-Encoding"));
+    /* The bogus Content-Length must not survive; the server emits the
+     * correct one for the 6-byte body. */
+    CFW_TEST_ASSERT_TRUE(!cfw_sec_contains(response, len, "999999"));
+    CFW_TEST_ASSERT_TRUE(cfw_sec_contains(response, len,
+                                          "Content-Length: 6"));
+    CFW_TEST_ASSERT_TRUE(cfw_sec_contains(response, len, "routed"));
+
+    cfw_fd_close(&client);
+    cfw_sec_teardown(&ss);
+    return 0;
+}
 
 const cfw_test_case cfw_test_security_cases[] = {
     {NULL, NULL},

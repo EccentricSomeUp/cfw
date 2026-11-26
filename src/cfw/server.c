@@ -345,6 +345,16 @@ static void cfw_server_handle_done(cfw_server_t *server,
      * server-driven chunked streaming exist) and would corrupt the byte
      * stream, so it is always stripped. */
     cfw_server_response_strip(&res, "transfer-encoding");
+    /* Content-Length is likewise server-managed whenever the response
+     * may carry a body: a wrong value would corrupt the byte stream
+     * (client hangs or reads into the next response). HEAD mirrors the
+     * GET decision. No-body statuses (1xx/204/304) keep caller headers. */
+    if (cfw_http_response_has_body(conn->head.request_line.method,
+                                   res.status) ||
+        (conn->head.request_line.method == CFW_HTTP_METHOD_HEAD &&
+         cfw_http_response_has_body(CFW_HTTP_METHOD_GET, res.status))) {
+        cfw_server_response_strip(&res, "content-length");
+    }
 
     /* Date header: added automatically unless the handler supplied
      * one. Wall-clock failure or a full header scratch is non-fatal. */
@@ -375,7 +385,6 @@ static void cfw_server_handle_done(cfw_server_t *server,
         conn->stream_hold_close = conn->http.close_after_write;
         conn->http.close_after_write = 0;
         memset(&res.body, 0, sizeof(res.body));
-        cfw_server_response_strip(&res, "content-length");
         conn->stream_chunked = 0;
         if (conn->head.request_line.version.major > 1 ||
             (conn->head.request_line.version.major == 1 &&

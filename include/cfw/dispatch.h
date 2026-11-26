@@ -194,9 +194,10 @@ CFW_API cfw_status_t cfw_dispatch_add_route(cfw_dispatch_t *dispatch,
  * - res: output response. The caller must set res->headers and
  *   res->header_capacity to its scratch array before the call; the
  *   function resets status (200), header_count, body, stream,
- *   stream_user, and user. Handlers own response framing details:
- *   Content-Length, when present, must equal body.size; the server
- *   strips Transfer-Encoding and manages chunked framing itself.
+ *   stream_user, and user. The server owns response framing: it strips
+ *   handler-supplied Transfer-Encoding and Content-Length whenever the
+ *   response may carry a body, then emits a correct Content-Length
+ *   (including "0" for empty bodies) or chunked streaming framing.
  *
  * Returns CFW_OK when a response was produced (including error-mapped
  * ones); CFW_ERROR_INVALID_ARGUMENT on invalid arguments. Routing,
