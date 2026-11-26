@@ -1061,7 +1061,52 @@ static int test_server_method_fallbacks(void)
     return 0;
 }
 
+
+static int test_server_streaming_conn_close(void)
+{
+    cfw_test_server ts;
+    cfw_fd_t client;
+    cfw_test_stream_state st;
+    char response[8192];
+    size_t used = 0;
+    ssize_t n;
+
+    memset(&st, 0, sizeof(st));
+    st.parts = cfw_test_stream_parts;
+    st.count = sizeof(cfw_test_stream_parts) /
+               sizeof(cfw_test_stream_parts[0]);
+    CFW_TEST_ASSERT_EQ(cfw_test_server_setup(&ts, (cfw_duration_t){0},
+                                             (cfw_duration_t){0}, 8),
+                       0);
+    CFW_TEST_ASSERT_EQ(cfw_test_stream_route(&ts, &st), 0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client,
+                                        cfw_server_port(&ts.server)),
+                       CFW_OK);
+    /* Closing request + chunked stream: the response must still carry
+     * Connection: close so the client does not pipeline into a
+     * connection the server will shut. */
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /stream HTTP/1.1\r\n"
+                                     "Host: x\r\n"
+                                     "Connection: close\r\n\r\n"),
+                       0);
+    memset(response, 0, sizeof(response));
+    n = cfw_test_recv_until(&ts.server, &client, response,
+                            sizeof(response), "0\r\n\r\n", &used);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, used,
+                                           "Transfer-Encoding: chunked"));
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, used,
+                                           "Connection: close"));
+
+    cfw_fd_close(&client);
+    cfw_test_server_teardown(&ts);
+    return 0;
+}
+
 const cfw_test_case cfw_test_server_cases[] = {
+    {"server_streaming_conn_close", test_server_streaming_conn_close},
     {"server_method_fallbacks", test_server_method_fallbacks},
     {"server_expect_rejected", test_server_expect_rejected},
     {"server_host_required", test_server_host_required},

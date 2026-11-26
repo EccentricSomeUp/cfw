@@ -402,7 +402,8 @@ static void cfw_server_handle_done(cfw_server_t *server,
                          conn->head.request_line.version.minor == 0);
         int will_close = conn->http.close_after_write ||
                          (conn->stream_fn != NULL &&
-                          !conn->stream_chunked);
+                          (conn->stream_hold_close ||
+                           !conn->stream_chunked));
         const char *token = will_close ? "close"
                                        : (is_http10 ? "keep-alive" : NULL);
         if (token != NULL) {
