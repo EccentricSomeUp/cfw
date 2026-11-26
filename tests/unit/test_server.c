@@ -3389,6 +3389,83 @@ static int test_server_reuse_port(void)
 
 #endif /* CFW_HAVE_SO_REUSEPORT */
 
+/* ---------------- IPv6 listener ---------------- */
+
+static int test_server_ipv6(void)
+{
+    cfw_arena_t *arena;
+    cfw_router_t router;
+    cfw_dispatch_t dispatch;
+    cfw_dispatch_options_t doptions;
+    cfw_server_options_t options;
+    cfw_server_t server;
+    cfw_strview_t pattern;
+    cfw_fd_t client;
+    cfw_sockaddr_t addr;
+    char response[8192];
+    ssize_t n;
+
+    arena = cfw_arena_create(32768);
+    CFW_TEST_ASSERT_TRUE(arena != NULL);
+    CFW_TEST_ASSERT_EQ(cfw_router_init(&router, arena), CFW_OK);
+    memset(&doptions, 0, sizeof(doptions));
+    doptions.router = &router;
+    doptions.handler = cfw_test_ok_handler;
+    doptions.max_middleware = 4;
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_init(&dispatch, arena, &doptions),
+                       CFW_OK);
+    cfw_strview_from_cstr(&pattern, "/hello");
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(&dispatch,
+                                              CFW_HTTP_METHOD_GET,
+                                              &pattern, cfw_test_ok_handler,
+                                              NULL),
+                       CFW_OK);
+
+    memset(&options, 0, sizeof(options));
+    options.host = "::1";
+    options.ipv6 = 1;
+    options.port = 0;
+    options.dispatch = &dispatch;
+    options.http.max_head_size = 8192;
+    options.http.max_body_size = 65536;
+    options.http.max_pending_size = 65536;
+    options.max_out_size = 65536;
+    options.max_connections = 8;
+    options.max_headers = 32;
+    options.max_params = 16;
+    CFW_TEST_ASSERT_EQ(cfw_server_init(&server, &options), CFW_OK);
+    CFW_TEST_ASSERT_TRUE(cfw_server_port(&server) != 0);
+
+    /* Connect over IPv6 loopback. */
+    CFW_TEST_ASSERT_EQ(cfw_addr_from_str(&addr, "::1",
+                                         cfw_server_port(&server)),
+                       CFW_OK);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_net_socket(AF_INET6, SOCK_STREAM, 0, &client),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_net_set_nonblocking(&client, 0), CFW_OK);
+    CFW_TEST_ASSERT_EQ(connect((int)cfw_fd_get(&client),
+                               (const struct sockaddr *)&addr.storage,
+                               addr.len),
+                       0);
+    CFW_TEST_ASSERT_EQ(cfw_net_set_nonblocking(&client, 1), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /hello HTTP/1.1\r\n"
+                                     "Host: t\r\n\r\n"),
+                       0);
+    n = cfw_test_serve_recv(&server, &client, response,
+                            sizeof(response) - 1);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    response[n] = '\0';
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                           "srv-ok"));
+
+    cfw_fd_close(&client);
+    cfw_server_free(&server);
+    cfw_arena_destroy(arena);
+    return 0;
+}
+
 const cfw_test_case cfw_test_server_cases[] = {
     {"server_upload_content_length", test_server_upload_content_length},
     {"server_upload_chunked", test_server_upload_chunked},
@@ -3433,6 +3510,7 @@ const cfw_test_case cfw_test_server_cases[] = {
     {"server_request_audit_upgrade", test_server_request_audit_upgrade},
     {"server_request_audit_abort", test_server_request_audit_abort},
     {"server_reuse_port", test_server_reuse_port},
+    {"server_ipv6", test_server_ipv6},
     {NULL, NULL},
 };
 
