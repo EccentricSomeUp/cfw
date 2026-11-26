@@ -360,15 +360,6 @@ static void cfw_server_handle_done(cfw_server_t *server,
      * one. Wall-clock failure or a full header scratch is non-fatal. */
     cfw_server_add_date_header(&res, date);
 
-    /* Signal close to the client when the connection will not be
-     * reused; header_add failure (full scratch) is non-fatal. */
-    if (conn->http.close_after_write) {
-        cfw_strview_t hn, hv;
-        cfw_strview_from_cstr(&hn, "Connection");
-        cfw_strview_from_cstr(&hv, "close");
-        cfw_response_header_add(&res, &hn, &hv);
-    }
-
     /* Streaming body: suppress the single-span body and frame via
      * chunked TE (HTTP/1.1) or close-delimited (older). While the
      * stream is active the connection must not auto-close on buffer
@@ -396,17 +387,30 @@ static void cfw_server_handle_done(cfw_server_t *server,
                 conn->stream_chunked = 1;
             }
         }
-        if (!conn->stream_chunked &&
-            conn->stream_hold_close == 0) {
-            /* Close-delimited fallback on a keep-alive request: tell
-             * the client the connection will close. */
-            cfw_strview_t hn, hv;
-            cfw_strview_from_cstr(&hn, "Connection");
-            cfw_strview_from_cstr(&hv, "close");
-            cfw_response_header_add(&res, &hn, &hv);
-        }
     } else {
         conn->stream_fn = NULL;
+    }
+
+    /* Signal connection persistence explicitly: HTTP/1.0 clients
+     * default to close, so keep-alive must be announced; HTTP/1.1+
+     * defaults to keep-alive, so only "close" needs signaling. A
+     * close-delimited stream always ends in close. Header add failure
+     * (full scratch) is non-fatal. */
+    {
+        int is_http10 = conn->head.request_line.version.major < 1 ||
+                        (conn->head.request_line.version.major == 1 &&
+                         conn->head.request_line.version.minor == 0);
+        int will_close = conn->http.close_after_write ||
+                         (conn->stream_fn != NULL &&
+                          !conn->stream_chunked);
+        const char *token = will_close ? "close"
+                                       : (is_http10 ? "keep-alive" : NULL);
+        if (token != NULL) {
+            cfw_strview_t hn, hv;
+            cfw_strview_from_cstr(&hn, "Connection");
+            cfw_strview_init(&hv, token, strlen(token));
+            cfw_response_header_add(&res, &hn, &hv);
+        }
     }
 
     memset(&req_view, 0, sizeof(req_view));
