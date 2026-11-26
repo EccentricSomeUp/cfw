@@ -34,6 +34,7 @@ set(CFW_SOURCES
     src/cfw/fd.c
     src/cfw/log.c
     src/cfw/platform.c
+    src/cfw/random.c
     src/cfw/span.c
     src/cfw/status.c
     src/cfw/strview.c
@@ -67,6 +68,10 @@ target_include_directories(cfw
 cfw_apply_strict_flags(cfw)
 cfw_apply_hardening_flags(cfw)
 cfw_apply_sanitizer_flags(cfw)
+
+if(WIN32)
+    target_link_libraries(cfw PRIVATE bcrypt)
+endif()
 
 if(CFW_BUILD_SHARED)
     set_target_properties(cfw PROPERTIES

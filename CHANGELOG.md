@@ -29,6 +29,8 @@ semantic versioning once a stable release policy is adopted.
   pointer width, diagnostic names, and OS page-size query
 - Owning file-descriptor wrapper (`cfw_fd_t`) with unique-ownership close
   and release semantics per the Phase 2 design record
+- Cryptographic random-source boundary: OS CSPRNG bytes, `u64` draws, and
+  unbiased bounded generation via rejection sampling
 - CMake build, presets, sanitizer configuration, install rules, and CMake
   package config
 - Custom unit-test harness with debug, release, and sanitizer verification

@@ -9,6 +9,7 @@
 #include <cfw/fd.h>
 #include <cfw/log.h>
 #include <cfw/platform.h>
+#include <cfw/random.h>
 #include <cfw/span.h>
 #include <cfw/status.h>
 #include <cfw/strview.h>

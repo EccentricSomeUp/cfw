@@ -8,6 +8,7 @@ add_executable(cfw_unit_tests
     unit/test_log.c
     unit/test_main.c
     unit/test_platform.c
+    unit/test_random.c
     unit/test_span.c
     unit/test_status.c
     unit/test_strview.c
