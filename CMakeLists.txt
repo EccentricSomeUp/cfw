@@ -41,6 +41,7 @@ set(CFW_SOURCES
     src/cfw/private/net.c
     src/cfw/private/pollset.c
     src/cfw/random.c
+    src/cfw/route.c
     src/cfw/span.c
     src/cfw/status.c
     src/cfw/strview.c

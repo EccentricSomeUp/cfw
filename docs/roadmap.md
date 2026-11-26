@@ -51,8 +51,8 @@ bounded resource behavior (head/body/pending caps) — met.
 
 ## Phase 4: Routing and middleware
 
-- Route table design and matching semantics
-- Path parameter extraction
+- Route table design and matching semantics — met (ADR 0026)
+- Path parameter extraction — met
 - Middleware ordering and cancellation
 - Error handling and response pipeline
 - Extensibility hooks for applications and plugins

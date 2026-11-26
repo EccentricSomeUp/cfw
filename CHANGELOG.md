@@ -61,6 +61,10 @@ semantic versioning once a stable release policy is adopted.
   head/body/pending resource limits
 - HTTP/1.1 connection binding: nonblocking socket ownership, integrated
   request reads, bounded response queue, and graceful close-after-write
+- Route table with segment-exact matching, `:name` path parameters, static-segment
+  priority, duplicate-parameter rejection, and arena-backed storage (ADR 0026)
+- HTTP target path extraction supporting origin-form, absolute-form, and
+  OPTIONS `*` targets
 - CMake build, presets, sanitizer configuration, install rules, and CMake
   package config
 - Custom unit-test harness with debug, release, and sanitizer verification

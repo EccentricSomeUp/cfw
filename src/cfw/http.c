@@ -1242,3 +1242,60 @@ cfw_status_t cfw_http_head_reader_head(const cfw_http_head_reader_t *reader,
     head->size = reader->head_size;
     return CFW_OK;
 }
+
+cfw_status_t cfw_http_target_path(const cfw_strview_t *target,
+                                  cfw_strview_t *path)
+{
+    size_t start;
+    size_t end;
+    size_t i;
+
+    if (target == NULL || path == NULL || target->data == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (target->size == 0) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    if (target->data[0] == '/') {
+        /* origin-form */
+        start = 0;
+    } else {
+        /* absolute-form: scheme "://" authority path. Anything else
+         * (authority-form, asterisk-form) has no path. */
+        size_t scheme_end = target->size;
+        for (i = 0; i + 2 < target->size; i++) {
+            if (target->data[i] == ':' && target->data[i + 1] == '/' &&
+                target->data[i + 2] == '/') {
+                scheme_end = i + 3;
+                break;
+            }
+            if (target->data[i] == '/' || target->data[i] == '?') {
+                break;
+            }
+        }
+        if (scheme_end == target->size) {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+        start = scheme_end;
+        while (start < target->size && target->data[start] != '/' &&
+               target->data[start] != '?') {
+            start++;
+        }
+        if (start == target->size || target->data[start] == '?') {
+            /* Absolute-form without a path component has effective path
+             * "/", but no '/' byte exists to reference; report invalid
+             * and let the caller substitute the root path. */
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+    }
+
+    /* Trim at '?' — the query is not part of the path. */
+    end = start;
+    while (end < target->size && target->data[end] != '?') {
+        end++;
+    }
+    path->data = target->data + start;
+    path->size = end - start;
+    return CFW_OK;
+}

@@ -209,6 +209,16 @@ CFW_API cfw_status_t cfw_http_headers_next(const cfw_strview_t *block,
                                            cfw_http_header_t *header,
                                            int *done);
 
+/* Extracts the path component of a request-target for routing:
+ * - origin-form "/path?query" → "/path"
+ * - absolute-form "http://host/path?query" → "/path" ("/" when absent)
+ * - authority-form and asterisk-form have no path →
+ *   CFW_ERROR_INVALID_ARGUMENT (also absolute-form lacking a path
+ *   component, since no '/' byte exists to reference)
+ * The returned view references the input; query and fragment are excluded. */
+CFW_API cfw_status_t cfw_http_target_path(const cfw_strview_t *target,
+                                         cfw_strview_t *path);
+
 CFW_API const char *cfw_http_method_name(cfw_http_method_t method);
 CFW_API cfw_status_t cfw_http_method_parse(const cfw_strview_t *token,
                                            cfw_http_method_t *method);
