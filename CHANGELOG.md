@@ -83,6 +83,8 @@ semantic versioning once a stable release policy is adopted.
 - API/ABI stability policy document (docs/api-stability.md)
 - Platform matrix updated to reflect implemented capabilities
 - Additional adversarial HTTP fuzz seeds
+- Graceful drain on shutdown: `cfw_server_run` keeps serving existing
+  connections after `cfw_server_stop` until `drain_timeout` expires
 - CMake build, presets, sanitizer configuration, install rules, and CMake
   package config
 - Custom unit-test harness with debug, release, and sanitizer verification

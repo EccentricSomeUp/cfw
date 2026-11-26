@@ -550,6 +550,29 @@ cfw_status_t cfw_server_run(cfw_server_t *server)
             return st;
         }
     }
+
+    /* Drain phase: serve remaining connections until they finish or
+     * drain_timeout expires. New accepts are already disabled. */
+    if (server->options.drain_timeout.nanoseconds != 0 &&
+        server->conn_count > 0) {
+        cfw_timepoint_t drain_deadline;
+        int expired = 0;
+        if (cfw_deadline_from_now(&drain_deadline,
+                                  server->options.drain_timeout) ==
+            CFW_OK) {
+            while (server->conn_count > 0) {
+                st = cfw_server_step(server, &drain_deadline);
+                if (st != CFW_OK) {
+                    return st;
+                }
+                if (cfw_deadline_expired(&drain_deadline, &expired) ==
+                        CFW_OK &&
+                    expired) {
+                    break;
+                }
+            }
+        }
+    }
     return CFW_OK;
 }
 

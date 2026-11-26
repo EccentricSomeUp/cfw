@@ -60,6 +60,11 @@ typedef struct cfw_server_options {
     size_t max_connections;
     /* Idle keep-alive timeout between requests; zero disables. */
     cfw_duration_t keep_alive_timeout;
+    /* After cfw_server_stop, cfw_server_run keeps serving existing
+     * connections until they drain or this deadline passes; zero
+     * returns immediately (connections then close on cfw_server_free
+     * or continued cfw_server_step calls). */
+    cfw_duration_t drain_timeout;
     /* Per-request head+body deadline; zero disables. */
     cfw_duration_t request_timeout;
     /* Per-request scratch sizes for header fields and route params. */
