@@ -58,9 +58,21 @@ cfw_status_t cfw_net_local_addr(cfw_fd_t *f, cfw_sockaddr_t *a)
 #include <netdb.h>
 #include <netinet/in.h>
 #include <stdio.h>
+#include <sys/socket.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+/* Suppresses SIGPIPE on platforms lacking MSG_NOSIGNAL (macOS, BSD);
+ * send() then reports EPIPE instead of killing the process. */
+static void cfw_net_set_nosigpipe(int raw)
+{
+#if !defined(MSG_NOSIGNAL) && defined(SO_NOSIGPIPE)
+    int one = 1;
+    (void)setsockopt(raw, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one));
+#endif
+    (void)raw;
+}
 
 static cfw_status_t cfw_net_errno(int error)
 {
@@ -288,6 +300,8 @@ cfw_status_t cfw_net_socket(int domain, int type, int protocol,
     }
     fd->handle = raw;
 #endif
+
+    cfw_net_set_nosigpipe(raw);
     return CFW_OK;
 }
 
@@ -371,6 +385,7 @@ cfw_status_t cfw_net_accept(cfw_fd_t *fd, cfw_sockaddr_t *peer,
         peer->len = len;
     }
 
+    cfw_net_set_nosigpipe(raw);
     out->handle = raw;
     return CFW_OK;
 }
