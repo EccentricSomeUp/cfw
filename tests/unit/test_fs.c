@@ -2,6 +2,7 @@
 
 #include <cfw/cfw.h>
 
+#include "private/fs_confined.h"
 #include "test_harness.h"
 
 #include <stdio.h>
@@ -249,6 +250,68 @@ static int test_fs_file_stream(void)
     return 0;
 }
 
+#if !defined(CFW_BUILD_SHARED)
+static int test_fs_file_open_confined(void)
+{
+    const char *path = "cfw_test_fs_confined.bin";
+    const char payload[] = "cfw-confined-payload";
+    FILE *file;
+    cfw_file_t fh;
+    unsigned char buf[8];
+    size_t got;
+    size_t off = 0;
+
+    file = fopen(path, "wb");
+    CFW_TEST_ASSERT(file != NULL);
+    CFW_TEST_ASSERT_EQ(fwrite(payload, 1, sizeof(payload) - 1, file),
+                       sizeof(payload) - 1);
+    CFW_TEST_ASSERT_EQ(fclose(file), 0);
+
+    cfw_file_init(&fh);
+    CFW_TEST_ASSERT_EQ(cfw_file_open_confined(NULL, ".", path),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_file_open_confined(&fh, NULL, path),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_file_open_confined(&fh, ".", NULL),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_file_open_confined(&fh, ".", ""),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_file_open_confined(&fh, ".", "/abs"),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_file_open_confined(&fh, ".", "a/../b"),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_file_open_confined(&fh, ".", "a\\b"),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_FALSE(cfw_file_valid(&fh));
+
+    CFW_TEST_ASSERT_EQ(cfw_file_open_confined(&fh, ".", path), CFW_OK);
+    CFW_TEST_ASSERT_TRUE(cfw_file_valid(&fh));
+    for (;;) {
+        CFW_TEST_ASSERT_EQ(cfw_file_read(&fh, buf, sizeof(buf), &got),
+                           CFW_OK);
+        if (got == 0) {
+            break;
+        }
+        CFW_TEST_ASSERT_TRUE(off + got <= sizeof(payload) - 1);
+        CFW_TEST_ASSERT_EQ(memcmp(buf, payload + off, got), 0);
+        off += got;
+    }
+    CFW_TEST_ASSERT_EQ(off, sizeof(payload) - 1);
+    CFW_TEST_ASSERT_EQ(cfw_file_close(&fh), CFW_OK);
+
+#if !defined(_WIN32)
+    /* A directory is not a regular file. */
+    cfw_file_init(&fh);
+    CFW_TEST_ASSERT_EQ(cfw_file_open_confined(&fh, ".", "."),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_FALSE(cfw_file_valid(&fh));
+#endif
+
+    CFW_TEST_ASSERT_EQ(remove(path), 0);
+    return 0;
+}
+#endif /* !CFW_BUILD_SHARED */
+
 const cfw_test_case cfw_test_fs_cases[] = {
     {"fs_file_size_success", test_fs_file_size_success},
     {"fs_file_size_errors", test_fs_file_size_errors},
@@ -256,5 +319,8 @@ const cfw_test_case cfw_test_fs_cases[] = {
     {"fs_file_open_read_close", test_fs_file_open_read_close},
     {"fs_file_open_errors", test_fs_file_open_errors},
     {"fs_file_stream", test_fs_file_stream},
+#if !defined(CFW_BUILD_SHARED)
+    {"fs_file_open_confined", test_fs_file_open_confined},
+#endif
     {NULL, NULL},
 };

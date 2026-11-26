@@ -14,6 +14,8 @@
 #include <unistd.h>
 
 #define CFW_TEST_STATIC_ROOT "cfw_test_static_root"
+#define CFW_TEST_STATIC_OUTSIDE_FILE "cfw_test_static_outside.txt"
+#define CFW_TEST_STATIC_OUTSIDE_DIR "cfw_test_static_outside_dir"
 
 static int cfw_test_next_calls;
 
@@ -69,6 +71,23 @@ static int cfw_test_static_setup(cfw_static_mount_t *mount,
              CFW_TEST_STATIC_ROOT);
     CFW_TEST_ASSERT_TRUE(mkdir(path, 0755) == 0 || errno == EEXIST);
 
+    /* Files outside the root, reachable only through symlinks. */
+    CFW_TEST_ASSERT_EQ(cfw_test_write_file(CFW_TEST_STATIC_OUTSIDE_FILE,
+                                           "outside secret"),
+                       0);
+    CFW_TEST_ASSERT_TRUE(mkdir(CFW_TEST_STATIC_OUTSIDE_DIR, 0755) == 0 ||
+                         errno == EEXIST);
+    snprintf(path, sizeof(path), "%s/secret.txt",
+             CFW_TEST_STATIC_OUTSIDE_DIR);
+    CFW_TEST_ASSERT_EQ(cfw_test_write_file(path, "outside dir secret"),
+                       0);
+    CFW_TEST_ASSERT_TRUE(symlink("../" CFW_TEST_STATIC_OUTSIDE_FILE,
+                                 "cfw_test_static_root/link.txt") == 0 ||
+                         errno == EEXIST);
+    CFW_TEST_ASSERT_TRUE(symlink("../" CFW_TEST_STATIC_OUTSIDE_DIR,
+                                 "cfw_test_static_root/linkdir") == 0 ||
+                         errno == EEXIST);
+
     arena = cfw_arena_create(4096);
     CFW_TEST_ASSERT(arena != NULL);
     memset(&opts, 0, sizeof(opts));
@@ -88,7 +107,8 @@ static int cfw_test_static_teardown(cfw_static_mount_t *mount,
     char cmd[600];
     (void)mount;
     cfw_arena_destroy(arena);
-    snprintf(cmd, sizeof(cmd), "rm -rf %s", CFW_TEST_STATIC_ROOT);
+    snprintf(cmd, sizeof(cmd), "rm -rf %s %s %s", CFW_TEST_STATIC_ROOT,
+             CFW_TEST_STATIC_OUTSIDE_FILE, CFW_TEST_STATIC_OUTSIDE_DIR);
     CFW_TEST_ASSERT_EQ(system(cmd), 0);
     return 0;
 }
@@ -423,6 +443,58 @@ static int test_static_errors_and_passthrough(void)
     return 0;
 }
 
+static int test_static_symlink_confinement(void)
+{
+    cfw_static_mount_t mount;
+    cfw_arena_t *arena;
+    cfw_http_header_t hdrs[8];
+    cfw_response_t res;
+    cfw_http_status_t status;
+    int nexted;
+    char body[128];
+    size_t len = 0;
+
+    CFW_TEST_ASSERT_EQ(cfw_test_static_setup(&mount, &arena, 4), 0);
+
+    /* A symlinked file inside root must not expose the outside target. */
+    CFW_TEST_ASSERT_EQ(cfw_test_serve(&mount, CFW_HTTP_METHOD_GET,
+                                      "/static/link.txt", &res, hdrs,
+                                      8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_NOT_FOUND);
+    CFW_TEST_ASSERT_EQ(nexted, 0);
+    CFW_TEST_ASSERT_TRUE(res.stream == NULL);
+
+    /* HEAD applies the same confinement decision as GET. */
+    CFW_TEST_ASSERT_EQ(cfw_test_serve(&mount, CFW_HTTP_METHOD_HEAD,
+                                      "/static/link.txt", &res, hdrs,
+                                      8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_NOT_FOUND);
+
+    /* A symlinked directory component is rejected during the walk. */
+    CFW_TEST_ASSERT_EQ(cfw_test_serve(&mount, CFW_HTTP_METHOD_GET,
+                                      "/static/linkdir/secret.txt",
+                                      &res, hdrs, 8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_NOT_FOUND);
+    CFW_TEST_ASSERT_EQ(nexted, 0);
+
+    /* A failed confined open must not leak the stream slot. */
+    CFW_TEST_ASSERT_EQ(cfw_test_serve(&mount, CFW_HTTP_METHOD_GET,
+                                      "/static/hello.txt", &res, hdrs,
+                                      8, &status, &nexted),
+                       0);
+    CFW_TEST_ASSERT_EQ(status, CFW_HTTP_STATUS_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_pull_body(&res, body, sizeof(body),
+                                          &len),
+                       0);
+    CFW_TEST_ASSERT_EQ(len, strlen("hello static world"));
+
+    CFW_TEST_ASSERT_EQ(cfw_test_static_teardown(&mount, arena), 0);
+    return 0;
+}
+
 static int test_static_slot_exhaustion(void)
 {
     cfw_static_mount_t mount;
@@ -480,6 +552,7 @@ const cfw_test_case cfw_test_static_cases[] = {
     {"static_head_and_mime", test_static_head_and_mime},
     {"static_errors_and_passthrough",
      test_static_errors_and_passthrough},
+    {"static_symlink_confinement", test_static_symlink_confinement},
     {"static_slot_exhaustion", test_static_slot_exhaustion},
 #endif
     {NULL, NULL},

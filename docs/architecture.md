@@ -64,6 +64,10 @@ abstraction exists.
 - `server`: listener, event loop, connection limits/timeouts,
   graceful stop, streaming request-body upload hooks (ADR 0033), and
   peer-address exposure (ADR 0032) (implemented; see `cfw/server.h`)
+- `static`: static file serving middleware with lexical path validation,
+  directory index resolution, MIME mapping, bounded stream slots, and
+  confined no-follow file opens on POSIX (implemented; see
+  `cfw/static.h`, ADRs 0036/0037)
 - `tls`: out of scope for the core library (ADR 0030); a future optional
   module would sit below `http1_conn`/`server` behind its own dependency ADR
 - `log`: structured, rate-limited, non-blocking-friendly logging

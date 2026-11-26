@@ -56,6 +56,10 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   `index.html`, maps extensions to Content-Type, and serves through a
   fixed arena slot pool (`max_concurrent` × `buffer_size`, 503 on
   exhaustion) with cleanup via `stream_end` on completion or abort.
+  File access uses confined descriptor-relative opens (ADR 0037):
+  symlink components are rejected on POSIX, the final descriptor is
+  verified as a regular file, and HEAD applies the same confinement
+  check as GET.
 
 ## [0.1.0] - 2026-11-26
 

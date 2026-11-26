@@ -2,6 +2,8 @@
 
 #include <cfw/static.h>
 
+#include "private/fs_confined.h"
+
 #include <cfw/fs.h>
 #include <cfw/http.h>
 #include <cfw/strview.h>
@@ -265,6 +267,7 @@ cfw_status_t cfw_static_serve(cfw_request_t *req, cfw_response_t *res,
     size_t plen;
     size_t alen;
     char decoded[CFW_STATIC_PATH_CAP];
+    char rel[CFW_STATIC_PATH_CAP];
     char fspath[CFW_STATIC_PATH_CAP];
     size_t dlen = 0;
     size_t rootlen;
@@ -312,6 +315,7 @@ cfw_status_t cfw_static_serve(cfw_request_t *req, cfw_response_t *res,
         return CFW_OK;
     }
     decoded[dlen] = '\0';
+    memcpy(rel, decoded, dlen + 1u);
     if (cfw_static_has_dotdot(decoded)) {
         cfw_static_respond(res, CFW_HTTP_STATUS_NOT_FOUND);
         return CFW_OK;
@@ -346,12 +350,19 @@ cfw_status_t cfw_static_serve(cfw_request_t *req, cfw_response_t *res,
     }
     if (is_dir) {
         size_t flen = strlen(fspath);
-        if (flen + 11u >= sizeof(fspath)) {
+        size_t rlen = strlen(rel);
+        int rel_slash = rlen > 0 && rel[rlen - 1] != '/';
+        if (flen + 11u >= sizeof(fspath) ||
+            rlen + (size_t)rel_slash + 11u > sizeof(rel)) {
             cfw_static_respond(res, CFW_HTTP_STATUS_URI_TOO_LONG);
             return CFW_OK;
         }
         memcpy(fspath + flen, "/index.html", 11u);
         fspath[flen + 11u] = '\0';
+        if (rel_slash) {
+            rel[rlen++] = '/';
+        }
+        memcpy(rel + rlen, "index.html", 11u);
     }
     status = cfw_file_size(fspath, &fsize);
     if (status != CFW_OK) {
@@ -362,13 +373,19 @@ cfw_status_t cfw_static_serve(cfw_request_t *req, cfw_response_t *res,
         return CFW_OK;
     }
 
-    if (cfw_static_set_type(res, cfw_static_content_type(fspath)) !=
-        CFW_OK) {
-        cfw_static_respond(res, CFW_HTTP_STATUS_INTERNAL_SERVER_ERROR);
-        return CFW_OK;
-    }
-
     if (is_head) {
+        cfw_file_t probe;
+        cfw_file_init(&probe);
+        if (cfw_file_open_confined(&probe, mount->root, rel) != CFW_OK) {
+            cfw_static_respond(res, CFW_HTTP_STATUS_NOT_FOUND);
+            return CFW_OK;
+        }
+        cfw_file_close(&probe);
+        if (cfw_static_set_type(res, cfw_static_content_type(fspath)) !=
+            CFW_OK) {
+            cfw_static_respond(res, CFW_HTTP_STATUS_INTERNAL_SERVER_ERROR);
+            return CFW_OK;
+        }
         res->status = CFW_HTTP_STATUS_OK;
         return CFW_OK;
     }
@@ -383,9 +400,17 @@ cfw_status_t cfw_static_serve(cfw_request_t *req, cfw_response_t *res,
         stream = (cfw_file_stream_t *)slot;
         stream->buffer = slot + sizeof(cfw_file_stream_t);
         stream->buffer_size = mount->buffer_size;
-        if (cfw_file_stream_init(stream, fspath, stream->buffer,
-                                 mount->buffer_size) != CFW_OK) {
+        stream->eof = 0;
+        cfw_file_init(&stream->file);
+        if (cfw_file_open_confined(&stream->file, mount->root, rel) !=
+            CFW_OK) {
             cfw_static_respond(res, CFW_HTTP_STATUS_NOT_FOUND);
+            return CFW_OK;
+        }
+        if (cfw_static_set_type(res, cfw_static_content_type(fspath)) !=
+            CFW_OK) {
+            cfw_file_stream_end(stream);
+            cfw_static_respond(res, CFW_HTTP_STATUS_INTERNAL_SERVER_ERROR);
             return CFW_OK;
         }
         res->status = CFW_HTTP_STATUS_OK;

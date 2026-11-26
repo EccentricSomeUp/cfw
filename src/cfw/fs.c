@@ -1,6 +1,11 @@
 /* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 */
 
+#if !defined(_WIN32)
+    #define _POSIX_C_SOURCE 200809L
+#endif
+
 #include <cfw/fs.h>
+#include "private/fs_confined.h"
 
 #include <string.h>
 
@@ -10,6 +15,7 @@
     #include <sys/stat.h>
     #define CFW_STAT_STRUCT struct _stat64
     #define CFW_STAT_FUNC _stat64
+    #define CFW_FILE_STAT_FUNC _fstat64
     #define CFW_FILE_OPEN_FLAGS (_O_RDONLY | _O_BINARY)
     #define CFW_FILE_OPEN_FUNC _open
     #define CFW_FILE_READ_FUNC _read
@@ -21,6 +27,7 @@
     #include <unistd.h>
     #define CFW_STAT_STRUCT struct stat
     #define CFW_STAT_FUNC stat
+    #define CFW_FILE_STAT_FUNC fstat
     #define CFW_FILE_OPEN_FLAGS O_RDONLY
     #define CFW_FILE_OPEN_FUNC open
     #define CFW_FILE_READ_FUNC read
@@ -28,6 +35,7 @@
 #endif
 
 #define CFW_FILE_INVALID ((intptr_t)-1)
+#define CFW_FS_CONFINED_PATH_CAP 4096u
 
 cfw_status_t cfw_file_size(const char *path, uint64_t *size)
 {
@@ -95,6 +103,198 @@ cfw_status_t cfw_file_open(cfw_file_t *file, const char *path)
     }
     file->handle = handle;
     return CFW_OK;
+}
+
+/* Normalizes a relative confined path into `out`: rejects absolute
+ * paths, backslashes, and ".." segments; drops empty segments from
+ * repeated or trailing slashes; preserves "." segments because they can
+ * still denote directory identity at the end of a path. */
+static cfw_status_t cfw_file_confined_normalize(const char *path,
+                                                char *out, size_t cap,
+                                                size_t *out_len)
+{
+    const char *p = path;
+    size_t o = 0;
+
+    if (path == NULL || path[0] == '\0' || path[0] == '/' ||
+        path[0] == '\\') {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    for (;;) {
+        const char *end = strchr(p, '/');
+        size_t seglen = end != NULL ? (size_t)(end - p) : strlen(p);
+        size_t i;
+
+        for (i = 0; i < seglen; i++) {
+            if (p[i] == '\\') {
+                return CFW_ERROR_INVALID_ARGUMENT;
+            }
+        }
+        if (seglen == 2 && p[0] == '.' && p[1] == '.') {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+        if (seglen > 0) {
+            size_t need = o + seglen + (o > 0 ? 1u : 0u) + 1u;
+            if (need > cap) {
+                return CFW_ERROR_INVALID_ARGUMENT;
+            }
+            if (o > 0) {
+                out[o++] = '/';
+            }
+            memcpy(out + o, p, seglen);
+            o += seglen;
+        }
+        if (end == NULL) {
+            break;
+        }
+        p = end + 1;
+    }
+
+    if (o == 0) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    out[o] = '\0';
+    *out_len = o;
+    return CFW_OK;
+}
+
+#if !defined(_WIN32)
+static int cfw_file_open_mode(int extra)
+{
+    int flags = O_RDONLY | extra;
+#ifdef O_CLOEXEC
+    flags |= O_CLOEXEC;
+#endif
+    return flags;
+}
+#endif
+
+cfw_status_t cfw_file_open_confined(cfw_file_t *file, const char *root,
+                                    const char *path)
+{
+    char norm[CFW_FS_CONFINED_PATH_CAP];
+    size_t norm_len = 0;
+    cfw_status_t status;
+
+    if (file == NULL || root == NULL || path == NULL ||
+        cfw_file_valid(file)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    status = cfw_file_confined_normalize(path, norm, sizeof(norm),
+                                         &norm_len);
+    if (status != CFW_OK) {
+        return status;
+    }
+    (void)norm_len;
+
+#if defined(_WIN32)
+    {
+        char full[CFW_FS_CONFINED_PATH_CAP];
+        size_t rootlen = strlen(root);
+        size_t o = rootlen;
+        intptr_t handle;
+        CFW_STAT_STRUCT st;
+
+        if (rootlen >= sizeof(full) || norm_len >= sizeof(full) ||
+            rootlen + norm_len + 2u > sizeof(full)) {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+        memcpy(full, root, rootlen);
+        if (o > 0 && full[o - 1] != '/' && full[o - 1] != '\\') {
+            full[o++] = '/';
+        }
+        memcpy(full + o, norm, norm_len + 1u);
+
+        handle = (intptr_t)CFW_FILE_OPEN_FUNC(full, CFW_FILE_OPEN_FLAGS);
+        if (handle < 0) {
+            return CFW_ERROR_IO;
+        }
+        if (CFW_FILE_FSTAT_FUNC((int)handle, &st) != 0 ||
+            (st.st_mode & _S_IFMT) != _S_IFREG) {
+            CFW_FILE_CLOSE_FUNC((int)handle);
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+        file->handle = handle;
+        return CFW_OK;
+    }
+#else
+    #if defined(O_NOFOLLOW)
+    {
+        CFW_STAT_STRUCT st;
+        int dirfd;
+        char *cursor = norm;
+
+        dirfd = open(root, cfw_file_open_mode(0));
+        if (dirfd < 0) {
+            return CFW_ERROR_IO;
+        }
+        if (fstat(dirfd, &st) != 0 || !S_ISDIR(st.st_mode)) {
+            close(dirfd);
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+
+        while (cursor != NULL && *cursor != '\0') {
+            char *slash = strchr(cursor, '/');
+            int last = slash == NULL;
+            int nextfd;
+
+            if (slash != NULL) {
+                *slash = '\0';
+            }
+            if (last) {
+                int fd = openat(dirfd, cursor,
+                                cfw_file_open_mode(O_NOFOLLOW));
+                if (fd < 0) {
+                    close(dirfd);
+                    return CFW_ERROR_IO;
+                }
+                if (fstat(fd, &st) != 0) {
+                    close(fd);
+                    close(dirfd);
+                    return CFW_ERROR_IO;
+                }
+                if (!S_ISREG(st.st_mode)) {
+                    close(fd);
+                    close(dirfd);
+                    return CFW_ERROR_INVALID_ARGUMENT;
+                }
+                close(dirfd);
+                file->handle = (intptr_t)fd;
+                return CFW_OK;
+            }
+
+            nextfd = openat(dirfd, cursor,
+                            cfw_file_open_mode(O_NOFOLLOW));
+            if (nextfd < 0) {
+                close(dirfd);
+                return CFW_ERROR_IO;
+            }
+            if (fstat(nextfd, &st) != 0) {
+                close(nextfd);
+                close(dirfd);
+                return CFW_ERROR_IO;
+            }
+            if (!S_ISDIR(st.st_mode)) {
+                close(nextfd);
+                close(dirfd);
+                return CFW_ERROR_INVALID_ARGUMENT;
+            }
+            close(dirfd);
+            dirfd = nextfd;
+            cursor = slash + 1;
+        }
+
+        close(dirfd);
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    #else
+        (void)norm;
+        (void)root;
+        (void)file;
+        return CFW_ERROR_UNAVAILABLE;
+    #endif
+#endif
 }
 
 cfw_status_t cfw_file_read(cfw_file_t *file, void *buffer,

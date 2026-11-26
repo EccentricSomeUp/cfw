@@ -106,10 +106,11 @@ per request, and DoS-bounded (a slot flood yields 503, not growth).
 - The *suffix* is fully decoded then validated: no `..` segment, no
   NUL, no `\`, no empty path, length-capped. This blocks `..`,
   `%2e%2e`, mixed-encoding, and Windows-separator traversal.
-- Known limitation (documented, deferred): symlinks inside `root`
-  that point outside it are followed. OS-level confinement
-  (`openat2`/`RESOLVE_BENEATH`) is POSIX-specific and deferred; the
-  audit records it as an accepted v1 gap with a hardening note.
+- Known limitation (superseded by ADR 0037): symlinks inside `root`
+  that point outside it are no longer followed on POSIX; file access
+  uses confined descriptor-relative opens and `fstat` regular-file
+  verification. Windows remains best-effort while server support is
+  deferred.
 
 ### MIME types
 

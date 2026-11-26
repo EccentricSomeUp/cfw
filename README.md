@@ -15,9 +15,12 @@ enforcement, `Expect: 100-continue`, pull-style streaming response
 bodies (chunked or close-delimited), streaming request-body uploads via
 server hooks, peer-address exposure to handlers, and opt-in protocol
 upgrades (`101 Switching Protocols` takeover for application-defined
-protocols, ADR 0034), and a WebSocket module (`cfw/ws.h`, RFC 6455:
+protocols, ADR 0034), a WebSocket module (`cfw/ws.h`, RFC 6455:
 handshake helpers, masked frame codec, fragmentation, ping/pong, close
-handshake, bounded reassembly — ADR 0035). TLS is out of scope
+handshake, bounded reassembly — ADR 0035), and static file serving
+(`cfw/static.h`: prefix middleware, traversal-safe decoding,
+index resolution, MIME types, bounded stream slots, and confined
+no-follow file opens on POSIX — ADRs 0036/0037). TLS is out of scope
 (ADR 0030).
 
 ## Priorities
