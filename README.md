@@ -25,7 +25,8 @@ no-follow file opens on POSIX — ADRs 0036/0037), cookie parsing and
 Set-Cookie serialization (ADR 0045), plus security primitives for
 application tokens: SHA-256/HMAC-SHA256 and constant-time comparison
 (ADR 0046), canonical base64/hex codecs (ADR 0047), and HMAC-signed
-token envelopes for cookies/CSRF/reset tokens (ADR 0048), and portable
+token envelopes for cookies/CSRF/reset tokens (ADR 0048), buffered
+multipart/form-data parsing (`cfw/multipart.h`, ADR 0043), and portable
 mutex/condition-variable primitives and thread spawn/join/detach for
 application-owned concurrency (`cfw/sync.h`, `cfw/thread.h`, ADRs
 0050/0051), and a per-request completion audit hook delivering status,
@@ -123,14 +124,17 @@ reachable from handlers as `req->tls_conn`, ADR 0063), session
 resumption via `cfw_tls_conn_get_session`/`cfw_tls_conn_set_session`
 (ADR 0062), and mixed cleartext/TLS listeners via `tls_detect`,
 which sniffs each connection's first byte to serve HTTP and HTTPS on
-one port (ADR 0061).
+one port (ADR 0061). Client-side connections get SNI plus optional
+hostname verification via `cfw_tls_conn_set_server_name` (ADR 0064),
+and the negotiated name is readable with
+`cfw_tls_conn_get_server_name` (ADR 0066).
 
 Horizontal scaling uses `cfw_server_options_t.reuse_port` (ADR 0056):
 multiple `cfw_server_t` instances share one listen address via
 `SO_REUSEPORT`, typically one per `cfw_thread_t` worker — see
 `examples/threaded_server.c`. A loopback benchmark harness lives in
 `tests/bench/bench_server.c` (`cfw_bench [requests] [warmup]
-[workers]`).
+[workers] [tls]`; TLS mode needs `CFW_BENCH_TLS_CERT`/`_KEY`).
 
 ## Minimal server
 
