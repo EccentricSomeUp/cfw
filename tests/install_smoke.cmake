@@ -68,8 +68,27 @@ if(NOT build_result EQUAL 0)
     message(FATAL_ERROR "consumer build failed with ${build_result}")
 endif()
 
+# Multi-config generators place the binary under <config>/ and use an
+# .exe suffix on Windows; single-config builds put it at the top level.
+set(consumer_exe "${consumer_build}/cfw_install_smoke_consumer")
+if(DEFINED EXPECTED_CONFIG AND NOT EXPECTED_CONFIG STREQUAL "")
+    set(consumer_exe_cfg
+        "${consumer_build}/${EXPECTED_CONFIG}/cfw_install_smoke_consumer")
+    if(EXISTS "${consumer_exe_cfg}.exe")
+        set(consumer_exe "${consumer_exe_cfg}.exe")
+    elseif(EXISTS "${consumer_exe_cfg}")
+        set(consumer_exe "${consumer_exe_cfg}")
+    endif()
+endif()
+if(EXISTS "${consumer_exe}.exe")
+    set(consumer_exe "${consumer_exe}.exe")
+endif()
+if(NOT EXISTS "${consumer_exe}")
+    message(FATAL_ERROR "consumer binary not found: ${consumer_exe}")
+endif()
+
 execute_process(
-    COMMAND "${consumer_build}/cfw_install_smoke_consumer"
+    COMMAND "${consumer_exe}"
     RESULT_VARIABLE run_result
 )
 if(NOT run_result EQUAL 0)
