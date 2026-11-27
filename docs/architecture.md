@@ -79,19 +79,26 @@ abstraction exists.
   ADRs 0036/0037/0039/0040)
 - `tls`: optional OpenSSL 3.x-backed transport module below
   `http1_conn`/`server` (implemented as `cfw/tls.h`/`src/cfw/tls.c`;
-  ADRs 0030/0057). Opt-in via `CFW_ENABLE_TLS`; default builds are
-  cleartext-only and the entry points stub to `CFW_ERROR_UNAVAILABLE`
+  ADRs 0030/0057/0058/0060). Opt-in via `CFW_ENABLE_TLS`; default
+  builds are cleartext-only and the entry points stub to
+  `CFW_ERROR_UNAVAILABLE`. `cfw_http1_conn_t` accepts an optional
+  `cfw_http1_transport_t` byte-stream override, and
+  `cfw_server_options_t.tls_ctx` turns a listener into an HTTPS
+  server (handshake before HTTP parsing, ALPN negotiation, mTLS peer
+  certificate access). Upgraded protocols (WebSocket) ride the same
+  transport, so `wss://` works end-to-end.
 - `uri`: shared percent-decoding primitive with per-use flags
   (implemented; see `cfw/uri.h`, ADR 0044); also backs query parsing,
   static-file path decoding, and route-parameter decoding
 - `cookie`: Cookie header parsing and Set-Cookie serialization with
   RFC 6265 character validation (implemented; see `cfw/cookie.h`,
   ADR 0045)
-- `crypto`: SHA-256, HMAC-SHA256, and constant-time comparison for
-  MACs and integrity tags (implemented; see `cfw/crypto.h`,
-  ADR 0046); not for password hashing
-- `codec`: canonical base64 and hex encode/decode for tokens and
-  signatures (implemented; see `cfw/codec.h`, ADR 0047)
+- `crypto`: SHA-256, HMAC-SHA256 (one-shot and streaming), and
+  constant-time comparison for MACs and integrity tags (implemented;
+  see `cfw/crypto.h`, ADR 0046); not for password hashing
+- `codec`: canonical base64, URL-safe base64url (ADR 0059), and hex
+  encode/decode for tokens and signatures (implemented; see
+  `cfw/codec.h`, ADRs 0047/0059)
 - `signed`: HMAC-authenticated token envelopes for signed cookies,
   CSRF, and reset tokens (implemented; see `cfw/signed.h`, ADR 0048)
 - `sync`: portable mutex and condition-variable primitives with
