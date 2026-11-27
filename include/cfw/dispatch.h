@@ -30,7 +30,11 @@ extern "C" {
  * for the duration of cfw_dispatch_request.
  *
  * Middleware ordering: registered first = outermost. It sees the request
- * first and the response last. Cancellation: return CFW_OK without
+ * first and the response last. The chain runs for every well-formed
+ * request — including paths that match no route (ADR 0065): the
+ * route-miss 404/405 response is produced at the end of the chain, so
+ * middleware may intercept unmatched requests (e.g. cfw_static_serve)
+ * or pass them through. Cancellation: return CFW_OK without
  * calling next() to short-circuit; return any error status to abort into
  * the error handler. next() must be called at most once per middleware.
  */

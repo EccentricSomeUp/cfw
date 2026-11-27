@@ -9,6 +9,20 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ## [Unreleased]
 
+### Added
+
+- `examples/static_files.c`: static file server example mounting
+  `cfw_static_serve` (conditional requests, Range, ETag) alongside a
+  dynamic route.
+
+### Fixed
+
+- Dispatch middleware now runs for requests that match no route
+  (ADR 0065): the 404/405 response moved to the end of the middleware
+  chain, so prefix-intercepting middleware such as
+  `cfw_static_serve` can actually serve unmatched paths — previously
+  they 404'd before middleware ran, making static mounts inert.
+
 ## [0.8.0] - 2026-11-27
 
 ### Added

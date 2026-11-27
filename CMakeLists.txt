@@ -207,6 +207,12 @@ if(CFW_BUILD_EXAMPLES)
     cfw_apply_strict_flags(cfw_example_mtls_authz)
     cfw_apply_hardening_flags(cfw_example_mtls_authz)
     cfw_apply_sanitizer_flags(cfw_example_mtls_authz)
+
+    add_executable(cfw_example_static_files examples/static_files.c)
+    target_link_libraries(cfw_example_static_files PRIVATE cfw)
+    cfw_apply_strict_flags(cfw_example_static_files)
+    cfw_apply_hardening_flags(cfw_example_static_files)
+    cfw_apply_sanitizer_flags(cfw_example_static_files)
 endif()
 
 if(CFW_BUILD_TESTING)

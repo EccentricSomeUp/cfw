@@ -279,6 +279,86 @@ static int test_dispatch_no_route_and_errors(void)
     return 0;
 }
 
+typedef struct {
+    int calls;
+    int saw_unmatched;
+    int cancel;
+} cfw_test_unmatched_mw_state;
+
+/* Middleware that observes whether the request matched a route,
+ * optionally short-circuiting it (the cfw_static_serve pattern —
+ * ADR 0065). */
+static cfw_status_t cfw_test_unmatched_mw(cfw_request_t *req,
+                                          cfw_response_t *res,
+                                          cfw_dispatch_next_t next,
+                                          cfw_dispatch_frame_t *frame,
+                                          void *user)
+{
+    cfw_test_unmatched_mw_state *state = user;
+    (void)res;
+
+    state->calls++;
+    if (req->match.route == NULL) {
+        state->saw_unmatched++;
+    }
+    if (state->cancel) {
+        res->status = CFW_HTTP_STATUS_OK;
+        return CFW_OK; /* short-circuit: never call next */
+    }
+    return next(frame);
+}
+
+static int test_dispatch_middleware_unmatched(void)
+{
+    cfw_arena_t *arena = cfw_arena_create(8192);
+    cfw_router_t router;
+    cfw_dispatch_t dispatch;
+    cfw_dispatch_options_t options;
+    cfw_test_handler_state handler = {0, CFW_HTTP_STATUS_OK, "ok"};
+    cfw_test_unmatched_mw_state mw = {0, 0, 0};
+    cfw_http_header_t res_headers[8];
+    cfw_route_param_t params[8];
+    cfw_response_t res;
+    static const char head[] = "GET /missing HTTP/1.1\r\n\r\n";
+
+    CFW_TEST_ASSERT_TRUE(arena != NULL);
+    CFW_TEST_ASSERT_EQ(cfw_router_init(&router, arena), CFW_OK);
+    CFW_TEST_ASSERT_EQ(
+        cfw_test_router_add(&router, CFW_HTTP_METHOD_GET, "/x", NULL), 0);
+    memset(&options, 0, sizeof(options));
+    options.router = &router;
+    options.handler = cfw_test_handler;
+    options.handler_user = &handler;
+    options.max_middleware = 2;
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_init(&dispatch, arena, &options), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_use(&dispatch, cfw_test_unmatched_mw,
+                                        &mw),
+                       CFW_OK);
+
+    /* Pass-through: middleware sees the unmatched request, then the
+     * chain terminal produces the 404. */
+    CFW_TEST_ASSERT_EQ(cfw_test_dispatch_run(&dispatch, head, NULL,
+                                             res_headers, 8, params, 8, &res),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(mw.calls, 1);
+    CFW_TEST_ASSERT_EQ(mw.saw_unmatched, 1);
+    CFW_TEST_ASSERT_EQ(res.status, CFW_HTTP_STATUS_NOT_FOUND);
+    CFW_TEST_ASSERT_EQ(handler.calls, 0);
+
+    /* Short-circuit: middleware answers the unmatched request itself
+     * and the 404 never happens (cfw_static_serve interception). */
+    mw.cancel = 1;
+    CFW_TEST_ASSERT_EQ(cfw_test_dispatch_run(&dispatch, head, NULL,
+                                             res_headers, 8, params, 8, &res),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(mw.calls, 2);
+    CFW_TEST_ASSERT_EQ(res.status, CFW_HTTP_STATUS_OK);
+    CFW_TEST_ASSERT_EQ(handler.calls, 0);
+
+    cfw_arena_destroy(arena);
+    return 0;
+}
+
 static cfw_status_t cfw_test_inspect_handler(cfw_request_t *req,
                                              cfw_response_t *res,
                                              void *user)
@@ -663,6 +743,7 @@ const cfw_test_case cfw_test_dispatch_cases[] = {
     {"dispatch_basic", test_dispatch_basic},
     {"dispatch_middleware_order_cancel", test_dispatch_middleware_order_cancel},
     {"dispatch_no_route_and_errors", test_dispatch_no_route_and_errors},
+    {"dispatch_middleware_unmatched", test_dispatch_middleware_unmatched},
     {"dispatch_params_and_headers", test_dispatch_params_and_headers},
     {"dispatch_response_format", test_dispatch_response_format},
     {"dispatch_validation", test_dispatch_validation},

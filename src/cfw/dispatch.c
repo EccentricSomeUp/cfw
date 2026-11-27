@@ -128,6 +128,61 @@ static cfw_status_t cfw_dispatch_fail(const cfw_dispatch_t *dispatch,
     return CFW_OK;
 }
 
+/* Produces the route-miss response at the end of the middleware
+ * chain: 405 + Allow when the path matched under other methods,
+ * else 404. Runs as the chain terminal so middleware may
+ * short-circuit unmatched requests first (ADR 0065). */
+static cfw_status_t cfw_dispatch_route_miss(const cfw_dispatch_t *dispatch,
+                                            cfw_request_t *req,
+                                            cfw_response_t *res)
+{
+    if (req->match.allowed_methods != 0) {
+        /* Path exists under other method(s): 405 + Allow. */
+        cfw_status_t fst = cfw_dispatch_fail(
+            dispatch, req, res, CFW_HTTP_STATUS_METHOD_NOT_ALLOWED);
+        if (fst == CFW_OK) {
+            static const char allow_name[] = "Allow";
+            char *allow_value;
+            size_t av_len = 0;
+            int m;
+            cfw_strview_t hn, hv;
+            for (m = 1; m <= 9; m++) {
+                if ((req->match.allowed_methods & (1u << m)) != 0) {
+                    av_len += strlen(cfw_http_method_name(
+                        (cfw_http_method_t)m)) + 2;
+                }
+            }
+            if (av_len != 0 &&
+                cfw_arena_alloc(dispatch->arena, av_len,
+                                (void **)&allow_value) == CFW_OK) {
+                char *w = allow_value;
+                for (m = 1; m <= 9; m++) {
+                    const char *mn;
+                    size_t ml;
+                    if ((req->match.allowed_methods & (1u << m)) == 0) {
+                        continue;
+                    }
+                    mn = cfw_http_method_name((cfw_http_method_t)m);
+                    ml = strlen(mn);
+                    memcpy(w, mn, ml);
+                    w += ml;
+                    *w++ = ',';
+                    *w++ = ' ';
+                }
+                w -= 2; /* trailing ", " */
+                cfw_strview_init(&hn, allow_name,
+                                 sizeof(allow_name) - 1);
+                cfw_strview_init(&hv, allow_value,
+                                 (size_t)(w - allow_value));
+                cfw_response_header_add(res, &hn, &hv);
+            }
+        }
+        return fst;
+    }
+    return cfw_dispatch_fail(dispatch, req, res,
+                             CFW_HTTP_STATUS_NOT_FOUND);
+}
+
 static cfw_status_t cfw_dispatch_chain_next(cfw_dispatch_frame_t *frame)
 {
     const cfw_dispatch_t *dispatch = frame->dispatch;
@@ -137,6 +192,10 @@ static cfw_status_t cfw_dispatch_chain_next(cfw_dispatch_frame_t *frame)
         return dispatch->middleware[index].fn(
             frame->req, frame->res, cfw_dispatch_chain_next, frame,
             dispatch->middleware[index].user);
+    }
+    if (frame->req->match.route == NULL) {
+        return cfw_dispatch_route_miss(dispatch, frame->req,
+                                       frame->res);
     }
     {
         const cfw_route_binding_t *binding =
@@ -266,55 +325,10 @@ cfw_status_t cfw_dispatch_request_ex(
     req.params = params;
     req.params_written = req.match.params_written;
     req.route_user = req.match.user;
-    if (req.match.route == NULL) {
-        if (req.match.allowed_methods != 0) {
-            /* Path exists under other method(s): 405 + Allow. */
-            cfw_status_t fst = cfw_dispatch_fail(
-                dispatch, &req, res, CFW_HTTP_STATUS_METHOD_NOT_ALLOWED);
-            if (fst == CFW_OK) {
-                static const char allow_name[] = "Allow";
-                char *allow_value;
-                size_t av_len = 0;
-                int m;
-                cfw_strview_t hn, hv;
-                for (m = 1; m <= 9; m++) {
-                    if ((req.match.allowed_methods & (1u << m)) != 0) {
-                        av_len += strlen(cfw_http_method_name(
-                            (cfw_http_method_t)m)) + 2;
-                    }
-                }
-                if (av_len != 0 &&
-                    cfw_arena_alloc(dispatch->arena, av_len,
-                                    (void **)&allow_value) == CFW_OK) {
-                    char *w = allow_value;
-                    for (m = 1; m <= 9; m++) {
-                        const char *mn;
-                        size_t ml;
-                        if ((req.match.allowed_methods & (1u << m)) == 0) {
-                            continue;
-                        }
-                        mn = cfw_http_method_name((cfw_http_method_t)m);
-                        ml = strlen(mn);
-                        memcpy(w, mn, ml);
-                        w += ml;
-                        *w++ = ',';
-                        *w++ = ' ';
-                    }
-                    w -= 2; /* trailing ", " */
-                    cfw_strview_init(&hn, allow_name,
-                                     sizeof(allow_name) - 1);
-                    cfw_strview_init(&hv, allow_value,
-                                     (size_t)(w - allow_value));
-                    cfw_response_header_add(res, &hn, &hv);
-                }
-            }
-            return fst;
-        }
-        return cfw_dispatch_fail(dispatch, &req, res,
-                                 CFW_HTTP_STATUS_NOT_FOUND);
-    }
 
-    /* Middleware chain → terminal handler. */
+    /* Middleware chain → terminal handler (or route-miss response
+     * when nothing matched; middleware may intercept first — ADR
+     * 0065). */
     frame.dispatch = dispatch;
     frame.req = &req;
     frame.res = res;
