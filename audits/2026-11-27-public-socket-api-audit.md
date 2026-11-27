@@ -4,8 +4,7 @@
 
 - Date: 2026-11-27
 - Auditor: Devin (agent)
-- Commit: <pending — audit written pre-commit; range covers the
-  net.[ch] promotion diff>
+- Commit: 0b89d97
 - Category: memory safety, integer/bounds, API misuse/ownership,
   platform behavior, denial-of-service
 - Scope: `include/cfw/net.h`, `src/cfw/net.c`, `src/cfw/server.c`

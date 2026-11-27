@@ -4,8 +4,7 @@
 
 - Date: 2026-11-27
 - Auditor: Devin (agent)
-- Commit: <pending — audit written pre-commit; range covers the
-  server.c Windows port diff>
+- Commit: 37d3932
 - Category: memory safety, integer/bounds, API misuse/ownership,
   platform behavior, denial-of-service
 - Scope: `src/cfw/server.c` (platform wrappers, wake channel,

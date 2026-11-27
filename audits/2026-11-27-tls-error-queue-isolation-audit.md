@@ -4,7 +4,7 @@
 
 - Date: 2026-11-27
 - Auditor: Devin (agent)
-- Commit: pending (see changelog)
+- Commit: e80a915
 - Category: 4 API misuse/lifetime, 5 concurrency/cancellation,
   8 cryptography and transport
 - Scope: `src/cfw/tls.c` (`cfw_tls_handshake`, `cfw_tls_read`,

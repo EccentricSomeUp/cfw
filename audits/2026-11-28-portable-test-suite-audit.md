@@ -4,8 +4,7 @@
 
 - Date: 2026-11-28
 - Auditor: Devin (agent)
-- Commit: <pending — audit written pre-commit; range covers the
-  tests/ portability diff>
+- Commit: f99bb4e, 11e47c9, 4b2b205, 53f2790
 - Category: memory safety, API misuse/ownership, platform behavior,
   denial-of-service, test integrity
 - Scope: `tests/unit/test_loopback.h` (new), `test_fd.c`,

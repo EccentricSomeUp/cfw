@@ -4,8 +4,7 @@
 
 - Date: 2026-11-28
 - Auditor: Devin (agent)
-- Commit: <pending — audit written pre-commit; range covers the
-  tests/fuzz + CMake/CI diff>
+- Commit: ce8deb8..33c73b4
 - Category: memory safety, denial-of-service, test integrity,
   supply-chain compliance
 - Scope: `tests/fuzz/fuzz_support.[ch]` (new), `fuzz_http.c`,

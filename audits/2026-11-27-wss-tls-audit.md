@@ -4,7 +4,7 @@
 
 - Date: 2026-11-27
 - Auditor: Devin (agent)
-- Commit: pending (pre-commit)
+- Commit: 6039a3c, 9dafee9
 - Category: parser/protocol state machines; platform-specific behavior
 - Scope: `cfw_ws_*` over `cfw_server_t` TLS listeners; upgrade path
   (ADR 0034) riding the `cfw_http1_transport_t` seam (ADR 0058);

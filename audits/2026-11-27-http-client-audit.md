@@ -4,9 +4,7 @@
 
 - Date: 2026-11-27
 - Auditor: Devin (agent)
-- Commit: <pending — audit written pre-commit; range covers the
-  http_client.[ch] addition plus http.h/http.c response-side
-  primitives>
+- Commit: dee1d02
 - Category: memory safety, integer/bounds, parser/protocol state
   machines, API misuse/ownership, concurrency, platform behavior,
   denial-of-service

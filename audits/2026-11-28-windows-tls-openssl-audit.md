@@ -4,8 +4,7 @@
 
 - Date: 2026-11-28
 - Auditor: Devin (agent)
-- Commit: <pending — audit written pre-commit; range covers the
-  CFW_ENABLE_TLS Windows enablement diff>
+- Commit: 1a716b7
 - Category: memory safety, integer/bounds, API misuse/ownership,
   platform behavior, denial-of-service
 - Scope: `src/cfw/tls.c` (fd-width guard), `CMakeLists.txt`

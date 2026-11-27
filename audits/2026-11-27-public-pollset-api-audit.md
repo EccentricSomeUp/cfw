@@ -4,8 +4,7 @@
 
 - Date: 2026-11-27
 - Auditor: Devin (agent)
-- Commit: <pending — audit written pre-commit; range covers the
-  pollset.h promotion diff>
+- Commit: e446ac0
 - Category: API misuse/ownership, concurrency, platform behavior,
   memory safety
 - Scope: `include/cfw/pollset.h`, `src/cfw/pollset.c` (moved from

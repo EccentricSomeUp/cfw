@@ -4,8 +4,7 @@
 
 - Date: 2026-11-27
 - Auditor: Devin (agent)
-- Commit: <pending — audit written pre-commit; range covers the
-  Windows socket/pollset/fd layer diff>
+- Commit: a7f8064
 - Category: memory safety, integer/bounds, API misuse/ownership,
   platform behavior, denial-of-service, supply-chain
 - Scope: `src/cfw/net.c` (Windows branch), `src/cfw/fd.c`,

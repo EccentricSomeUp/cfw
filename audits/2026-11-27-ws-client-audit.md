@@ -4,7 +4,7 @@
 
 - Date: 2026-11-27
 - Auditor: Devin (agent)
-- Commit: pending (pre-commit)
+- Commit: 33fa2ea (module); audit fixes 24931fa, 1fe47f6, a7a3777
 - Category: parser/protocol state machines; memory safety; API
   misuse/ownership
 - Scope: `include/cfw/ws_client.h`, `src/cfw/ws_client.c`,
