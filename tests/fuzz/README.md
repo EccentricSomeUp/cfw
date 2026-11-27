@@ -17,7 +17,7 @@ libFuzzer targets (`fuzz_http`, `fuzz_uri`, `fuzz_query`,
 `fuzz_multipart`, `fuzz_head_reader`,
 `fuzz_ws_proto`, `fuzz_crypto`,
 `fuzz_http1_conn`, `fuzz_ws_client`,
-`fuzz_ws_server`; ADR 0077, built with `CFW_ENABLE_FUZZING=ON`).
+`fuzz_ws_server`, `fuzz_http_client`; ADR 0077, built with `CFW_ENABLE_FUZZING=ON`).
 Crashes found by the fuzzer should be added here as regression seeds.
 
 When adding entries:

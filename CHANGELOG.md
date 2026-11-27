@@ -42,7 +42,9 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   crypto/codec/cookie/signed-token surface, and the
   socket-level `cfw_http1_conn` transport path, and the
   both `cfw_ws_client` and server-side `cfw_ws`
-  frame parsers via fake-peer handshakes (`tests/fuzz/fuzz_*.c`). The fuzz pipeline is shared with
+  frame parsers via fake-peer handshakes, and the `cfw_http_client`
+  response path via a fake-server response stream
+  (`tests/fuzz/fuzz_*.c`). The fuzz pipeline is shared with
   the deterministic mutation fuzzer via `tests/fuzz/fuzz_support.[ch]`
   so both exercise identical code; non-Clang toolchains build a
   standalone corpus-replay driver instead. CI gains a `fuzz` job that
