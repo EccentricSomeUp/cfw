@@ -1527,7 +1527,6 @@ static int test_server_stream_end_on_close(void)
     cfw_test_end_state st;
     char response[8192];
     size_t used = 0;
-    int attempts;
     cfw_strview_t pattern;
 
     memset(&st, 0, sizeof(st));
@@ -1556,18 +1555,29 @@ static int test_server_stream_end_on_close(void)
         CFW_TEST_ASSERT_TRUE(n > 0);
     }
 
-    /* Abrupt disconnect mid-stream, then let the server notice. */
+    /* Abrupt disconnect mid-stream, then let the server notice. The
+     * endless stream keeps the connection writable, so server_step can
+     * return immediately; bound the wait by wall-clock time instead of
+     * an iteration count. */
     cfw_fd_close(&client);
-    for (attempts = 0; attempts < 100; attempts++) {
-        cfw_timepoint_t deadline;
-        cfw_duration_t slice;
-        cfw_duration_from_millis(10, &slice);
-        cfw_deadline_from_now(&deadline, slice);
-        if (cfw_server_step(&ts.server, &deadline) != CFW_OK) {
-            break;
-        }
-        if (st.ended) {
-            break;
+    {
+        cfw_timepoint_t give_up;
+        cfw_duration_t five_sec;
+        int give_up_hit = 0;
+        cfw_duration_from_seconds(5, &five_sec);
+        CFW_TEST_ASSERT_EQ(cfw_deadline_from_now(&give_up, five_sec),
+                           CFW_OK);
+        while (st.ended == 0 && !give_up_hit) {
+            cfw_timepoint_t deadline;
+            cfw_duration_t slice;
+            cfw_duration_from_millis(10, &slice);
+            cfw_deadline_from_now(&deadline, slice);
+            if (cfw_deadline_expired(&give_up, &give_up_hit) != CFW_OK) {
+                break;
+            }
+            if (cfw_server_step(&ts.server, &deadline) != CFW_OK) {
+                break;
+            }
         }
     }
     CFW_TEST_ASSERT_EQ(st.ended, 1);

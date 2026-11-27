@@ -9,6 +9,17 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ## [Unreleased]
 
+### Fixed
+
+- `test_server_stream_end_on_close` now bounds its post-disconnect wait
+  by wall-clock time (5s) instead of an iteration count: the endless
+  stream keeps the connection writable so `cfw_server_step` can return
+  immediately, making the old 100-iteration bound effectively much
+  shorter than intended on slow runners (observed flaking on FreeBSD
+  14 CI).
+- Every CTest-registered test now carries a 900s `TIMEOUT`, so a hung
+  fixture fails the job instead of blocking a CI runner indefinitely.
+
 ## [0.13.1] - 2026-11-27
 
 ### Added
