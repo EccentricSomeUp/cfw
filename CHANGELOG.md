@@ -37,6 +37,11 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   test `strdup` calls go through a portable `cfw_test_strdup` helper
   (`_strdup` on the MSVC CRT), and the WS close-frame marker uses
   `unsigned char` to avoid MSVC `C4310` constant-truncation.
+- CTest presets now declare the matching `configuration`, so
+  multi-config generators (Visual Studio on Windows) can actually run
+  the tests; and `cfw_test_socketpair` retries `accept` on
+  `WOULDBLOCK`, fixing a rare FreeBSD flake where the server-side
+  accept queue lagged the client's blocking `connect()` return.
 
 ## [0.13.0] - 2026-11-27
 

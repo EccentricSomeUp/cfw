@@ -117,6 +117,7 @@
     {
       "name": "debug",
       "configurePreset": "debug",
+      "configuration": "Debug",
       "output": {
         "outputOnFailure": true
       }
@@ -124,6 +125,7 @@
     {
       "name": "release",
       "configurePreset": "release",
+      "configuration": "Release",
       "output": {
         "outputOnFailure": true
       }
@@ -131,6 +133,7 @@
     {
       "name": "sanitizers",
       "configurePreset": "sanitizers",
+      "configuration": "Debug",
       "output": {
         "outputOnFailure": true
       }
@@ -138,6 +141,7 @@
     {
       "name": "tsan",
       "configurePreset": "tsan",
+      "configuration": "Debug",
       "output": {
         "outputOnFailure": true
       }
@@ -145,6 +149,7 @@
     {
       "name": "shared",
       "configurePreset": "shared",
+      "configuration": "Debug",
       "output": {
         "outputOnFailure": true
       }
@@ -152,6 +157,7 @@
     {
       "name": "debug-tls",
       "configurePreset": "debug-tls",
+      "configuration": "Debug",
       "output": {
         "outputOnFailure": true
       }

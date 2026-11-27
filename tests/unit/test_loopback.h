@@ -135,7 +135,21 @@ static inline cfw_status_t cfw_test_socketpair(cfw_fd_t out[2])
     if (st != CFW_OK) {
         goto fail;
     }
-    st = cfw_net_accept(&listener, NULL, &out[1]);
+    /* The listener stays nonblocking; on a loaded/emulated host the
+     * server-side accept queue can lag the client's blocking
+     * connect() return by a scheduling slice, so retry WOULDBLOCK. */
+    {
+        int accept_attempts;
+        st = CFW_ERROR_WOULDBLOCK;
+        for (accept_attempts = 0;
+             accept_attempts < 2000 && st == CFW_ERROR_WOULDBLOCK;
+             accept_attempts++) {
+            st = cfw_net_accept(&listener, NULL, &out[1]);
+            if (st == CFW_ERROR_WOULDBLOCK) {
+                cfw_test_sleep_us(500);
+            }
+        }
+    }
     if (st != CFW_OK) {
         goto fail;
     }
