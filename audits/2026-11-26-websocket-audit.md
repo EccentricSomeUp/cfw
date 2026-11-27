@@ -34,6 +34,7 @@
 | W-102 | Low | Single pending-control slot drops additional auto-pongs/close echoes under extreme send-queue backpressure | Accepted — bounded memory beats strict pong-per-ping under DoS pressure; RFC does not mandate pong delivery, and the connection is closing anyway in the close case |
 | W-103 | Info | Text UTF-8 is validated on the reassembled message, not incrementally per fragment | Accepted — equivalent accept/reject outcome; sequences spanning fragments are handled correctly because validation runs on the complete message |
 | W-104 | Info | `cfw_ws_send` pre-flight uses `cfw_upgraded_out_free`, which reflects queue headroom at call time; concurrent sends from multiple callbacks on the same connection could interleave | Not applicable — callbacks are serialized on the connection's event loop; documented single-threaded contract |
+| W-105 | Medium | `cfw_ws_send_close` did not validate `status` (reserved/undefined codes like 1005/999 were emitted), allowed a reason without a status (payload misparsed as a status by the peer), and dereferenced `reason` when `reason_size` was nonzero but `reason` was NULL | Fixed post-release — status checked via `cfw_ws_close_status_ok`, reason-without-status and NULL-reason rejected; covered by new assertions in `ws_send_close_from_app` |
 
 ## Verified behaviors (tests)
 

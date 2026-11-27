@@ -897,6 +897,21 @@ static int test_ws_send_close_from_app(void)
     /* Wait for READY (ws created during the handshake), then close
      * from the app side. */
     CFW_TEST_ASSERT_TRUE(st->ws != NULL);
+
+    /* Invalid close arguments are rejected without closing the
+     * connection: reserved/undefined status codes, a reason with no
+     * status, and a NULL reason pointer with nonzero size (which
+     * previously reached memcpy). */
+    CFW_TEST_ASSERT_EQ(cfw_ws_send_close(st->ws, 999, NULL, 0),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_ws_send_close(st->ws, 1005, NULL, 0),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_ws_send_close(st->ws, 0, "bye", 3),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_ws_send_close(st->ws, 1000, NULL, 3),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_TRUE(!cfw_ws_is_closed(st->ws));
+
     CFW_TEST_ASSERT_EQ(cfw_ws_send_close(st->ws, 1000, "bye", 3),
                        CFW_OK);
     CFW_TEST_ASSERT_TRUE(cfw_ws_is_closed(st->ws));

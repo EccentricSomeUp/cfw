@@ -22,6 +22,9 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 - `cfw_ws_client_send` with `CFW_WS_OPCODE_CLOSE` now validates the
   raw close payload (status code and UTF-8 reason) before writing,
   matching `cfw_ws_client_send_close` semantics.
+- `cfw_ws_send_close` (server) now validates the status code, rejects
+  a reason without a status, and no longer dereferences a NULL reason
+  pointer when `reason_size` is nonzero.
 
 ## [0.11.0] - 2026-11-27
 

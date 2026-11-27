@@ -851,17 +851,24 @@ cfw_status_t cfw_ws_send_close(cfw_ws_t *ws, uint16_t status,
     uint8_t payload[2 + CFW_WS_MAX_CTRL_PAYLOAD - 2];
     size_t plen = 0;
 
-    if (ws == NULL) {
+    if (ws == NULL || (reason_size != 0 && reason == NULL) ||
+        reason_size > CFW_WS_MAX_CTRL_PAYLOAD - 2) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
     if (reason != NULL && reason_size != 0 &&
         !cfw_ws_utf8_valid((const uint8_t *)reason, reason_size)) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
-    if (reason_size > CFW_WS_MAX_CTRL_PAYLOAD - 2) {
-        return CFW_ERROR_INVALID_ARGUMENT;
-    }
-    if (status != 0) {
+    if (status == 0) {
+        /* An empty close carries no status; a reason without a
+         * status would be misparsed as one by the peer. */
+        if (reason_size != 0) {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+    } else {
+        if (!cfw_ws_close_status_ok(status)) {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
         payload[0] = (uint8_t)(status >> 8);
         payload[1] = (uint8_t)status;
         plen = 2;
