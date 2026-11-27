@@ -8,13 +8,11 @@
 
 #include "test_harness.h"
 
-#if CFW_PLATFORM_POSIX
-    #include <cfw/net.h>
+#include <cfw/net.h>
 
-    #include <errno.h>
-    #include <string.h>
-    #include <sys/socket.h>
-    #include <unistd.h>
+#include "test_loopback.h"
+
+#include <string.h>
 
 static cfw_status_t cfw_sec_ok_handler(cfw_request_t *req,
                                        cfw_response_t *res, void *user)
@@ -68,8 +66,35 @@ static int cfw_sec_connect(cfw_fd_t *client, uint16_t port)
 static int cfw_sec_send(cfw_fd_t *client, const char *data)
 {
     size_t len = strlen(data);
-    ssize_t n = send((int)cfw_fd_get(client), data, len, 0);
-    return n == (ssize_t)len ? 0 : 1;
+    size_t sent = 0;
+    int attempts;
+
+    for (attempts = 0; attempts < 400 && sent < len; attempts++) {
+        size_t chunk = 0;
+        cfw_status_t st =
+            cfw_net_send(client, data + sent, len - sent, &chunk);
+        if (st == CFW_OK) {
+            sent += chunk;
+            continue;
+        }
+        if (st != CFW_ERROR_WOULDBLOCK) {
+            return 1;
+        }
+        cfw_test_sleep_us(1000);
+    }
+    return sent == len ? 0 : 1;
+}
+
+/* recv() drop-in for the nonblocking test socket: >0 bytes, 0 EOF,
+ * -1 on WOULDBLOCK/error. */
+static intptr_t cfw_sec_recv(cfw_fd_t *fd, void *buffer, size_t capacity)
+{
+    size_t got = 0;
+    cfw_status_t st = cfw_net_recv(fd, buffer, capacity, &got);
+    if (st == CFW_OK) {
+        return (intptr_t)got;
+    }
+    return -1;
 }
 
 static int cfw_sec_contains(const char *haystack, size_t len,
@@ -155,7 +180,7 @@ static void cfw_sec_teardown(cfw_sec_server *ss)
 
 /* Sends `request`, serves until bytes arrive, and returns them in
  * `out` (NUL-terminated, length via *out_len). Returns -1 on timeout. */
-static ssize_t cfw_sec_roundtrip(cfw_sec_server *ss, cfw_fd_t *client,
+static intptr_t cfw_sec_roundtrip(cfw_sec_server *ss, cfw_fd_t *client,
                                  const char *request, char *out,
                                  size_t out_cap, size_t *out_len)
 {
@@ -166,12 +191,12 @@ static ssize_t cfw_sec_roundtrip(cfw_sec_server *ss, cfw_fd_t *client,
     CFW_TEST_ASSERT_EQ(cfw_sec_send(client, request), 0);
     cfw_duration_from_millis(50, &slice);
     for (attempts = 0; attempts < 200; attempts++) {
-        ssize_t n;
+        intptr_t n;
         cfw_deadline_from_now(&deadline, slice);
         if (cfw_server_step(&ss->server, &deadline) != CFW_OK) {
             return -1;
         }
-        n = recv((int)cfw_fd_get(client), out, out_cap - 1, CFW_TEST_MSG_DONTWAIT);
+        n = cfw_sec_recv(client, out, out_cap - 1);
         if (n > 0) {
             out[n] = '\0';
             *out_len = (size_t)n;
@@ -193,7 +218,7 @@ static int cfw_sec_expect_400(const char *name, const char *request)
     cfw_fd_t client;
     char response[4096];
     size_t len = 0;
-    ssize_t n;
+    intptr_t n;
 
     CFW_TEST_ASSERT_EQ(cfw_sec_setup(&ss), 0);
     cfw_fd_init(&client);
@@ -313,7 +338,7 @@ static int test_sec_legit_request_still_works(void)
     cfw_fd_t client;
     char response[4096];
     size_t len = 0;
-    ssize_t n;
+    intptr_t n;
 
     CFW_TEST_ASSERT_EQ(cfw_sec_setup(&ss), 0);
     cfw_fd_init(&client);
@@ -340,7 +365,7 @@ static int test_sec_response_framing_headers(void)
     cfw_fd_t client;
     char response[4096];
     size_t len = 0;
-    ssize_t n;
+    intptr_t n;
 
     CFW_TEST_ASSERT_EQ(cfw_sec_setup(&ss), 0);
     cfw_fd_init(&client);
@@ -381,10 +406,3 @@ const cfw_test_case cfw_test_security_cases[] = {
     {NULL, NULL},
 };
 
-#else /* Windows */
-
-const cfw_test_case cfw_test_security_cases[] = {
-    {NULL, NULL},
-};
-
-#endif /* POSIX */

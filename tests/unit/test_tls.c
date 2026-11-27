@@ -4,16 +4,13 @@
 
 #include <cfw/tls.h>
 
-/* The suite drives TLS over AF_UNIX socketpairs (POSIX-only);
- * Windows TLS coverage lives in tests/windows_smoke.c. */
-#if CFW_HAVE_TLS && CFW_PLATFORM_POSIX
+#if CFW_HAVE_TLS
 
-    #include <fcntl.h>
+    #include "test_loopback.h"
+
     #include <stdio.h>
     #include <stdlib.h>
     #include <string.h>
-    #include <sys/socket.h>
-    #include <unistd.h>
 
 /* Test certificates are generated into the build tree by CMake
  * (tests/CMakeLists.txt); no key material is committed. */
@@ -98,7 +95,7 @@ static int tls_drive(cfw_tls_conn_t *a, cfw_tls_conn_t *b)
 
 /* Raw fds of the most recent tls_pair(); TLS conns borrow them, so
  * tls_teardown closes them after destroying the conns. */
-static int tls_pair_fds[2] = {-1, -1};
+static intptr_t tls_pair_fds[2] = {-1, -1};
 
 /* Creates a connected nonblocking socketpair wrapped in TLS conns.
  * Returns 0 on success; server_out and client_out own the conns (the
@@ -106,31 +103,33 @@ static int tls_pair_fds[2] = {-1, -1};
 static int tls_pair(cfw_tls_ctx_t *sctx, cfw_tls_ctx_t *cctx,
                     cfw_tls_conn_t **server_out, cfw_tls_conn_t **client_out)
 {
-    int fds[2];
+    cfw_fd_t pair[2];
+    intptr_t fds[2];
     cfw_tls_conn_t *server;
     cfw_tls_conn_t *client;
-    int flags;
     cfw_status_t st;
 
-    if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0) {
+    if (cfw_test_socketpair(pair) != CFW_OK) {
         return 1;
     }
-    flags = fcntl(fds[0], F_GETFL, 0);
-    (void)fcntl(fds[0], F_SETFL, flags | O_NONBLOCK);
-    flags = fcntl(fds[1], F_GETFL, 0);
-    (void)fcntl(fds[1], F_SETFL, flags | O_NONBLOCK);
+    /* pair[0] is the connecting end, pair[1] the accepted end; either
+     * may back either TLS role. */
+    fds[0] = cfw_fd_get(&pair[0]);
+    fds[1] = cfw_fd_get(&pair[1]);
+    cfw_fd_init(&pair[0]);
+    cfw_fd_init(&pair[1]);
 
-    st = cfw_tls_conn_create(sctx, fds[0], &server);
+    st = cfw_tls_conn_create(sctx, fds[1], &server);
     if (st != CFW_OK) {
-        close(fds[0]);
-        close(fds[1]);
+        cfw_test_close_raw(fds[0]);
+        cfw_test_close_raw(fds[1]);
         return 1;
     }
-    st = cfw_tls_conn_create(cctx, fds[1], &client);
+    st = cfw_tls_conn_create(cctx, fds[0], &client);
     if (st != CFW_OK) {
         cfw_tls_conn_destroy(server);
-        close(fds[0]);
-        close(fds[1]);
+        cfw_test_close_raw(fds[0]);
+        cfw_test_close_raw(fds[1]);
         return 1;
     }
 
@@ -146,11 +145,11 @@ static void tls_teardown(cfw_tls_conn_t *server, cfw_tls_conn_t *client)
     cfw_tls_conn_destroy(server);
     cfw_tls_conn_destroy(client);
     if (tls_pair_fds[0] >= 0) {
-        close(tls_pair_fds[0]);
+        cfw_test_close_raw(tls_pair_fds[0]);
         tls_pair_fds[0] = -1;
     }
     if (tls_pair_fds[1] >= 0) {
-        close(tls_pair_fds[1]);
+        cfw_test_close_raw(tls_pair_fds[1]);
         tls_pair_fds[1] = -1;
     }
 }
@@ -911,33 +910,33 @@ static int test_tls_session_resumption(void)
 static int tls_pair_tracked(cfw_tls_ctx_t *sctx, cfw_tls_ctx_t *cctx,
                             cfw_tls_conn_t **server_out,
                             cfw_tls_conn_t **client_out,
-                            int fds_out[2])
+                            intptr_t fds_out[2])
 {
-    int fds[2];
+    cfw_fd_t pair[2];
+    intptr_t fds[2];
     cfw_tls_conn_t *server;
     cfw_tls_conn_t *client;
-    int flags;
     cfw_status_t st;
 
-    if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0) {
+    if (cfw_test_socketpair(pair) != CFW_OK) {
         return 1;
     }
-    flags = fcntl(fds[0], F_GETFL, 0);
-    (void)fcntl(fds[0], F_SETFL, flags | O_NONBLOCK);
-    flags = fcntl(fds[1], F_GETFL, 0);
-    (void)fcntl(fds[1], F_SETFL, flags | O_NONBLOCK);
+    fds[0] = cfw_fd_get(&pair[0]);
+    fds[1] = cfw_fd_get(&pair[1]);
+    cfw_fd_init(&pair[0]);
+    cfw_fd_init(&pair[1]);
 
-    st = cfw_tls_conn_create(sctx, fds[0], &server);
+    st = cfw_tls_conn_create(sctx, fds[1], &server);
     if (st != CFW_OK) {
-        close(fds[0]);
-        close(fds[1]);
+        cfw_test_close_raw(fds[0]);
+        cfw_test_close_raw(fds[1]);
         return 1;
     }
-    st = cfw_tls_conn_create(cctx, fds[1], &client);
+    st = cfw_tls_conn_create(cctx, fds[0], &client);
     if (st != CFW_OK) {
         cfw_tls_conn_destroy(server);
-        close(fds[0]);
-        close(fds[1]);
+        cfw_test_close_raw(fds[0]);
+        cfw_test_close_raw(fds[1]);
         return 1;
     }
 
@@ -950,15 +949,15 @@ static int tls_pair_tracked(cfw_tls_ctx_t *sctx, cfw_tls_ctx_t *cctx,
 
 static void tls_pair_tracked_teardown(cfw_tls_conn_t *server,
                                       cfw_tls_conn_t *client,
-                                      const int fds[2])
+                                      const intptr_t fds[2])
 {
     cfw_tls_conn_destroy(server);
     cfw_tls_conn_destroy(client);
     if (fds[0] >= 0) {
-        close(fds[0]);
+        cfw_test_close_raw(fds[0]);
     }
     if (fds[1] >= 0) {
-        close(fds[1]);
+        cfw_test_close_raw(fds[1]);
     }
 }
 
@@ -970,8 +969,8 @@ static int test_tls_error_queue_isolation(void)
     cfw_tls_conn_t *client = NULL;
     cfw_tls_conn_t *server2 = NULL;
     cfw_tls_conn_t *client2 = NULL;
-    int fds1[2] = {-1, -1};
-    int fds2[2] = {-1, -1};
+    intptr_t fds1[2] = {-1, -1};
+    intptr_t fds2[2] = {-1, -1};
     unsigned char buf[8];
     size_t done = 0;
     cfw_status_t st;
@@ -994,13 +993,13 @@ static int test_tls_error_queue_isolation(void)
      * in this thread's error queue. */
     cfw_tls_conn_destroy(client);
     client = NULL;
-    close(fds1[1]);
+    cfw_test_close_raw(fds1[1]);
     fds1[1] = -1;
     st = cfw_tls_read(server, buf, sizeof(buf), &done);
     CFW_TEST_ASSERT(st == CFW_ERROR_IO);
     cfw_tls_conn_destroy(server);
     server = NULL;
-    close(fds1[0]);
+    cfw_test_close_raw(fds1[0]);
     fds1[0] = -1;
 
     /* Connection 2's client read must not inherit the stale queued
@@ -1194,10 +1193,11 @@ static int test_tls_server_name_get_absent(void)
     return rc;
 }
 
-#endif /* CFW_HAVE_TLS && CFW_PLATFORM_POSIX */
+#endif /* CFW_HAVE_TLS */
 
 const cfw_test_case cfw_test_tls_cases[] = {
-#if CFW_HAVE_TLS && CFW_PLATFORM_POSIX
+
+#if CFW_HAVE_TLS
     {"tls_ctx_invalid_args", test_tls_ctx_invalid_args},
     {"tls_handshake_and_echo", test_tls_handshake_and_echo},
     {"tls_wouldblock_progression", test_tls_wouldblock_progression},

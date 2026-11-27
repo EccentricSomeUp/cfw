@@ -4,14 +4,39 @@
 
 #include "test_harness.h"
 
-#if CFW_PLATFORM_POSIX
-
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <unistd.h>
+
+#if CFW_PLATFORM_WINDOWS
+    #include <direct.h>
+    #include <io.h>
+#else
+    #include <sys/stat.h>
+    #include <unistd.h>
+#endif
+
+/* mkdir() wrapper: Windows _mkdir ignores the mode argument. */
+static int cfw_test_mkdir(const char *path)
+{
+#if CFW_PLATFORM_WINDOWS
+    return _mkdir(path);
+#else
+    return mkdir(path, 0755);
+#endif
+}
+
+/* symlink() wrapper; Windows requires SeCreateSymbolicLinkPrivilege
+ * (admin or Developer Mode), so callers must tolerate failure there. */
+static int cfw_test_symlink(const char *target, const char *linkpath)
+{
+#if CFW_PLATFORM_WINDOWS
+    return symlink(target, linkpath);
+#else
+    return symlink(target, linkpath);
+#endif
+}
 
 #define CFW_TEST_STATIC_ROOT "cfw_test_static_root"
 #define CFW_TEST_STATIC_OUTSIDE_FILE "cfw_test_static_outside.txt"
@@ -45,7 +70,7 @@ static int cfw_test_static_setup(cfw_static_mount_t *mount,
 
     /* Document root with a small tree. mkdir tolerates EEXIST so a
      * previous failed run does not poison the next one. */
-    CFW_TEST_ASSERT_TRUE(mkdir(CFW_TEST_STATIC_ROOT, 0755) == 0 ||
+    CFW_TEST_ASSERT_TRUE(cfw_test_mkdir(CFW_TEST_STATIC_ROOT) == 0 ||
                          errno == EEXIST);
     snprintf(path, sizeof(path), "%s/index.html",
              CFW_TEST_STATIC_ROOT);
@@ -63,7 +88,7 @@ static int cfw_test_static_setup(cfw_static_mount_t *mount,
              CFW_TEST_STATIC_ROOT);
     CFW_TEST_ASSERT_EQ(cfw_test_write_file(path, "upper"), 0);
     snprintf(path, sizeof(path), "%s/sub", CFW_TEST_STATIC_ROOT);
-    CFW_TEST_ASSERT_TRUE(mkdir(path, 0755) == 0 || errno == EEXIST);
+    CFW_TEST_ASSERT_TRUE(cfw_test_mkdir(path) == 0 || errno == EEXIST);
     snprintf(path, sizeof(path), "%s/sub/site.css",
              CFW_TEST_STATIC_ROOT);
     CFW_TEST_ASSERT_EQ(cfw_test_write_file(path,
@@ -71,24 +96,35 @@ static int cfw_test_static_setup(cfw_static_mount_t *mount,
                        0);
     snprintf(path, sizeof(path), "%s/emptydir",
              CFW_TEST_STATIC_ROOT);
-    CFW_TEST_ASSERT_TRUE(mkdir(path, 0755) == 0 || errno == EEXIST);
+    CFW_TEST_ASSERT_TRUE(cfw_test_mkdir(path) == 0 || errno == EEXIST);
 
     /* Files outside the root, reachable only through symlinks. */
     CFW_TEST_ASSERT_EQ(cfw_test_write_file(CFW_TEST_STATIC_OUTSIDE_FILE,
                                            "outside secret"),
                        0);
-    CFW_TEST_ASSERT_TRUE(mkdir(CFW_TEST_STATIC_OUTSIDE_DIR, 0755) == 0 ||
+    CFW_TEST_ASSERT_TRUE(cfw_test_mkdir(CFW_TEST_STATIC_OUTSIDE_DIR) == 0 ||
                          errno == EEXIST);
     snprintf(path, sizeof(path), "%s/secret.txt",
              CFW_TEST_STATIC_OUTSIDE_DIR);
     CFW_TEST_ASSERT_EQ(cfw_test_write_file(path, "outside dir secret"),
                        0);
-    CFW_TEST_ASSERT_TRUE(symlink("../" CFW_TEST_STATIC_OUTSIDE_FILE,
-                                 "cfw_test_static_root/link.txt") == 0 ||
+#if CFW_PLATFORM_POSIX
+    CFW_TEST_ASSERT_TRUE(cfw_test_symlink(
+                             "../" CFW_TEST_STATIC_OUTSIDE_FILE,
+                             "cfw_test_static_root/link.txt") == 0 ||
                          errno == EEXIST);
-    CFW_TEST_ASSERT_TRUE(symlink("../" CFW_TEST_STATIC_OUTSIDE_DIR,
-                                 "cfw_test_static_root/linkdir") == 0 ||
+    CFW_TEST_ASSERT_TRUE(cfw_test_symlink(
+                             "../" CFW_TEST_STATIC_OUTSIDE_DIR,
+                             "cfw_test_static_root/linkdir") == 0 ||
                          errno == EEXIST);
+#else
+    /* Windows symlink creation needs elevated privileges; the
+     * confinement test that depends on these links is POSIX-only. */
+    (void)cfw_test_symlink("../" CFW_TEST_STATIC_OUTSIDE_FILE,
+                           "cfw_test_static_root/link.txt");
+    (void)cfw_test_symlink("../" CFW_TEST_STATIC_OUTSIDE_DIR,
+                           "cfw_test_static_root/linkdir");
+#endif
 
     arena = cfw_arena_create(4096);
     CFW_TEST_ASSERT(arena != NULL);
@@ -469,6 +505,7 @@ static int test_static_errors_and_passthrough(void)
     return 0;
 }
 
+#if CFW_PLATFORM_POSIX
 static int test_static_symlink_confinement(void)
 {
     cfw_static_mount_t mount;
@@ -520,6 +557,7 @@ static int test_static_symlink_confinement(void)
     CFW_TEST_ASSERT_EQ(cfw_test_static_teardown(&mount, arena), 0);
     return 0;
 }
+#endif /* CFW_PLATFORM_POSIX */
 
 static int test_static_slot_exhaustion(void)
 {
@@ -1108,10 +1146,8 @@ static int test_static_etag_conditionals(void)
     CFW_TEST_ASSERT_EQ(cfw_test_static_teardown(&mount, arena), 0);
     return 0;
 }
-#endif /* POSIX */
 
 const cfw_test_case cfw_test_static_cases[] = {
-#if CFW_PLATFORM_POSIX
     {"static_mount_init_validation",
      test_static_mount_init_validation},
     {"static_get_file", test_static_get_file},
@@ -1119,13 +1155,14 @@ const cfw_test_case cfw_test_static_cases[] = {
     {"static_head_and_mime", test_static_head_and_mime},
     {"static_errors_and_passthrough",
      test_static_errors_and_passthrough},
-    {"static_symlink_confinement", test_static_symlink_confinement},
     {"static_slot_exhaustion", test_static_slot_exhaustion},
     {"static_conditional_requests",
      test_static_conditional_requests},
     {"static_etag_conditionals",
      test_static_etag_conditionals},
     {"static_range_requests", test_static_range_requests},
+#if CFW_PLATFORM_POSIX
+    {"static_symlink_confinement", test_static_symlink_confinement},
 #endif
     {NULL, NULL},
 };

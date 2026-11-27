@@ -2,83 +2,50 @@
 
 #include <cfw/cfw.h>
 
+#include <cfw/net.h>
+
 #include "test_harness.h"
+#include "test_loopback.h"
 
-#if CFW_PLATFORM_POSIX
-    #include <cfw/net.h>
-
-    #include <errno.h>
-    #include <string.h>
-    #include <sys/socket.h>
-    #include <unistd.h>
+#include <string.h>
 
 /* Creates a connected loopback TCP pair; *server_out receives the accepted
- * side. Both fds are nonblocking cfw_fd_t owners. */
+ * side. Both ends are nonblocking cfw_fd_t owners (shared helper). */
 static int cfw_test_tcp_pair(cfw_fd_t *server_out, cfw_fd_t *client_out)
 {
-    cfw_fd_t listener;
-    cfw_fd_t client;
-    cfw_fd_t server_side;
-    cfw_addr_t bind_addr;
-    cfw_addr_t connect_addr;
-    cfw_addr_t local_addr;
-    cfw_addr_t peer_addr;
-    uint16_t port;
-    int attempts;
+    cfw_fd_t pair[2];
 
-    cfw_fd_init(&listener);
-    cfw_fd_init(&client);
-    cfw_fd_init(&server_side);
-
-    CFW_TEST_ASSERT_EQ(cfw_addr_any(0, 0, &bind_addr), CFW_OK);
-    CFW_TEST_ASSERT_EQ(cfw_net_socket(AF_INET, SOCK_STREAM, 0, &listener),
-                       CFW_OK);
-    CFW_TEST_ASSERT_EQ(cfw_net_bind(&listener, &bind_addr), CFW_OK);
-    CFW_TEST_ASSERT_EQ(cfw_net_listen(&listener, 4), CFW_OK);
-    CFW_TEST_ASSERT_EQ(cfw_net_local_addr(&listener, &local_addr), CFW_OK);
-    CFW_TEST_ASSERT_EQ(cfw_addr_port(&local_addr, &port), CFW_OK);
-    CFW_TEST_ASSERT_EQ(cfw_addr_from_str(&connect_addr, "127.0.0.1", port),
-                       CFW_OK);
-    CFW_TEST_ASSERT_EQ(cfw_net_socket(AF_INET, SOCK_STREAM, 0, &client),
-                       CFW_OK);
-
-    {
-        cfw_status_t status = cfw_net_connect(&client, &connect_addr);
-        if (status != CFW_OK && status != CFW_ERROR_WOULDBLOCK) {
-            return 1;
-        }
-    }
-
-    /* Nonblocking connect completes asynchronously; retry accept. */
-    for (attempts = 0; attempts < 1000; attempts++) {
-        cfw_status_t status =
-            cfw_net_accept(&listener, &peer_addr, &server_side);
-        if (status == CFW_OK) {
-            break;
-        }
-        if (status != CFW_ERROR_WOULDBLOCK) {
-            cfw_fd_close(&listener);
-            cfw_fd_close(&client);
-            return 1;
-        }
-        usleep(1000);
-    }
-    if (attempts == 1000) {
-        cfw_fd_close(&listener);
-        cfw_fd_close(&client);
+    if (cfw_test_socketpair(pair) != CFW_OK) {
         return 1;
     }
-
-    cfw_fd_close(&listener);
-    *server_out = server_side;
-    *client_out = client;
+    /* pair[0] is the connecting (client) end, pair[1] the accepted end. */
+    *client_out = pair[0];
+    *server_out = pair[1];
+    cfw_fd_init(&pair[0]);
+    cfw_fd_init(&pair[1]);
     return 0;
 }
 
 static int cfw_test_client_send(cfw_fd_t *client, const char *data)
 {
-    ssize_t n = send((int)cfw_fd_get(client), data, strlen(data), 0);
-    return n == (ssize_t)strlen(data) ? 0 : 1;
+    size_t total = strlen(data);
+    size_t sent = 0;
+    int attempts;
+
+    for (attempts = 0; attempts < 200 && sent < total; attempts++) {
+        size_t chunk = 0;
+        cfw_status_t st =
+            cfw_net_send(client, data + sent, total - sent, &chunk);
+        if (st == CFW_OK) {
+            sent += chunk;
+            continue;
+        }
+        if (st != CFW_ERROR_WOULDBLOCK) {
+            return 1;
+        }
+        cfw_test_sleep_us(1000);
+    }
+    return sent == total ? 0 : 1;
 }
 
 static cfw_status_t cfw_test_conn_next_event(cfw_http1_conn_t *conn,
@@ -92,29 +59,27 @@ static cfw_status_t cfw_test_conn_next_event(cfw_http1_conn_t *conn,
         if (status != CFW_ERROR_WOULDBLOCK) {
             return status;
         }
-        usleep(1000);
+        cfw_test_sleep_us(1000);
     }
     return status;
 }
 
 /* Reads up to `capacity` bytes from the client with a short retry loop for
- * nonblocking delivery. Returns bytes read, 0 on EOF, -1 on timeout. */
-static ssize_t cfw_test_client_recv(cfw_fd_t *client, char *buffer,
-                                    size_t capacity)
+ * nonblocking delivery. Returns bytes read, 0 on EOF, -1 on timeout/error. */
+static intptr_t cfw_test_client_recv(cfw_fd_t *client, char *buffer,
+                                     size_t capacity)
 {
     int attempts;
     for (attempts = 0; attempts < 200; attempts++) {
-        ssize_t n = recv((int)cfw_fd_get(client), buffer, capacity, 0);
-        if (n > 0) {
-            return n;
+        size_t got = 0;
+        cfw_status_t st = cfw_net_recv(client, buffer, capacity, &got);
+        if (st == CFW_OK) {
+            return (intptr_t)got;
         }
-        if (n == 0) {
-            return 0;
-        }
-        if (errno != EAGAIN && errno != EWOULDBLOCK) {
+        if (st != CFW_ERROR_WOULDBLOCK) {
             return -1;
         }
-        usleep(1000);
+        cfw_test_sleep_us(1000);
     }
     return -1;
 }
@@ -140,7 +105,7 @@ static int test_http1_conn_request_response(void)
     static const char response[] =
         "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nhi";
     char buffer[256];
-    ssize_t n;
+    intptr_t n;
 
     CFW_TEST_ASSERT_EQ(cfw_test_tcp_pair(&server_fd, &client_fd), 0);
     CFW_TEST_ASSERT_EQ(cfw_http1_conn_init(&conn, &server_fd, &options),
@@ -151,7 +116,8 @@ static int test_http1_conn_request_response(void)
     CFW_TEST_ASSERT_EQ(cfw_http1_conn_next_event(&conn, &event),
                        CFW_ERROR_WOULDBLOCK);
 
-    CFW_TEST_ASSERT_EQ(cfw_test_client_send(&client_fd, "GET / HTTP/1.1\r\n\r\n"), 0);
+    CFW_TEST_ASSERT_EQ(cfw_test_client_send(&client_fd,
+                                            "GET / HTTP/1.1\r\n\r\n"), 0);
     CFW_TEST_ASSERT_EQ(cfw_test_conn_next_event(&conn, &event), CFW_OK);
     CFW_TEST_ASSERT_EQ(event.kind, CFW_HTTP1_EV_HEAD);
     CFW_TEST_ASSERT_EQ(cfw_test_conn_next_event(&conn, &event), CFW_OK);
@@ -168,7 +134,7 @@ static int test_http1_conn_request_response(void)
     CFW_TEST_ASSERT_FALSE(cfw_http1_conn_is_closed(&conn));
 
     n = cfw_test_client_recv(&client_fd, buffer, sizeof(buffer));
-    CFW_TEST_ASSERT_TRUE(n == (ssize_t)(sizeof(response) - 1));
+    CFW_TEST_ASSERT_TRUE(n == (intptr_t)(sizeof(response) - 1));
     CFW_TEST_ASSERT_EQ(memcmp(buffer, response, (size_t)n), 0);
 
     cfw_http1_conn_free(&conn);
@@ -185,13 +151,16 @@ static int test_http1_conn_close_after_response(void)
     cfw_http1_event_t event;
     static const char response[] = "HTTP/1.1 200 OK\r\n\r\n";
     char buffer[256];
-    ssize_t n;
+    intptr_t n;
 
     CFW_TEST_ASSERT_EQ(cfw_test_tcp_pair(&server_fd, &client_fd), 0);
     CFW_TEST_ASSERT_EQ(cfw_http1_conn_init(&conn, &server_fd, &options),
                        CFW_OK);
 
-    CFW_TEST_ASSERT_EQ(cfw_test_client_send(&client_fd, "GET / HTTP/1.1\r\nConnection: close\r\n\r\n"), 0);
+    CFW_TEST_ASSERT_EQ(cfw_test_client_send(
+                           &client_fd,
+                           "GET / HTTP/1.1\r\nConnection: close\r\n\r\n"),
+                       0);
     CFW_TEST_ASSERT_EQ(cfw_test_conn_next_event(&conn, &event), CFW_OK);
     CFW_TEST_ASSERT_EQ(event.kind, CFW_HTTP1_EV_HEAD);
     CFW_TEST_ASSERT_EQ(cfw_test_conn_next_event(&conn, &event), CFW_OK);
@@ -205,7 +174,7 @@ static int test_http1_conn_close_after_response(void)
     CFW_TEST_ASSERT_TRUE(cfw_http1_conn_is_closed(&conn));
 
     n = cfw_test_client_recv(&client_fd, buffer, sizeof(buffer));
-    CFW_TEST_ASSERT_TRUE(n == (ssize_t)(sizeof(response) - 1));
+    CFW_TEST_ASSERT_TRUE(n == (intptr_t)(sizeof(response) - 1));
     CFW_TEST_ASSERT_EQ(memcmp(buffer, response, (size_t)n), 0);
     /* Subsequent recv sees EOF. */
     n = cfw_test_client_recv(&client_fd, buffer, sizeof(buffer));
@@ -225,13 +194,14 @@ static int test_http1_conn_protocol_error(void)
     cfw_http1_event_t event;
     static const char response[] = "HTTP/1.1 400 Bad Request\r\n\r\n";
     char buffer[256];
-    ssize_t n;
+    intptr_t n;
 
     CFW_TEST_ASSERT_EQ(cfw_test_tcp_pair(&server_fd, &client_fd), 0);
     CFW_TEST_ASSERT_EQ(cfw_http1_conn_init(&conn, &server_fd, &options),
                        CFW_OK);
 
-    CFW_TEST_ASSERT_EQ(cfw_test_client_send(&client_fd, "GARBAGE\r\n\r\n"), 0);
+    CFW_TEST_ASSERT_EQ(cfw_test_client_send(&client_fd, "GARBAGE\r\n\r\n"),
+                       0);
     CFW_TEST_ASSERT_EQ(cfw_test_conn_next_event(&conn, &event), CFW_OK);
     CFW_TEST_ASSERT_EQ(event.kind, CFW_HTTP1_EV_ERROR);
     CFW_TEST_ASSERT_EQ(event.error_kind, CFW_HTTP1_ERR_PROTOCOL);
@@ -244,7 +214,7 @@ static int test_http1_conn_protocol_error(void)
     CFW_TEST_ASSERT_TRUE(cfw_http1_conn_is_closed(&conn));
 
     n = cfw_test_client_recv(&client_fd, buffer, sizeof(buffer));
-    CFW_TEST_ASSERT_TRUE(n == (ssize_t)(sizeof(response) - 1));
+    CFW_TEST_ASSERT_TRUE(n == (intptr_t)(sizeof(response) - 1));
     CFW_TEST_ASSERT_EQ(memcmp(buffer, response, (size_t)n), 0);
 
     cfw_http1_conn_free(&conn);
@@ -312,11 +282,3 @@ const cfw_test_case cfw_test_http1_conn_cases[] = {
     {"http1_conn_init_validation", test_http1_conn_init_validation},
     {NULL, NULL},
 };
-
-#else
-
-const cfw_test_case cfw_test_http1_conn_cases[] = {
-    {NULL, NULL},
-};
-
-#endif

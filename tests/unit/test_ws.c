@@ -180,14 +180,12 @@ static int test_ws_handshake_accept_extract(void)
 /* Integration: handshake + framed data path over a live connection    */
 /* ------------------------------------------------------------------ */
 
-#if CFW_PLATFORM_POSIX
-    #include <cfw/net.h>
+#include <cfw/net.h>
 
-    #include <errno.h>
-    #include <stdio.h>
-    #include <stdlib.h>
-    #include <sys/socket.h>
-    #include <unistd.h>
+#include "test_loopback.h"
+
+#include <stdio.h>
+#include <stdlib.h>
 
 typedef struct {
     cfw_arena_t *arena;
@@ -399,16 +397,32 @@ static cfw_status_t cfw_test_ws_connect(cfw_fd_t *client, uint16_t port)
 static int cfw_test_ws_send(cfw_fd_t *client, const void *data,
                             size_t size)
 {
-    ssize_t n = send((int)cfw_fd_get(client), data, size, 0);
-    return n == (ssize_t)size ? 0 : 1;
+    size_t sent = 0;
+    int attempts;
+
+    for (attempts = 0; attempts < 400 && sent < size; attempts++) {
+        size_t chunk = 0;
+        cfw_status_t st =
+            cfw_net_send(client, (const char *)data + sent, size - sent,
+                         &chunk);
+        if (st == CFW_OK) {
+            sent += chunk;
+            continue;
+        }
+        if (st != CFW_ERROR_WOULDBLOCK) {
+            return 1;
+        }
+        cfw_test_sleep_us(1000);
+    }
+    return sent == size ? 0 : 1;
 }
 
 /* Steps the server and appends received bytes until `marker` appears,
  * EOF, or the attempt budget is exhausted. */
-static ssize_t cfw_test_ws_recv_until(cfw_server_t *server,
-                                      cfw_fd_t *client, char *buffer,
-                                      size_t capacity, const char *marker,
-                                      size_t *used)
+static intptr_t cfw_test_ws_recv_until(cfw_server_t *server,
+                                       cfw_fd_t *client, char *buffer,
+                                       size_t capacity, const char *marker,
+                                       size_t *used)
 {
     cfw_duration_t slice;
     int attempts;
@@ -419,21 +433,24 @@ static ssize_t cfw_test_ws_recv_until(cfw_server_t *server,
          attempts++) {
         cfw_timepoint_t deadline;
         cfw_deadline_from_now(&deadline, slice);
-        ssize_t n;
+        size_t n = 0;
+        cfw_status_t rst;
         if (cfw_server_step(server, &deadline) != CFW_OK) {
             return -1;
         }
-        n = recv((int)cfw_fd_get(client), buffer + *used,
-                 capacity - *used - 1, CFW_TEST_MSG_DONTWAIT);
-        if (n > 0) {
-            *used += (size_t)n;
+        rst = cfw_net_recv(client, buffer + *used, capacity - *used - 1,
+                           &n);
+        if (rst == CFW_OK && n > 0) {
+            *used += n;
             buffer[*used] = '\0';
             if (*used >= mlen &&
-                memmem(buffer, *used, marker, mlen) != NULL) {
-                return (ssize_t)*used;
+                cfw_test_memmem(buffer, *used, marker, mlen) != NULL) {
+                return (intptr_t)*used;
             }
-        } else if (n == 0) {
-            return (ssize_t)*used;
+        } else if (rst == CFW_OK) {
+            return (intptr_t)*used;
+        } else if (rst != CFW_ERROR_WOULDBLOCK) {
+            return -1;
         }
     }
     return -1;
@@ -1416,18 +1433,19 @@ static int test_ws_large_frame_across_recvs(void)
              attempts++) {
             cfw_timepoint_t deadline;
             cfw_deadline_from_now(&deadline, slice);
-            ssize_t n;
+            size_t n = 0;
+            cfw_status_t rst;
             if (cfw_server_step(&st->server, &deadline) != CFW_OK) {
                 break;
             }
-            n = recv((int)cfw_fd_get(&client), response + used,
-                     sizeof(response) - used - 1, CFW_TEST_MSG_DONTWAIT);
-            if (n > 0) {
-                used += (size_t)n;
+            rst = cfw_net_recv(&client, response + used,
+                               sizeof(response) - used - 1, &n);
+            if (rst == CFW_OK && n > 0) {
+                used += n;
                 if (used >= want) {
                     break;
                 }
-            } else if (n == 0) {
+            } else if (rst == CFW_OK || rst != CFW_ERROR_WOULDBLOCK) {
                 break;
             }
         }
@@ -1523,13 +1541,14 @@ static int cfw_test_ws_fuzz_send(cfw_server_t *server, cfw_fd_t *client,
     int guard = 0;
 
     while (sent < len && guard++ < 4096) {
-        ssize_t n = send((int)cfw_fd_get(client), p + sent, len - sent,
-                         CFW_TEST_MSG_DONTWAIT);
-        if (n > 0) {
-            sent += (size_t)n;
+        size_t n = 0;
+        cfw_status_t st =
+            cfw_net_send(client, p + sent, len - sent, &n);
+        if (st == CFW_OK && n > 0) {
+            sent += n;
             continue;
         }
-        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        if (st == CFW_ERROR_WOULDBLOCK) {
             cfw_timepoint_t deadline;
             cfw_duration_t slice;
             cfw_duration_from_millis(5, &slice);
@@ -1638,7 +1657,6 @@ static int test_ws_fuzz_frames(void)
     cfw_test_ws_teardown(st);
     return 0;
 }
-#endif /* POSIX */
 
 const cfw_test_case cfw_test_ws_cases[] = {
     {"ws_accept_key_rfc_vector", test_ws_accept_key_rfc_vector},
@@ -1646,7 +1664,6 @@ const cfw_test_case cfw_test_ws_cases[] = {
     {"ws_handshake_validate_ok", test_ws_handshake_validate_ok},
     {"ws_handshake_validate_rejects", test_ws_handshake_validate_rejects},
     {"ws_handshake_accept_extract", test_ws_handshake_accept_extract},
-#if CFW_PLATFORM_POSIX
     {"ws_text_echo", test_ws_text_echo},
     {"ws_fragmented_message", test_ws_fragmented_message},
     {"ws_ping_auto_pong", test_ws_ping_auto_pong},
@@ -1670,6 +1687,5 @@ const cfw_test_case cfw_test_ws_cases[] = {
      test_ws_large_frame_across_recvs},
     {"ws_drip_feed", test_ws_drip_feed},
     {"ws_fuzz_frames", test_ws_fuzz_frames},
-#endif
     {NULL, NULL},
 };

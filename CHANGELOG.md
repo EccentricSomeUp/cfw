@@ -26,6 +26,15 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   `WSAPoll`, fd close, and a full cleartext `cfw_server` request/
   response cycle over loopback, giving the Windows job runtime
   coverage instead of compile-only verification.
+- Test suite ported to run on Windows (ADR 0076): the unit,
+  integration, and security tests now use the public
+  `cfw_net_*`/`cfw_pollset_*`/`cfw_thread_*` API via a shared
+  TCP-loopback socketpair helper (`tests/unit/test_loopback.h`),
+  replacing `socketpair`/`pipe`/raw `send`/`recv`/`fcntl`/`usleep`/
+  `errno`/`memmem`/`sigaction` usage. `test_tls.c` drives TLS over
+  loopback TCP, and `test_server_run_and_drain` uses a `cfw_thread`
+  stopper instead of `SIGALRM`. Windows CI now runs the full `ctest`
+  suite in both `debug` and `debug-tls` presets.
 - TLS on Windows via OpenSSL 3 (ADR 0075): `CFW_ENABLE_TLS` is no
   longer refused on `WIN32`; `cfw_tls_*`, TLS listeners, TLS clients,
   and `wss://` work on Windows through the same OpenSSL backend as

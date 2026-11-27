@@ -4,16 +4,12 @@
 
 #include "test_harness.h"
 
-#if CFW_PLATFORM_POSIX
-    #include <cfw/net.h>
+#include <cfw/net.h>
 
-    #include <errno.h>
-    #include <signal.h>
-    #include <stdlib.h>
-    #include <string.h>
-    #include <sys/socket.h>
-    #include <sys/time.h>
-    #include <unistd.h>
+#include "test_loopback.h"
+
+#include <stdlib.h>
+#include <string.h>
 
 static cfw_status_t cfw_test_connect(cfw_fd_t *client, uint16_t port)
 {
@@ -32,8 +28,36 @@ static cfw_status_t cfw_test_connect(cfw_fd_t *client, uint16_t port)
 static int cfw_test_send(cfw_fd_t *client, const char *data)
 {
     size_t len = strlen(data);
-    ssize_t n = send((int)cfw_fd_get(client), data, len, 0);
-    return n == (ssize_t)len ? 0 : 1;
+    size_t sent = 0;
+    int attempts;
+
+    for (attempts = 0; attempts < 400 && sent < len; attempts++) {
+        size_t chunk = 0;
+        cfw_status_t st =
+            cfw_net_send(client, data + sent, len - sent, &chunk);
+        if (st == CFW_OK) {
+            sent += chunk;
+            continue;
+        }
+        if (st != CFW_ERROR_WOULDBLOCK) {
+            return 1;
+        }
+        cfw_test_sleep_us(1000);
+    }
+    return sent == len ? 0 : 1;
+}
+
+/* recv() drop-in over cfw_net_recv for the nonblocking test sockets:
+ * returns bytes read (>0), 0 on EOF, -1 on WOULDBLOCK/error. */
+static intptr_t cfw_test_sock_recv(cfw_fd_t *fd, void *buffer,
+                                   size_t capacity)
+{
+    size_t got = 0;
+    cfw_status_t st = cfw_net_recv(fd, buffer, capacity, &got);
+    if (st == CFW_OK) {
+        return (intptr_t)got;
+    }
+    return -1;
 }
 
 static int cfw_test_contains(const char *haystack, size_t len,
@@ -240,7 +264,7 @@ static void cfw_test_server_teardown(cfw_test_server *ts)
 /* Steps the server until `predicate`-style recv yields data or the
  * attempt budget is exhausted. Returns bytes read (>0), 0 on EOF,
  * -1 on timeout. */
-static ssize_t cfw_test_serve_recv(cfw_server_t *server, cfw_fd_t *client,
+static intptr_t cfw_test_serve_recv(cfw_server_t *server, cfw_fd_t *client,
                                    char *buffer, size_t capacity)
 {
     cfw_timepoint_t deadline;
@@ -254,8 +278,7 @@ static ssize_t cfw_test_serve_recv(cfw_server_t *server, cfw_fd_t *client,
             return -1;
         }
         {
-            ssize_t n = recv((int)cfw_fd_get(client), buffer, capacity,
-                             CFW_TEST_MSG_DONTWAIT);
+            intptr_t n = cfw_test_sock_recv(client, buffer, capacity);
             if (n > 0) {
                 return n;
             }
@@ -272,7 +295,7 @@ static int test_server_request_response(void)
     cfw_test_server ts;
     cfw_fd_t client;
     char response[4096];
-    ssize_t n;
+    intptr_t n;
     uint16_t port;
 
     CFW_TEST_ASSERT_EQ(cfw_test_server_setup(&ts,
@@ -324,7 +347,7 @@ static int test_server_tls_conn_null_cleartext(void)
     cfw_test_server ts;
     cfw_fd_t client;
     char response[8192];
-    ssize_t n;
+    intptr_t n;
     uint16_t port;
     int rc = 1;
 
@@ -396,7 +419,7 @@ static int test_server_large_response_head(void)
     cfw_fd_t client;
     cfw_strview_t pattern;
     char response[16384];
-    ssize_t n;
+    intptr_t n;
 
     CFW_TEST_ASSERT_EQ(cfw_test_server_setup(&ts,
                                              (cfw_duration_t){0},
@@ -438,7 +461,7 @@ static int test_server_post_body(void)
     cfw_test_server ts;
     cfw_fd_t client;
     char response[4096];
-    ssize_t n;
+    intptr_t n;
     cfw_strview_t pattern;
 
     CFW_TEST_ASSERT_EQ(cfw_test_server_setup(&ts, (cfw_duration_t){0},
@@ -480,7 +503,7 @@ static int test_server_remote_addr(void)
     cfw_test_server ts;
     cfw_fd_t client;
     char response[4096];
-    ssize_t n;
+    intptr_t n;
     cfw_strview_t pattern;
     const char prefix[] = "127.0.0.1:";
     size_t i;
@@ -592,7 +615,7 @@ static int test_server_max_connections(void)
     cfw_fd_t c1;
     cfw_fd_t c2;
     char response[4096];
-    ssize_t n;
+    intptr_t n;
     int attempts;
 
     CFW_TEST_ASSERT_EQ(cfw_test_server_setup(&ts, (cfw_duration_t){0},
@@ -668,7 +691,7 @@ static int test_server_soak(void)
     cfw_test_server ts;
     cfw_fd_t client;
     char response[4096];
-    ssize_t n;
+    intptr_t n;
     int i;
 
     CFW_TEST_ASSERT_EQ(cfw_test_server_setup(&ts, (cfw_duration_t){0},
@@ -755,7 +778,7 @@ static int test_server_drain_after_stop(void)
     cfw_test_server ts;
     cfw_fd_t client;
     char response[4096];
-    ssize_t n;
+    intptr_t n;
 
     CFW_TEST_ASSERT_EQ(cfw_test_server_setup(&ts, (cfw_duration_t){0},
                                              (cfw_duration_t){0}, 8),
@@ -801,7 +824,7 @@ static int test_server_expect_continue(void)
     cfw_test_server ts;
     cfw_fd_t client;
     char response[4096];
-    ssize_t n;
+    intptr_t n;
     cfw_strview_t pattern;
 
     CFW_TEST_ASSERT_EQ(cfw_test_server_setup(&ts, (cfw_duration_t){0},
@@ -901,7 +924,7 @@ static int test_server_dns_listen(void)
     cfw_test_server ts;
     cfw_fd_t client;
     char response[4096];
-    ssize_t n;
+    intptr_t n;
 
     /* "localhost" must resolve; skip gracefully if the host has no
      * resolver entry (unusual but possible in minimal containers). */
@@ -984,7 +1007,7 @@ static cfw_status_t cfw_test_stream_handler(cfw_request_t *req,
 
 /* Steps the server and appends received bytes until `marker` appears,
  * EOF, or the attempt budget is exhausted. Returns total bytes or -1. */
-static ssize_t cfw_test_recv_until(cfw_server_t *server, cfw_fd_t *client,
+static intptr_t cfw_test_recv_until(cfw_server_t *server, cfw_fd_t *client,
                                    char *buffer, size_t capacity,
                                    const char *marker, size_t *used)
 {
@@ -996,21 +1019,21 @@ static ssize_t cfw_test_recv_until(cfw_server_t *server, cfw_fd_t *client,
     for (attempts = 0; attempts < 400 && *used + 1 < capacity; attempts++) {
         cfw_timepoint_t deadline;
         cfw_deadline_from_now(&deadline, slice);
-        ssize_t n;
+        intptr_t n;
         if (cfw_server_step(server, &deadline) != CFW_OK) {
             return -1;
         }
-        n = recv((int)cfw_fd_get(client), buffer + *used,
-                 capacity - *used - 1, CFW_TEST_MSG_DONTWAIT);
+        n = cfw_test_sock_recv(client, buffer + *used,
+                 capacity - *used - 1);
         if (n > 0) {
             *used += (size_t)n;
             buffer[*used] = '\0';
             if (*used >= mlen &&
-                memmem(buffer, *used, marker, mlen) != NULL) {
-                return (ssize_t)*used;
+                cfw_test_memmem(buffer, *used, marker, mlen) != NULL) {
+                return (intptr_t)*used;
             }
         } else if (n == 0) {
-            return (ssize_t)*used;
+            return (intptr_t)*used;
         }
     }
     return -1;
@@ -1033,7 +1056,7 @@ static int test_server_streaming_response(void)
     cfw_test_stream_state st;
     char response[8192];
     size_t used = 0;
-    ssize_t n;
+    intptr_t n;
 
     memset(&st, 0, sizeof(st));
     st.parts = cfw_test_stream_parts;
@@ -1100,7 +1123,7 @@ static int test_server_streaming_http10(void)
     cfw_test_stream_state st;
     char response[8192];
     size_t used = 0;
-    ssize_t n;
+    intptr_t n;
     int attempts;
 
     memset(&st, 0, sizeof(st));
@@ -1130,13 +1153,13 @@ static int test_server_streaming_http10(void)
          attempts++) {
         cfw_timepoint_t deadline;
         cfw_duration_t slice;
-        ssize_t r;
+        intptr_t r;
         cfw_duration_from_millis(20, &slice);
         cfw_deadline_from_now(&deadline, slice);
         CFW_TEST_ASSERT_EQ(cfw_server_step(&ts.server, &deadline),
                            CFW_OK);
-        r = recv((int)cfw_fd_get(&client), response + used,
-                 sizeof(response) - used - 1, CFW_TEST_MSG_DONTWAIT);
+        r = cfw_test_sock_recv(&client, response + used,
+                 sizeof(response) - used - 1);
         if (r > 0) {
             used += (size_t)r;
         } else if (r == 0) {
@@ -1161,7 +1184,7 @@ static int test_server_stream_known_length(void)
     cfw_test_stream_state st;
     char response[8192];
     size_t used = 0;
-    ssize_t n;
+    intptr_t n;
     int attempts;
 
     memset(&st, 0, sizeof(st));
@@ -1222,13 +1245,13 @@ static int test_server_stream_known_length(void)
          attempts++) {
         cfw_timepoint_t deadline;
         cfw_duration_t slice;
-        ssize_t r;
+        intptr_t r;
         cfw_duration_from_millis(20, &slice);
         cfw_deadline_from_now(&deadline, slice);
         CFW_TEST_ASSERT_EQ(cfw_server_step(&ts.server, &deadline),
                            CFW_OK);
-        r = recv((int)cfw_fd_get(&client), response + used,
-                 sizeof(response) - used - 1, CFW_TEST_MSG_DONTWAIT);
+        r = cfw_test_sock_recv(&client, response + used,
+                 sizeof(response) - used - 1);
         if (r > 0) {
             used += (size_t)r;
             response[used] = '\0';
@@ -1279,13 +1302,13 @@ static int test_server_stream_known_length(void)
              sizeof(response); attempts++) {
             cfw_timepoint_t deadline;
             cfw_duration_t slice;
-            ssize_t r;
+            intptr_t r;
             cfw_duration_from_millis(20, &slice);
             cfw_deadline_from_now(&deadline, slice);
             CFW_TEST_ASSERT_EQ(cfw_server_step(&ts.server, &deadline),
                                CFW_OK);
-            r = recv((int)cfw_fd_get(&client), response + used,
-                     sizeof(response) - used - 1, CFW_TEST_MSG_DONTWAIT);
+            r = cfw_test_sock_recv(&client, response + used,
+                     sizeof(response) - used - 1);
             if (r > 0) {
                 used += (size_t)r;
             } else if (r == 0) {
@@ -1398,7 +1421,7 @@ static int test_server_file_stream_response(void)
     char body[512];
     size_t used = 0;
     size_t body_len = 0;
-    ssize_t n;
+    intptr_t n;
     cfw_strview_t pattern;
 
     file = fopen(path, "wb");
@@ -1528,7 +1551,7 @@ static int test_server_stream_end_on_close(void)
                        0);
     /* Pull until the stream is definitely active (headers + chunks). */
     {
-        ssize_t n = cfw_test_recv_until(&ts.server, &client, response,
+        intptr_t n = cfw_test_recv_until(&ts.server, &client, response,
                                         sizeof(response), "x", &used);
         CFW_TEST_ASSERT_TRUE(n > 0);
     }
@@ -1557,7 +1580,7 @@ static int test_server_host_required(void)
 {
     cfw_test_server ts;
     char response[4096];
-    ssize_t n;
+    intptr_t n;
 
     CFW_TEST_ASSERT_EQ(cfw_test_server_setup(&ts, (cfw_duration_t){0},
                                              (cfw_duration_t){0}, 8),
@@ -1631,7 +1654,7 @@ static int test_server_expect_rejected(void)
 {
     cfw_test_server ts;
     char response[4096];
-    ssize_t n;
+    intptr_t n;
     static const char *const bad_expects[] = {
         "GET /hello HTTP/1.1\r\nHost: x\r\nExpect: foobar\r\n\r\n",
         ("GET /hello HTTP/1.1\r\nHost: x\r\n"
@@ -1667,7 +1690,7 @@ static int test_server_method_fallbacks(void)
 {
     cfw_test_server ts;
     char response[4096];
-    ssize_t n;
+    intptr_t n;
 
     CFW_TEST_ASSERT_EQ(cfw_test_server_setup(&ts, (cfw_duration_t){0},
                                              (cfw_duration_t){0}, 8),
@@ -1753,7 +1776,7 @@ static int test_server_streaming_conn_close(void)
     cfw_test_stream_state st;
     char response[8192];
     size_t used = 0;
-    ssize_t n;
+    intptr_t n;
 
     memset(&st, 0, sizeof(st));
     st.parts = cfw_test_stream_parts;
@@ -1814,8 +1837,8 @@ static size_t cfw_test_drain_client(cfw_fd_t *client, char *buffer,
 {
     size_t used = 0;
     for (;;) {
-        ssize_t n = recv((int)cfw_fd_get(client), buffer + used,
-                         capacity - used - 1, CFW_TEST_MSG_DONTWAIT);
+        intptr_t n = cfw_test_sock_recv(client, buffer + used,
+                         capacity - used - 1);
         if (n <= 0 || used + 1 >= capacity) {
             break;
         }
@@ -1926,7 +1949,7 @@ static int test_server_error_logging(void)
     cfw_fd_t client;
     cfw_logger_t logger;
     char response[4096];
-    ssize_t n;
+    intptr_t n;
 
     memset(&ts, 0, sizeof(ts));
     cfw_logger_init(&logger);
@@ -2091,7 +2114,7 @@ static int test_server_upload_content_length(void)
     cfw_test_upload_state st;
     cfw_fd_t client;
     char response[4096];
-    ssize_t n;
+    intptr_t n;
     static const char payload[] = "hello world";
 
     CFW_TEST_ASSERT_EQ(cfw_test_setup_upload(&ts, &st), 0);
@@ -2135,7 +2158,7 @@ static int test_server_upload_chunked(void)
     cfw_test_upload_state st;
     cfw_fd_t client;
     char response[4096];
-    ssize_t n;
+    intptr_t n;
     static const char payload[] = "hello world";
 
     CFW_TEST_ASSERT_EQ(cfw_test_setup_upload(&ts, &st), 0);
@@ -2235,7 +2258,7 @@ static int test_server_upload_protocol_error(void)
     cfw_test_upload_state st;
     cfw_fd_t client;
     char response[4096];
-    ssize_t n;
+    intptr_t n;
 
     /* A malformed chunk after a valid one aborts the request mid-body:
      * the upload must be reported incomplete and a 400 sent. */
@@ -2275,7 +2298,7 @@ static int test_server_upload_write_error(void)
     cfw_test_upload_state st;
     cfw_fd_t client;
     char response[4096];
-    ssize_t n;
+    intptr_t n;
 
     CFW_TEST_ASSERT_EQ(cfw_test_setup_upload(&ts, &st), 0);
     st.fail_write = 1;
@@ -2311,7 +2334,7 @@ static int test_server_upload_begin_error(void)
     cfw_test_upload_state st;
     cfw_fd_t client;
     char response[4096];
-    ssize_t n;
+    intptr_t n;
 
     CFW_TEST_ASSERT_EQ(cfw_test_setup_upload(&ts, &st), 0);
     st.fail_begin = 1;
@@ -2341,15 +2364,14 @@ static int test_server_upload_begin_error(void)
     return 0;
 }
 
-static cfw_server_t *cfw_test_sig_server;
-
-static void cfw_test_sigalrm_stop(int signo)
+static int cfw_test_stop_thread(void *arg)
 {
-    (void)signo;
-    /* Test-only: cfw_server_stop performs a handful of syscalls
-     * (pollset modify, wake-byte send) which are effectively
-     * async-signal-safe on the POSIX targets; no heap or locks. */
-    cfw_server_stop(cfw_test_sig_server);
+    /* cfw_server_stop is the supported cross-thread shutdown path: it
+     * writes the wake byte so a blocked cfw_server_run returns promptly
+     * without a second poll loop. */
+    cfw_test_sleep_us(200000);
+    cfw_server_stop((cfw_server_t *)arg);
+    return 0;
 }
 
 static int test_server_run_and_drain(void)
@@ -2360,9 +2382,7 @@ static int test_server_run_and_drain(void)
     size_t used = 0;
     cfw_status_t st;
     cfw_duration_t drain;
-    struct sigaction sa;
-    struct sigaction sa_old;
-    struct itimerval it;
+    cfw_thread_t stopper;
     int attempts;
 
     CFW_TEST_ASSERT_EQ(cfw_server_run(NULL), CFW_ERROR_INVALID_ARGUMENT);
@@ -2382,24 +2402,13 @@ static int test_server_run_and_drain(void)
                                      "Host: run\r\n\r\n"),
                        0);
 
-    /* Stop the blocking loop from a timer: cfw_server_stop writes the
-     * wake byte, so run() returns promptly without a second thread. */
-    memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = cfw_test_sigalrm_stop;
-    sigemptyset(&sa.sa_mask);
-    CFW_TEST_ASSERT_EQ(sigaction(SIGALRM, &sa, &sa_old), 0);
-    cfw_test_sig_server = &ts.server;
-    memset(&it, 0, sizeof(it));
-    it.it_value.tv_sec = 0;
-    it.it_value.tv_usec = 200000;
-    CFW_TEST_ASSERT_EQ(setitimer(ITIMER_REAL, &it, NULL), 0);
-
+    /* Stop the blocking loop from a helper thread: cfw_server_stop
+     * writes the wake byte, so run() returns promptly. */
+    CFW_TEST_ASSERT_EQ(cfw_thread_create(&stopper, cfw_test_stop_thread,
+                                         &ts.server),
+                       CFW_OK);
     st = cfw_server_run(&ts.server);
-
-    memset(&it, 0, sizeof(it));
-    setitimer(ITIMER_REAL, &it, NULL);
-    sigaction(SIGALRM, &sa_old, NULL);
-    cfw_test_sig_server = NULL;
+    CFW_TEST_ASSERT_EQ(cfw_thread_join(&stopper, NULL), CFW_OK);
 
     CFW_TEST_ASSERT_EQ(st, CFW_OK);
     CFW_TEST_ASSERT_TRUE(cfw_server_is_stopping(&ts.server));
@@ -2410,15 +2419,15 @@ static int test_server_run_and_drain(void)
      * response was flushed during the run. */
     for (attempts = 0; attempts < 200 && used + 1 < sizeof(response);
          attempts++) {
-        ssize_t n = recv((int)cfw_fd_get(&client), response + used,
-                         sizeof(response) - used - 1, CFW_TEST_MSG_DONTWAIT);
+        intptr_t n = cfw_test_sock_recv(&client, response + used,
+                         sizeof(response) - used - 1);
         if (n > 0) {
             used += (size_t)n;
             if (cfw_test_contains(response, used, "200 OK")) {
                 break;
             }
         } else {
-            usleep(1000);
+            cfw_test_sleep_us(1000);
         }
     }
     response[used] = '\0';
@@ -2606,7 +2615,7 @@ static int cfw_test_upgrade_recv(cfw_server_t *server, cfw_fd_t *client,
                                  const char *needle)
 {
     size_t used = 0;
-    ssize_t n = cfw_test_recv_until(server, client, buffer, capacity,
+    intptr_t n = cfw_test_recv_until(server, client, buffer, capacity,
                                     needle, &used);
     return n >= 0 && cfw_test_contains(buffer, used, needle);
 }
@@ -3303,20 +3312,20 @@ static int cfw_test_rp_recv(cfw_test_rp_server *a, cfw_test_rp_server *b,
     cfw_duration_from_millis(50, &slice);
     for (attempts = 0; attempts < 200; attempts++) {
         cfw_timepoint_t deadline;
-        ssize_t n;
+        intptr_t n;
         cfw_deadline_from_now(&deadline, slice);
         CFW_TEST_ASSERT_EQ(cfw_server_step(&a->server, &deadline),
                            CFW_OK);
         cfw_deadline_from_now(&deadline, slice);
         CFW_TEST_ASSERT_EQ(cfw_server_step(&b->server, &deadline),
                            CFW_OK);
-        n = recv((int)cfw_fd_get(client), buffer + used,
-                 capacity - used - 1, CFW_TEST_MSG_DONTWAIT);
+        n = cfw_test_sock_recv(client, buffer + used,
+                 capacity - used - 1);
         if (n > 0) {
             used += (size_t)n;
             buffer[used] = '\0';
             if (used >= mlen &&
-                memmem(buffer, used, marker, mlen) != NULL) {
+                cfw_test_memmem(buffer, used, marker, mlen) != NULL) {
                 return 1;
             }
         } else if (n == 0) {
@@ -3520,7 +3529,7 @@ static int test_server_ipv6(void)
     cfw_fd_t client;
     cfw_addr_t addr;
     char response[8192];
-    ssize_t n;
+    intptr_t n;
 
     arena = cfw_arena_create(32768);
     CFW_TEST_ASSERT_TRUE(arena != NULL);
@@ -3704,7 +3713,7 @@ static int cfw_test_tls_write_all(cfw_server_t *server,
 
 /* Reads TLS plaintext until `needle` appears or the budget ends.
  * Returns total bytes accumulated (>0) or -1. */
-static ssize_t cfw_test_tls_read_until(cfw_server_t *server,
+static intptr_t cfw_test_tls_read_until(cfw_server_t *server,
                                        cfw_tls_conn_t *client,
                                        char *buffer, size_t capacity,
                                        const char *needle)
@@ -3723,7 +3732,7 @@ static ssize_t cfw_test_tls_read_until(cfw_server_t *server,
             got += done;
             buffer[got] = '\0';
             if (cfw_test_contains(buffer, got, needle)) {
-                return (ssize_t)got;
+                return (intptr_t)got;
             }
         } else if (st != CFW_ERROR_WOULDBLOCK) {
             return -1;
@@ -3732,7 +3741,7 @@ static ssize_t cfw_test_tls_read_until(cfw_server_t *server,
             return -1;
         }
     }
-    return got > 0 ? (ssize_t)got : -1;
+    return got > 0 ? (intptr_t)got : -1;
 }
 
 static int test_server_tls_request_response(void)
@@ -3749,7 +3758,7 @@ static int test_server_tls_request_response(void)
     char cert[512];
     char key[512];
     char response[8192];
-    ssize_t n;
+    intptr_t n;
     uint16_t port;
     int rc = 1;
 
@@ -3873,7 +3882,7 @@ static int test_server_tls_upgrade_echo(void)
     char cert[512];
     char key[512];
     char response[8192];
-    ssize_t n;
+    intptr_t n;
     uint16_t port;
     int rc = 1;
 
@@ -4087,7 +4096,7 @@ static int test_server_tls_ws_echo(void)
     char cert[512];
     char key[512];
     char response[8192];
-    ssize_t n;
+    intptr_t n;
     uint16_t port;
     int rc = 1;
 
@@ -4219,7 +4228,7 @@ static int test_server_tls_detect_mixed(void)
     char cert[512];
     char key[512];
     char response[8192];
-    ssize_t n;
+    intptr_t n;
     size_t used = 0;
     uint16_t port;
     int rc = 1;
@@ -4386,10 +4395,4 @@ const cfw_test_case cfw_test_server_cases[] = {
     {NULL, NULL},
 };
 
-#else /* Windows */
 
-const cfw_test_case cfw_test_server_cases[] = {
-    {NULL, NULL},
-};
-
-#endif /* POSIX */

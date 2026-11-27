@@ -4,18 +4,24 @@
 
 #include "test_harness.h"
 
-#if CFW_PLATFORM_POSIX
-    #include <cfw/net.h>
+#include <cfw/net.h>
 
+#include "test_loopback.h"
+
+#if CFW_PLATFORM_WINDOWS
+    #include <winsock2.h>
+    #include <ws2tcpip.h>
+#else
     #include <arpa/inet.h>
     #include <netinet/in.h>
     #include <string.h>
     #include <unistd.h>
+#endif
 
 static int test_addr_from_str_and_back(void)
 {
     cfw_addr_t addr;
-    char text[INET6_ADDRSTRLEN];
+    char text[48];
     uint16_t port;
 
     CFW_TEST_ASSERT_EQ(cfw_addr_from_str(&addr, "127.0.0.1", 8080), CFW_OK);
@@ -104,33 +110,43 @@ static int test_tcp_loopback_connect_accept(void)
              tries++) {
             status = cfw_net_accept(&listener, &peer_addr, &server_side);
             if (status == CFW_ERROR_WOULDBLOCK) {
-                usleep(1000);
+                cfw_test_sleep_us(1000);
             }
         }
         CFW_TEST_ASSERT_EQ(status, CFW_OK);
     }
     CFW_TEST_ASSERT_TRUE(cfw_addr_is_ipv4(&peer_addr));
 
-    /* Give the connection a moment, then exchange a byte. */
+    /* Give the connection a moment, then exchange a byte through the
+     * public wrappers (nonblocking: retry on WOULDBLOCK). */
     {
         int tries;
-        for (tries = 0; tries < 100; tries++) {
-            if (send((int)client.handle, &byte, 1, 0) == 1) {
-                break;
+        size_t one = 0;
+        for (tries = 0; tries < 100 && one == 0; tries++) {
+            cfw_status_t st = cfw_net_send(&client, &byte, 1, &one);
+            CFW_TEST_ASSERT(st == CFW_OK ||
+                            st == CFW_ERROR_WOULDBLOCK);
+            if (one == 0) {
+                cfw_test_sleep_us(1000);
             }
-            usleep(1000);
         }
         CFW_TEST_ASSERT(tries < 100);
+        CFW_TEST_ASSERT_EQ(one, 1);
     }
     {
         int tries;
-        for (tries = 0; tries < 100; tries++) {
-            if (recv((int)server_side.handle, &received, 1, 0) == 1) {
-                break;
+        size_t got = 0;
+        for (tries = 0; tries < 100 && got == 0; tries++) {
+            cfw_status_t st =
+                cfw_net_recv(&server_side, &received, 1, &got);
+            CFW_TEST_ASSERT(st == CFW_OK ||
+                            st == CFW_ERROR_WOULDBLOCK);
+            if (got == 0) {
+                cfw_test_sleep_us(1000);
             }
-            usleep(1000);
         }
         CFW_TEST_ASSERT(tries < 100);
+        CFW_TEST_ASSERT_EQ(got, 1);
         CFW_TEST_ASSERT_EQ(received, 'q');
     }
 
@@ -151,7 +167,7 @@ static int test_tcp_loopback_connect_accept(void)
                 CFW_TEST_ASSERT(rst == CFW_OK ||
                                 rst == CFW_ERROR_WOULDBLOCK);
                 if (received2 == 0) {
-                    usleep(1000);
+                    cfw_test_sleep_us(1000);
                 }
             }
         }
@@ -204,14 +220,11 @@ static int test_net_argument_validation(void)
     CFW_TEST_ASSERT_EQ(cfw_net_listen(&fd, -1), CFW_ERROR_INVALID_ARGUMENT);
     return 0;
 }
-#endif
 
 const cfw_test_case cfw_test_net_cases[] = {
-#if CFW_PLATFORM_POSIX
     {"addr_from_str_and_back", test_addr_from_str_and_back},
     {"addr_any", test_addr_any},
     {"tcp_loopback_connect_accept", test_tcp_loopback_connect_accept},
     {"net_argument_validation", test_net_argument_validation},
-#endif
     {NULL, NULL},
 };

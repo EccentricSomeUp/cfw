@@ -2,22 +2,17 @@
 
 /* HTTP client integration tests: real loopback servers — the cfw_server
  * event loop (cleartext and TLS) plus a minimal raw-socket responder
- * for protocol edge cases the server never emits. POSIX only; the
- * client itself is unavailable on Windows. */
+ * for protocol edge cases the server never emits. Runs on every
+ * platform with a socket backend (POSIX and Windows). */
 
 #include <cfw/cfw.h>
 
 #include "test_harness.h"
+#include "test_loopback.h"
 
-#if CFW_PLATFORM_POSIX
-    #include <cfw/net.h>
-
-    #include <netinet/in.h>
-    #include <stdio.h>
-    #include <stdlib.h>
-    #include <string.h>
-    #include <sys/socket.h>
-    #include <unistd.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 /* ------------------------------------------------------------------ */
 /* cfw_server-backed fixture                                           */
@@ -418,7 +413,7 @@ static int cfw_raw_server_send_all(cfw_fd_t *fd, const char *data,
         if (st != CFW_ERROR_WOULDBLOCK) {
             return 1;
         }
-        usleep(1000);
+        cfw_test_sleep_us(1000);
         attempts++;
     }
     return off == size ? 0 : 1;
@@ -441,7 +436,7 @@ static int cfw_raw_server_main(void *arg)
         if (st != CFW_ERROR_WOULDBLOCK) {
             return 1;
         }
-        usleep(1000);
+        cfw_test_sleep_us(1000);
     }
     if (attempts == 10000) {
         return 1;
@@ -458,11 +453,11 @@ static int cfw_raw_server_main(void *arg)
             if (st == CFW_OK || st != CFW_ERROR_WOULDBLOCK) {
                 break;
             }
-            usleep(1000);
+            cfw_test_sleep_us(1000);
         }
     }
     if (rs->hold_ms > 0) {
-        usleep((useconds_t)rs->hold_ms * 1000u);
+        cfw_test_sleep_us((long)rs->hold_ms * 1000L);
     }
     if (rs->response != NULL &&
         cfw_raw_server_send_all(&conn, rs->response, rs->response_len) != 0) {
@@ -909,10 +904,3 @@ const cfw_test_case cfw_test_http_client_cases[] = {
     {NULL, NULL},
 };
 
-#else /* Windows */
-
-const cfw_test_case cfw_test_http_client_cases[] = {
-    {NULL, NULL},
-};
-
-#endif /* POSIX */

@@ -11,17 +11,13 @@
 
 #include "test_harness.h"
 
-#if CFW_PLATFORM_POSIX
-    #include <cfw/net.h>
+#include <cfw/net.h>
 
-    #include <netinet/in.h>
-    #include <stdio.h>
-    #include <stdlib.h>
-    #include <string.h>
-    #include <sys/socket.h>
-    #include <sys/time.h>
-    #include <time.h>
-    #include <unistd.h>
+#include "test_loopback.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 /* ------------------------------------------------------------------ */
 /* cfw_server ws-echo fixture                                          */
@@ -534,75 +530,109 @@ typedef struct {
     int result; /* 0 ok, 1 failure */
 } cfw_wsc_fake_t;
 
+static int cfw_wsc_send_all(cfw_fd_t *fd, const void *data, size_t size)
+{
+    const char *p = (const char *)data;
+    size_t off = 0;
+    int attempts = 0;
+
+    while (off < size && attempts < 20000) {
+        size_t sent = 0;
+        cfw_status_t st = cfw_net_send(fd, p + off, size - off, &sent);
+        if (st == CFW_OK) {
+            off += sent;
+            attempts = 0;
+            continue;
+        }
+        if (st != CFW_ERROR_WOULDBLOCK) {
+            return 1;
+        }
+        cfw_test_sleep_us(500);
+        attempts++;
+    }
+    return off == size ? 0 : 1;
+}
+
 static int cfw_wsc_fake_main(void *arg)
 {
     cfw_wsc_fake_t *fake = (cfw_wsc_fake_t *)arg;
-    int lfd = -1;
-    int cfd = -1;
-    struct sockaddr_in addr;
+    cfw_fd_t lfd;
+    cfw_fd_t cfd;
+    cfw_addr_t bind_addr;
+    cfw_addr_t local_addr;
+    cfw_addr_t peer_addr;
+    uint16_t port = 0;
     char buf[8192];
-    ssize_t n;
+    size_t used = 0;
     char *key_start;
     char key[64];
     char accept_key[CFW_WS_ACCEPT_KEY_CAPACITY];
     char response[1024];
     int resp_len;
-    struct timeval tv;
+    int attempts;
+    int i;
 
-    /* Blocking sockets with a recv timeout so the thread always
-     * exits even if the client misbehaves. */
-    lfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (lfd < 0) {
-        fake->result = 1;
-        return 1;
-    }
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    addr.sin_port = 0;
-    if (bind(lfd, (struct sockaddr *)&addr, sizeof(addr)) != 0 ||
-        listen(lfd, 1) != 0) {
-        close(lfd);
-        fake->result = 1;
-        return 1;
-    }
-    {
-        socklen_t sl = sizeof(addr);
-        if (getsockname(lfd, (struct sockaddr *)&addr, &sl) != 0) {
-            close(lfd);
-            fake->result = 1;
-            return 1;
+    cfw_fd_init(&lfd);
+    cfw_fd_init(&cfd);
+
+    /* Nonblocking sockets with bounded retry loops; every wait is
+     * capped so the thread always exits even if the client
+     * misbehaves (the original used SO_RCVTIMEO for the same reason). */
+    CFW_TEST_ASSERT_EQ(cfw_addr_any(0, 0, &bind_addr), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_net_socket(AF_INET, SOCK_STREAM, 0, &lfd),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_net_bind(&lfd, &bind_addr), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_net_listen(&lfd, 1), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_net_local_addr(&lfd, &local_addr), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_addr_port(&local_addr, &port), CFW_OK);
+    fake->port = port;
+
+    for (attempts = 0; attempts < 20000; attempts++) {
+        cfw_status_t st = cfw_net_accept(&lfd, &peer_addr, &cfd);
+        if (st == CFW_OK) {
+            break;
         }
+        if (st != CFW_ERROR_WOULDBLOCK) {
+            fake->result = 1;
+            goto out;
+        }
+        cfw_test_sleep_us(500);
     }
-    fake->port = ntohs(addr.sin_port);
-
-    tv.tv_sec = 10;
-    tv.tv_usec = 0;
-    (void)setsockopt(lfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-
-    cfd = accept(lfd, NULL, NULL);
-    if (cfd < 0) {
-        close(lfd);
+    if (attempts == 20000) {
         fake->result = 1;
-        return 1;
+        goto out;
     }
-    (void)setsockopt(cfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
-    /* Read the client's Upgrade request head. */
-    n = recv(cfd, buf, sizeof(buf) - 1, 0);
-    if (n <= 0) {
-        close(cfd);
-        close(lfd);
-        fake->result = 1;
-        return 1;
+    /* Read the client's Upgrade request head until the blank line. */
+    for (attempts = 0; attempts < 20000 && used + 1 < sizeof(buf);
+         attempts++) {
+        size_t got = 0;
+        cfw_status_t st = cfw_net_recv(&cfd, buf + used,
+                                       sizeof(buf) - used - 1, &got);
+        if (st == CFW_OK && got > 0) {
+            used += got;
+            buf[used] = '\0';
+            if (strstr(buf, "\r\n\r\n") != NULL) {
+                break;
+            }
+            continue;
+        }
+        if (st == CFW_OK || st != CFW_ERROR_WOULDBLOCK) {
+            fake->result = 1;
+            goto out;
+        }
+        cfw_test_sleep_us(500);
     }
-    buf[n] = '\0';
+    if (used == 0 || strstr(buf, "\r\n\r\n") == NULL) {
+        fake->result = 1;
+        goto out;
+    }
+    buf[used] = '\0';
+
     key_start = strstr(buf, "Sec-WebSocket-Key: ");
     if (key_start == NULL) {
-        close(cfd);
-        close(lfd);
         fake->result = 1;
-        return 1;
+        goto out;
     }
     key_start += sizeof("Sec-WebSocket-Key: ") - 1;
     {
@@ -616,10 +646,8 @@ static int cfw_wsc_fake_main(void *arg)
     }
     if (cfw_ws_accept_key(key, strlen(key), accept_key,
                           sizeof(accept_key)) != CFW_OK) {
-        close(cfd);
-        close(lfd);
         fake->result = 1;
-        return 1;
+        goto out;
     }
 
     resp_len = snprintf(response, sizeof(response),
@@ -629,20 +657,15 @@ static int cfw_wsc_fake_main(void *arg)
                         "Sec-WebSocket-Accept: %s\r\n\r\n",
                         accept_key);
     if (resp_len <= 0 ||
-        send(cfd, response, (size_t)resp_len, 0) != resp_len) {
-        close(cfd);
-        close(lfd);
+        cfw_wsc_send_all(&cfd, response, (size_t)resp_len) != 0) {
         fake->result = 1;
-        return 1;
+        goto out;
     }
 
     /* Delay so the masked frame cannot arrive in the same read as the
      * 101 head — the client must complete connect() first, then reject
      * the frame during pump(). */
-    {
-        struct timespec pause = {0, 100000000};
-        nanosleep(&pause, NULL);
-    }
+    cfw_test_sleep_us(100000);
 
     /* Send a MASKED text frame — illegal from a server. The client
      * must reject it with a protocol-error close. */
@@ -651,16 +674,25 @@ static int cfw_wsc_fake_main(void *arg)
             0x81, 0x81, 0x01, 0x02, 0x03, 0x04,
             (unsigned char)('x' ^ 0x01)
         };
-        (void)send(cfd, masked, sizeof(masked), 0);
+        (void)cfw_wsc_send_all(&cfd, masked, sizeof(masked));
     }
 
-    /* Read whatever the client sends back (close frame or nothing)
-     * until EOF/timeout, then exit. */
-    (void)recv(cfd, buf, sizeof(buf), 0);
-    close(cfd);
-    close(lfd);
+    /* Drain whatever the client sends back (close frame or nothing)
+     * until WOULDBLOCK settles, bounded so the thread always exits. */
+    for (i = 0; i < 2000; i++) {
+        size_t got = 0;
+        cfw_status_t st = cfw_net_recv(&cfd, buf, sizeof(buf), &got);
+        if (st != CFW_ERROR_WOULDBLOCK) {
+            break;
+        }
+        cfw_test_sleep_us(5000);
+    }
+
     fake->result = 0;
-    return 0;
+out:
+    cfw_fd_close(&cfd);
+    cfw_fd_close(&lfd);
+    return fake->result;
 }
 
 static int test_ws_client_masked_server_frame(void)
@@ -683,8 +715,7 @@ static int test_ws_client_masked_server_frame(void)
 
     /* Wait for the listener port. */
     for (i = 0; i < 200 && fake.port == 0; i++) {
-        struct timespec ts = {0, 1000000};
-        nanosleep(&ts, NULL);
+        cfw_test_sleep_us(1000);
     }
     CFW_TEST_ASSERT_TRUE(fake.port != 0);
 
@@ -721,10 +752,3 @@ const cfw_test_case cfw_test_ws_client_cases[] = {
     {NULL, NULL},
 };
 
-#else /* Windows */
-
-const cfw_test_case cfw_test_ws_client_cases[] = {
-    {NULL, NULL},
-};
-
-#endif /* POSIX */

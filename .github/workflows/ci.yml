@@ -61,11 +61,12 @@ jobs:
             cmake --build --preset debug
             ctest --preset debug --output-on-failure
 
-  # Most of the suite is POSIX-gated and cannot run on Windows yet, but
-  # the cfw_windows_smoke target (ADR 0072/0074) exercises the public
-  # socket/pollset/server surface over loopback, so CI runs it here.
+  # The unit/integration/security suites were ported to the public
+  # cfw_net_*/cfw_pollset_*/cfw_thread_* API (ADR 0076) with a shared
+  # TCP-loopback socketpair helper, so the full ctest suite now runs
+  # on Windows alongside the cfw_windows_smoke target.
   windows:
-    name: windows compile + smoke check
+    name: windows build + test
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -76,8 +77,8 @@ jobs:
       - name: Build debug
         run: cmake --build --preset debug --config Debug
 
-      - name: Run Windows smoke test
-        run: ctest --preset debug -R cfw_windows_smoke --output-on-failure
+      - name: Test debug
+        run: ctest --preset debug --output-on-failure
 
   # TLS on Windows uses the same OpenSSL 3 backend as POSIX (ADR 0075).
   # Chocolatey's openssl package provides headers, import libraries,
@@ -100,5 +101,5 @@ jobs:
       - name: Build debug + TLS
         run: cmake --build --preset debug-tls --config Debug
 
-      - name: Run Windows smoke test (TLS)
-        run: ctest --preset debug-tls -R cfw_windows_smoke --output-on-failure
+      - name: Test debug + TLS
+        run: ctest --preset debug-tls --output-on-failure

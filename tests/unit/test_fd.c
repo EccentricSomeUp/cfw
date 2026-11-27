@@ -3,10 +3,7 @@
 #include <cfw/cfw.h>
 
 #include "test_harness.h"
-
-#if CFW_PLATFORM_POSIX
-    #include <unistd.h>
-#endif
+#include "test_loopback.h"
 
 static int test_fd_init_and_valid(void)
 {
@@ -34,61 +31,49 @@ static int test_fd_close_empty_is_ok(void)
     return 0;
 }
 
-#if CFW_PLATFORM_POSIX
 static int test_fd_close_real_descriptor(void)
 {
-    int fds[2];
-    cfw_fd_t read_end;
-    cfw_fd_t write_end;
+    cfw_fd_t pair[2];
+    cfw_fd_t *read_end = &pair[0];
+    cfw_fd_t *write_end = &pair[1];
 
-    CFW_TEST_ASSERT_EQ(pipe(fds), 0);
+    CFW_TEST_ASSERT_EQ(cfw_test_socketpair(pair), CFW_OK);
 
-    cfw_fd_init(&read_end);
-    cfw_fd_init(&write_end);
-    read_end.handle = fds[0];
-    write_end.handle = fds[1];
+    CFW_TEST_ASSERT_TRUE(cfw_fd_valid(read_end));
+    CFW_TEST_ASSERT(cfw_fd_get(read_end) >= 0);
 
-    CFW_TEST_ASSERT_TRUE(cfw_fd_valid(&read_end));
-    CFW_TEST_ASSERT_EQ(cfw_fd_get(&read_end), (intptr_t)fds[0]);
-
-    CFW_TEST_ASSERT_EQ(cfw_fd_close(&read_end), CFW_OK);
-    CFW_TEST_ASSERT_FALSE(cfw_fd_valid(&read_end));
+    CFW_TEST_ASSERT_EQ(cfw_fd_close(read_end), CFW_OK);
+    CFW_TEST_ASSERT_FALSE(cfw_fd_valid(read_end));
 
     /* Closing again is a safe no-op. */
-    CFW_TEST_ASSERT_EQ(cfw_fd_close(&read_end), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_fd_close(read_end), CFW_OK);
 
-    CFW_TEST_ASSERT_EQ(cfw_fd_close(&write_end), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_fd_close(write_end), CFW_OK);
     return 0;
 }
 
 static int test_fd_release_transfers_ownership(void)
 {
-    int fds[2];
-    cfw_fd_t fd;
+    cfw_fd_t pair[2];
+    cfw_fd_t *fd = &pair[0];
     intptr_t raw;
 
-    CFW_TEST_ASSERT_EQ(pipe(fds), 0);
+    CFW_TEST_ASSERT_EQ(cfw_test_socketpair(pair), CFW_OK);
 
-    cfw_fd_init(&fd);
-    fd.handle = fds[0];
-
-    raw = cfw_fd_release(&fd);
-    CFW_TEST_ASSERT_EQ(raw, (intptr_t)fds[0]);
-    CFW_TEST_ASSERT_FALSE(cfw_fd_valid(&fd));
+    raw = cfw_fd_release(fd);
+    CFW_TEST_ASSERT(raw >= 0);
+    CFW_TEST_ASSERT_FALSE(cfw_fd_valid(fd));
 
     /* Caller now owns the raw descriptor. */
-    CFW_TEST_ASSERT_EQ(close((int)raw), 0);
-    CFW_TEST_ASSERT_EQ(close(fds[1]), 0);
+    cfw_test_close_raw(raw);
+    CFW_TEST_ASSERT_EQ(cfw_fd_close(&pair[1]), CFW_OK);
     return 0;
 }
-#endif
 
 const cfw_test_case cfw_test_fd_cases[] = {
     {"fd_init_and_valid", test_fd_init_and_valid},
     {"fd_close_empty_is_ok", test_fd_close_empty_is_ok},
-#if CFW_PLATFORM_POSIX
     {"fd_close_real_descriptor", test_fd_close_real_descriptor},
     {"fd_release_transfers_ownership", test_fd_release_transfers_ownership},
-#endif
     {NULL, NULL},
 };
