@@ -933,6 +933,12 @@ static int test_client_bad_args(void)
     req.body_size = 4;
     CFW_TEST_ASSERT_EQ(cfw_http_client_request(&req, &response),
                        CFW_ERROR_INVALID_ARGUMENT);
+    /* header_count without headers. */
+    req.body_size = 0;
+    req.header_count = 1;
+    CFW_TEST_ASSERT_EQ(cfw_http_client_request(&req, &response),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    req.header_count = 0;
     /* response_head on an empty response → INVALID_ARGUMENT. */
     {
         cfw_http_response_head_t head;

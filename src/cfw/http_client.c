@@ -358,6 +358,9 @@ static void cfw_hc_conn_close(cfw_hc_state_t *st)
     cfw_buffer_clear(&st->pending);
     st->pending_pos = 0;
     st->input_closed = 0;
+    cfw_buffer_clear(&st->auth_host);
+    st->auth_port = 0;
+    st->auth_tls = 0;
 }
 
 static void cfw_hc_state_free(cfw_hc_state_t *st)
@@ -902,17 +905,21 @@ static cfw_status_t cfw_hc_ensure_conn(cfw_hc_state_t *st,
         return status;
     }
 
-    /* Optional TLS layer over the connected socket. */
+    /* Optional TLS layer over the connected socket. Any failure past
+     * this point must drop the half-open connection: auth_host still
+     * describes the previous (now closed) binding, so leaving
+     * conn_open set would let a later perform "reuse" a connection
+     * bound to the wrong authority. */
     if (tls_ctx != NULL) {
         status = cfw_tls_conn_create(tls_ctx, cfw_fd_get(&st->fd),
                                      &st->tls);
         if (status != CFW_OK) {
-            return status;
+            goto conn_fail;
         }
         status = cfw_tls_conn_set_server_name(st->tls,
                                               (const char *)eff->host.data);
         if (status != CFW_OK) {
-            return status;
+            goto conn_fail;
         }
         /* Offer the cached session before the handshake (ADR 0062). */
         if (st->tls_session.size != 0) {
@@ -921,7 +928,7 @@ static cfw_status_t cfw_hc_ensure_conn(cfw_hc_state_t *st,
         }
         status = cfw_hc_handshake(st, clock);
         if (status != CFW_OK) {
-            return status;
+            goto conn_fail;
         }
     }
 
@@ -931,11 +938,15 @@ static cfw_status_t cfw_hc_ensure_conn(cfw_hc_state_t *st,
     status = cfw_buffer_append(&st->auth_host, eff->host.data,
                                eff->host.size);
     if (status != CFW_OK) {
-        return status;
+        goto conn_fail;
     }
     st->auth_port = eff->port;
     st->auth_tls = want_tls;
     return CFW_OK;
+
+conn_fail:
+    cfw_hc_conn_close(st);
+    return status;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1793,7 +1804,14 @@ static cfw_status_t cfw_hc_validate_request(
         return CFW_ERROR_INVALID_ARGUMENT;
     }
     if (cfw_http_method_name(request->method) == NULL ||
-        request->timeout.nanoseconds < 0) {
+        request->timeout.nanoseconds < 0 ||
+        (request->header_count != 0 && request->headers == NULL)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    /* header_count + 4 generated headers must not overflow the
+     * headers_all allocation. */
+    if (request->header_count >
+        (SIZE_MAX / sizeof(cfw_http_header_t)) - 8) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
     /* Reject framework-managed header names up front (case-insensitive). */
