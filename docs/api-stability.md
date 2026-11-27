@@ -30,8 +30,9 @@ version and a migration note in `CHANGELOG.md`.
   get new names (`cfw_router_add_ex` is the precedent).
 - Internal headers under `src/cfw/private/` are explicitly not public
   API and may change without notice.
-- The Windows TLS module remains a stub (`CFW_ENABLE_TLS` is rejected
-  on `WIN32`); TLS entry points return `CFW_ERROR_UNAVAILABLE` —
+- The TLS module is optional on every platform (`CFW_ENABLE_TLS`
+  requires OpenSSL 3, including Windows per ADR 0075); without it the
+  `cfw_tls_*` entry points return `CFW_ERROR_UNAVAILABLE` —
   contractual, not a bug.
 
 ## Deprecation and migration policy

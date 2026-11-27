@@ -21,15 +21,25 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 - `cfw_server_t` now builds and runs on Windows for cleartext HTTP
   (ADR 0074): a loopback TCP pair replaces the `AF_UNIX` wake channel,
   and recv/send/errno call sites go through small platform wrappers.
-  All TLS paths remain `CFW_ERROR_UNAVAILABLE` stubs pending a Windows
-  TLS backend decision.
 - `tests/windows_smoke.c` (Windows CI only): a public-API-only
   end-to-end check that exercises address helpers, socket I/O,
   `WSAPoll`, fd close, and a full cleartext `cfw_server` request/
   response cycle over loopback, giving the Windows job runtime
   coverage instead of compile-only verification.
+- TLS on Windows via OpenSSL 3 (ADR 0075): `CFW_ENABLE_TLS` is no
+  longer refused on `WIN32`; `cfw_tls_*`, TLS listeners, TLS clients,
+  and `wss://` work on Windows through the same OpenSSL backend as
+  POSIX (Schannel rejected to avoid a second TLS implementation).
+  `cfw_tls_conn_create` rejects descriptor values that would truncate
+  in `SSL_set_fd`'s `int` parameter. The Windows smoke test gains a
+  verified-TLS end-to-end case, and CI gains a `windows-tls` job.
 
 ### Fixed
+
+- `cfw_fd_close` on Windows fell through without invalidating the
+  handle or returning a status after a successful `closesocket`;
+  the wrapper is now invalidated and `CFW_OK` returned on all
+  platforms.
 
 - Fixed a FreeBSD build failure in the mixed-listener protocol sniff:
   the TLS-detection `recv` used `MSG_DONTWAIT` unconditionally, but the

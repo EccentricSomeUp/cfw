@@ -169,6 +169,165 @@ static int wsm_net_pollset(void)
     return 0;
 }
 
+#if CFW_HAVE_TLS
+
+/* TLS smoke (ADR 0075): a cleartext cfw_server upgraded to a TLS
+ * listener via tls_ctx, exercised end-to-end by a cfw_tls_conn client
+ * over loopback. Certificate paths come from CFW_TEST_TLS_DIR, which
+ * CMake defines only for TLS-enabled builds. */
+static int wsm_tls(void)
+{
+    char cert[512];
+    char key[512];
+    char ca[512];
+    cfw_tls_ctx_options_t sopt;
+    cfw_tls_ctx_options_t copt;
+    cfw_tls_ctx_t *sctx = NULL;
+    cfw_tls_ctx_t *cctx = NULL;
+    cfw_tls_conn_t *tconn = NULL;
+    cfw_arena_t *arena;
+    cfw_router_t router;
+    cfw_dispatch_t dispatch;
+    cfw_dispatch_options_t dopt;
+    cfw_server_options_t srv;
+    cfw_server_t server;
+    cfw_strview_t pattern;
+    cfw_fd_t client;
+    cfw_addr_t addr;
+    static const char req[] =
+        "GET /secure HTTP/1.1\r\nHost: localhost\r\n"
+        "Connection: close\r\n\r\n";
+    char response[4096];
+    size_t used = 0;
+    size_t off = 0;
+    int done = 0;
+    int spins;
+
+    snprintf(cert, sizeof(cert), "%s/server.crt", CFW_TEST_TLS_DIR);
+    snprintf(key, sizeof(key), "%s/server.key", CFW_TEST_TLS_DIR);
+    snprintf(ca, sizeof(ca), "%s/ca.crt", CFW_TEST_TLS_DIR);
+
+    memset(&sopt, 0, sizeof(sopt));
+    sopt.role = CFW_TLS_SERVER;
+    sopt.cert_file = cert;
+    sopt.key_file = key;
+    WSM_ASSERT(cfw_tls_ctx_create(&sopt, &sctx) == CFW_OK);
+
+    memset(&copt, 0, sizeof(copt));
+    copt.role = CFW_TLS_CLIENT;
+    copt.ca_file = ca;
+    copt.verify_peer = 1;
+    WSM_ASSERT(cfw_tls_ctx_create(&copt, &cctx) == CFW_OK);
+
+    arena = cfw_arena_create(1u << 20);
+    WSM_ASSERT(arena != NULL);
+    WSM_ASSERT(cfw_router_init(&router, arena) == CFW_OK);
+
+    memset(&dopt, 0, sizeof(dopt));
+    dopt.router = &router;
+    dopt.handler = wsm_hello;
+    dopt.max_middleware = 4;
+    WSM_ASSERT(cfw_dispatch_init(&dispatch, arena, &dopt) == CFW_OK);
+    WSM_ASSERT(cfw_strview_from_cstr(&pattern, "/secure") == CFW_OK);
+    WSM_ASSERT(cfw_dispatch_add_route(&dispatch, CFW_HTTP_METHOD_GET,
+                                    &pattern, wsm_hello, NULL) == CFW_OK);
+
+    memset(&srv, 0, sizeof(srv));
+    srv.host = "127.0.0.1";
+    srv.port = 0;
+    srv.dispatch = &dispatch;
+    srv.tls_ctx = sctx;
+    srv.http.max_head_size = 8192;
+    srv.http.max_pending_size = 65536;
+    srv.max_out_size = 8192;
+    srv.max_connections = 16;
+    srv.max_headers = 32;
+    srv.max_params = 16;
+    WSM_ASSERT(cfw_server_init(&server, &srv) == CFW_OK);
+    WSM_ASSERT(cfw_server_port(&server) != 0);
+
+    WSM_ASSERT(cfw_addr_from_str(&addr, "127.0.0.1",
+                                 cfw_server_port(&server)) == CFW_OK);
+    cfw_fd_init(&client);
+    WSM_ASSERT(wsm_connect(&client, &addr) == 0);
+    WSM_ASSERT(cfw_tls_conn_create(cctx, cfw_fd_get(&client),
+                                   &tconn) == CFW_OK);
+
+    /* Each WOULDBLOCK retry is paced by cfw_server_step with a short
+     * deadline: it processes whatever the peer has sent and waits
+     * briefly when idle, which gives the client socket time to become
+     * ready without a second pollset. */
+    for (spins = 0; spins < 2000; spins++) {
+        cfw_timepoint_t deadline;
+        cfw_duration_t slice;
+        cfw_status_t st = cfw_tls_handshake(tconn);
+        if (st == CFW_OK) {
+            break;
+        }
+        WSM_ASSERT(st == CFW_ERROR_WOULDBLOCK);
+        WSM_ASSERT(cfw_duration_from_millis(10, &slice) == CFW_OK);
+        WSM_ASSERT(cfw_deadline_from_now(&deadline, slice) == CFW_OK);
+        WSM_ASSERT(cfw_server_step(&server, &deadline) == CFW_OK);
+    }
+    WSM_ASSERT(spins < 2000);
+    WSM_ASSERT(cfw_tls_handshake_done(tconn));
+
+    /* Write the request (may partial-write; retry on WOULDBLOCK). */
+    while (off < sizeof(req) - 1) {
+        cfw_timepoint_t deadline;
+        cfw_duration_t slice;
+        size_t sent = 0;
+        cfw_status_t st =
+            cfw_tls_write(tconn, req + off, sizeof(req) - 1 - off, &sent);
+        if (st == CFW_OK) {
+            off += sent;
+            continue;
+        }
+        WSM_ASSERT(st == CFW_ERROR_WOULDBLOCK);
+        WSM_ASSERT(cfw_duration_from_millis(10, &slice) == CFW_OK);
+        WSM_ASSERT(cfw_deadline_from_now(&deadline, slice) == CFW_OK);
+        WSM_ASSERT(cfw_server_step(&server, &deadline) == CFW_OK);
+    }
+
+    /* Read the response while stepping the server. */
+    for (spins = 0; spins < 2000 && !done; spins++) {
+        cfw_timepoint_t deadline;
+        cfw_duration_t slice;
+        size_t got = 0;
+        cfw_status_t st =
+            cfw_tls_read(tconn, response + used,
+                         sizeof(response) - 1 - used, &got);
+        if (st == CFW_OK) {
+            if (got == 0) {
+                break;
+            }
+            used += got;
+            response[used] = '\0';
+            if (strstr(response, "200") != NULL &&
+                strstr(response, "Hello, Windows!") != NULL) {
+                done = 1;
+            }
+        } else {
+            WSM_ASSERT(st == CFW_ERROR_WOULDBLOCK);
+        }
+        WSM_ASSERT(cfw_duration_from_millis(10, &slice) == CFW_OK);
+        WSM_ASSERT(cfw_deadline_from_now(&deadline, slice) == CFW_OK);
+        WSM_ASSERT(cfw_server_step(&server, &deadline) == CFW_OK);
+    }
+    WSM_ASSERT(done);
+
+    cfw_tls_conn_destroy(tconn);
+    cfw_server_stop(&server);
+    cfw_fd_close(&client);
+    cfw_server_free(&server);
+    cfw_tls_ctx_destroy(cctx);
+    cfw_tls_ctx_destroy(sctx);
+    cfw_arena_destroy(arena);
+    return 0;
+}
+
+#endif /* CFW_HAVE_TLS */
+
 static int wsm_server(void)
 {
     cfw_arena_t *arena;
@@ -276,6 +435,11 @@ int main(void)
     if (wsm_server() != 0) {
         return 1;
     }
+#if CFW_HAVE_TLS
+    if (wsm_tls() != 0) {
+        return 1;
+    }
+#endif
     if (cfw_wsm_failures != 0) {
         return 1;
     }

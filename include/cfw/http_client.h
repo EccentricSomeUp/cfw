@@ -102,8 +102,8 @@ typedef struct cfw_http_client_response {
  * - CFW_ERROR_IO: socket errors, TLS failures, or truncated bodies.
  * - CFW_ERROR_TIMEOUT: the deadline expired.
  * - CFW_ERROR_OVERFLOW: max_head_size or max_body_size exceeded.
- * - CFW_ERROR_UNAVAILABLE: TLS requested without TLS support, or TLS
- *   requested on a platform without a TLS backend (Windows).
+ * - CFW_ERROR_UNAVAILABLE: TLS requested without TLS support
+ *   (CFW_ENABLE_TLS off or OpenSSL not found).
  * - CFW_ERROR_NOMEM: allocation failure. */
 CFW_API cfw_status_t cfw_http_client_request(
     const cfw_http_client_request_t *request,

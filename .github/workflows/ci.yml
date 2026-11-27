@@ -78,3 +78,27 @@ jobs:
 
       - name: Run Windows smoke test
         run: ctest --preset debug -R cfw_windows_smoke --output-on-failure
+
+  # TLS on Windows uses the same OpenSSL 3 backend as POSIX (ADR 0075).
+  # Chocolatey's openssl package provides headers, import libraries,
+  # the openssl CLI (needed at configure time to mint test certs), and
+  # the runtime DLLs on PATH for ctest.
+  windows-tls:
+    name: windows TLS build + smoke check
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install OpenSSL
+        run: choco install openssl -y
+
+      - name: Configure debug + TLS
+        run: >
+          cmake --preset debug-tls
+          -DOPENSSL_ROOT_DIR="C:\Program Files\OpenSSL-Win64"
+
+      - name: Build debug + TLS
+        run: cmake --build --preset debug-tls --config Debug
+
+      - name: Run Windows smoke test (TLS)
+        run: ctest --preset debug-tls -R cfw_windows_smoke --output-on-failure

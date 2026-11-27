@@ -66,7 +66,7 @@ cfw_status_t cfw_fd_close(cfw_fd_t *fd)
     if (close((int)fd->handle) != 0) {
         return CFW_ERROR_IO;
     }
+#endif
     fd->handle = CFW_FD_INVALID;
     return CFW_OK;
-#endif
 }

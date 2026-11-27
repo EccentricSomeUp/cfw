@@ -28,11 +28,9 @@ option(CFW_ENABLE_TLS "Build the optional OpenSSL-backed TLS module (ADR 0057)" 
 
 set(CFW_HAVE_TLS 0)
 if(CFW_ENABLE_TLS)
-    if(WIN32)
-        message(FATAL_ERROR
-            "CFW_ENABLE_TLS is not supported on Windows builds yet "
-            "(ADR 0057); the TLS module targets POSIX platforms.")
-    endif()
+    # OpenSSL 3 builds and runs on Windows; tls.c is platform-neutral
+    # OpenSSL API code (ADR 0075). Schannel was rejected to avoid a
+    # second TLS backend.
     find_package(OpenSSL 3 REQUIRED)
     set(CFW_HAVE_TLS 1)
 endif()

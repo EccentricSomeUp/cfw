@@ -13,8 +13,8 @@ dispatch/middleware chain with streaming bodies, and the single-threaded
 server lifecycle are all implemented and covered by unit, integration,
 security, and fuzz tests. On Windows the socket/address layer, WSAPoll
 pollset, fd close, `cfw_http1_conn`, `cfw_server` (cleartext), and the
-HTTP/WebSocket clients are implemented (ADRs 0072–0074); TLS remains a
-stub returning `CFW_STATUS_UNAVAILABLE`; see `docs/platform-matrix.md`.
+HTTP/WebSocket clients, and TLS via OpenSSL 3 are implemented
+(ADRs 0072–0075); see `docs/platform-matrix.md`.
 
 ## Architectural goals
 

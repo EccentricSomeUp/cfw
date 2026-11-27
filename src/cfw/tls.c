@@ -2,6 +2,8 @@
 
 #include <cfw/tls.h>
 
+#include "private/platform_detect.h"
+
 #if CFW_HAVE_TLS
 
     #include <openssl/err.h>
@@ -282,6 +284,15 @@ cfw_status_t cfw_tls_conn_create(cfw_tls_ctx_t *ctx, intptr_t fd,
     if (ctx == NULL || conn == NULL || fd < 0) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
+#if CFW_PLATFORM_WINDOWS
+    /* Winsock SOCKET is pointer-sized while SSL_set_fd takes int (and
+     * OpenSSL's socket BIO stores it in an int internally). Real
+     * SOCKET values fit, but reject anything that would truncate
+     * rather than hand OpenSSL a corrupted descriptor. */
+    if ((uint64_t)(uintptr_t)fd > (uint64_t)INT32_MAX) {
+        return CFW_ERROR_UNAVAILABLE;
+    }
+#endif
 
     ssl = SSL_new(ctx->ssl_ctx);
     if (ssl == NULL) {

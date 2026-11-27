@@ -27,8 +27,9 @@ extern "C" {
  * state (dispatch is read-only during requests).
  *
  * Transport: cleartext HTTP/1.1 works on POSIX and Windows (Winsock2,
- * ADR 0074). TLS requires a CFW_ENABLE_TLS build, which is POSIX-only
- * for now; on Windows all TLS paths report CFW_ERROR_UNAVAILABLE.
+ * ADR 0074). TLS requires a CFW_ENABLE_TLS build (OpenSSL 3 on all
+ * platforms, ADR 0075); without it all TLS paths report
+ * CFW_ERROR_UNAVAILABLE.
  *
  * Usage:
  *   cfw_server_t server;

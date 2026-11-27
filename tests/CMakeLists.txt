@@ -255,6 +255,11 @@ if(WIN32)
         ${CMAKE_SOURCE_DIR}/src/cfw
     )
     target_link_libraries(cfw_windows_smoke PRIVATE cfw)
+    if(CFW_HAVE_TLS)
+        target_compile_definitions(cfw_windows_smoke PRIVATE
+            CFW_TEST_TLS_DIR="${CFW_TEST_TLS_DIR}"
+        )
+    endif()
     cfw_apply_strict_flags(cfw_windows_smoke)
     cfw_apply_hardening_flags(cfw_windows_smoke)
     cfw_apply_sanitizer_flags(cfw_windows_smoke)

@@ -4,7 +4,9 @@
 
 #include <cfw/tls.h>
 
-#if CFW_HAVE_TLS
+/* The suite drives TLS over AF_UNIX socketpairs (POSIX-only);
+ * Windows TLS coverage lives in tests/windows_smoke.c. */
+#if CFW_HAVE_TLS && CFW_PLATFORM_POSIX
 
     #include <fcntl.h>
     #include <stdio.h>
@@ -1192,10 +1194,10 @@ static int test_tls_server_name_get_absent(void)
     return rc;
 }
 
-#endif /* CFW_HAVE_TLS */
+#endif /* CFW_HAVE_TLS && CFW_PLATFORM_POSIX */
 
 const cfw_test_case cfw_test_tls_cases[] = {
-#if CFW_HAVE_TLS
+#if CFW_HAVE_TLS && CFW_PLATFORM_POSIX
     {"tls_ctx_invalid_args", test_tls_ctx_invalid_args},
     {"tls_handshake_and_echo", test_tls_handshake_and_echo},
     {"tls_wouldblock_progression", test_tls_wouldblock_progression},
