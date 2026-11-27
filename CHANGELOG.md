@@ -9,6 +9,8 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-27
+
 ### Added
 
 - Windows socket/address layer, `WSAPoll` pollset backend, and
