@@ -47,6 +47,28 @@ CFW_API void cfw_sha256_final(cfw_sha256_ctx_t *ctx,
 CFW_API void cfw_sha256(const void *data, size_t size,
                         unsigned char *out);
 
+/* Streaming HMAC-SHA256 (RFC 2104) context for incremental input —
+ * large bodies, files, or data that arrives in pieces. The context
+ * is ~200 bytes; keep it on the stack or in caller-owned storage.
+ * Not internally synchronized. */
+typedef struct cfw_hmac_sha256_ctx {
+    cfw_sha256_ctx_t inner;
+    unsigned char kblock[64]; /* inner-padded key block */
+} cfw_hmac_sha256_ctx_t;
+
+/* Initializes the context with `key` (any length; longer keys are
+ * hashed first per RFC 2104). Same NULL/size contract as
+ * cfw_hmac_sha256: invalid arguments leave the context unusable and
+ * the call is a no-op. */
+CFW_API void cfw_hmac_sha256_init(cfw_hmac_sha256_ctx_t *ctx,
+                                  const void *key, size_t key_size);
+CFW_API void cfw_hmac_sha256_update(cfw_hmac_sha256_ctx_t *ctx,
+                                    const void *data, size_t size);
+/* Writes CFW_HMAC_SHA256_DIGEST_SIZE bytes to `out` and invalidates
+ * the context (it must be re-init'ed for reuse). */
+CFW_API void cfw_hmac_sha256_final(cfw_hmac_sha256_ctx_t *ctx,
+                                   unsigned char *out);
+
 /* HMAC-SHA256 (RFC 2104) with the standard 64-byte block size.
  * `key` may be any length (longer keys are hashed first, per spec).
  * Writes CFW_HMAC_SHA256_DIGEST_SIZE bytes to `out`. */

@@ -236,6 +236,42 @@ static int test_hmac_empty_key_and_data(void)
     return 0;
 }
 
+static int test_hmac_streaming_equivalence(void)
+{
+    /* Chunked updates of odd sizes must match the one-shot HMAC, for
+     * both a short key and a >64-byte key (hash-first path). */
+    static const char msg[] =
+        "The quick brown fox jumps over the lazy dog";
+    unsigned char key[100];
+    cfw_hmac_sha256_ctx_t ctx;
+    unsigned char one_shot[CFW_HMAC_SHA256_DIGEST_SIZE];
+    unsigned char streamed[CFW_HMAC_SHA256_DIGEST_SIZE];
+    size_t i;
+
+    memset(key, 0xa5u, sizeof(key));
+    cfw_hmac_sha256("Jefe", 4, msg, sizeof(msg) - 1u, one_shot);
+    cfw_hmac_sha256_init(&ctx, "Jefe", 4);
+    for (i = 0; i < sizeof(msg) - 1u; i += 5u) {
+        size_t n = sizeof(msg) - 1u - i;
+        if (n > 5u) {
+            n = 5u;
+        }
+        cfw_hmac_sha256_update(&ctx, msg + i, n);
+    }
+    cfw_hmac_sha256_final(&ctx, streamed);
+    CFW_TEST_ASSERT_TRUE(
+        memcmp(one_shot, streamed, CFW_HMAC_SHA256_DIGEST_SIZE) == 0);
+
+    cfw_hmac_sha256(key, sizeof(key), msg, sizeof(msg) - 1u, one_shot);
+    cfw_hmac_sha256_init(&ctx, key, sizeof(key));
+    cfw_hmac_sha256_update(&ctx, msg, 1u);
+    cfw_hmac_sha256_update(&ctx, msg + 1u, sizeof(msg) - 2u);
+    cfw_hmac_sha256_final(&ctx, streamed);
+    CFW_TEST_ASSERT_TRUE(
+        memcmp(one_shot, streamed, CFW_HMAC_SHA256_DIGEST_SIZE) == 0);
+    return 0;
+}
+
 static int test_secure_equal(void)
 {
     static const unsigned char a[32] = {0};
@@ -263,6 +299,7 @@ const cfw_test_case cfw_test_crypto_cases[] = {
     {"hmac_rfc4231_case3", test_hmac_rfc4231_case3},
     {"hmac_long_key", test_hmac_long_key},
     {"hmac_empty_key_and_data", test_hmac_empty_key_and_data},
+    {"hmac_streaming_equivalence", test_hmac_streaming_equivalence},
     {"secure_equal", test_secure_equal},
     {NULL, NULL},
 };

@@ -185,16 +185,13 @@ void cfw_sha256(const void *data, size_t size, unsigned char *out)
     cfw_sha256_final(&ctx, out);
 }
 
-void cfw_hmac_sha256(const void *key, size_t key_size, const void *data,
-                     size_t data_size, unsigned char *out)
+void cfw_hmac_sha256_init(cfw_hmac_sha256_ctx_t *ctx, const void *key,
+                          size_t key_size)
 {
     unsigned char kblock[64];
-    unsigned char inner[CFW_SHA256_DIGEST_SIZE];
-    cfw_sha256_ctx_t ctx;
     size_t i;
 
-    if (out == NULL || (key_size != 0 && key == NULL) ||
-        (data_size != 0 && data == NULL)) {
+    if (ctx == NULL || (key_size != 0 && key == NULL)) {
         return;
     }
 
@@ -210,24 +207,63 @@ void cfw_hmac_sha256(const void *key, size_t key_size, const void *data,
         memset(kblock + key_size, 0, 64u - key_size);
     }
 
-    /* Inner pad. */
+    /* Store the inner-padded key block; the outer pad is derived in
+     * final by XOR with 0x36^0x5c = 0x6a. */
     for (i = 0; i < 64u; i++) {
-        kblock[i] ^= 0x36u;
+        ctx->kblock[i] = (unsigned char)(kblock[i] ^ 0x36u);
     }
-    cfw_sha256_init(&ctx);
-    cfw_sha256_update(&ctx, kblock, 64u);
-    cfw_sha256_update(&ctx, data, data_size);
-    cfw_sha256_final(&ctx, inner);
+    memset(kblock, 0, sizeof(kblock));
 
-    /* Outer pad: rebuild kblock with 0x5c (kblock currently holds the
-     * inner-padded key; XOR difference 0x36^0x5c = 0x6a). */
-    for (i = 0; i < 64u; i++) {
-        kblock[i] ^= 0x6au;
+    cfw_sha256_init(&ctx->inner);
+    cfw_sha256_update(&ctx->inner, ctx->kblock, 64u);
+}
+
+void cfw_hmac_sha256_update(cfw_hmac_sha256_ctx_t *ctx, const void *data,
+                            size_t size)
+{
+    if (ctx == NULL || (size != 0 && data == NULL)) {
+        return;
     }
-    cfw_sha256_init(&ctx);
-    cfw_sha256_update(&ctx, kblock, 64u);
-    cfw_sha256_update(&ctx, inner, sizeof(inner));
-    cfw_sha256_final(&ctx, out);
+    cfw_sha256_update(&ctx->inner, data, size);
+}
+
+void cfw_hmac_sha256_final(cfw_hmac_sha256_ctx_t *ctx, unsigned char *out)
+{
+    unsigned char inner[CFW_SHA256_DIGEST_SIZE];
+    unsigned char opad[64];
+    cfw_sha256_ctx_t outer;
+    size_t i;
+
+    if (ctx == NULL || out == NULL) {
+        return;
+    }
+
+    cfw_sha256_final(&ctx->inner, inner);
+    for (i = 0; i < 64u; i++) {
+        opad[i] = (unsigned char)(ctx->kblock[i] ^ 0x6au);
+    }
+    memset(ctx->kblock, 0, sizeof(ctx->kblock));
+
+    cfw_sha256_init(&outer);
+    cfw_sha256_update(&outer, opad, 64u);
+    cfw_sha256_update(&outer, inner, sizeof(inner));
+    cfw_sha256_final(&outer, out);
+    memset(inner, 0, sizeof(inner));
+    memset(opad, 0, sizeof(opad));
+}
+
+void cfw_hmac_sha256(const void *key, size_t key_size, const void *data,
+                     size_t data_size, unsigned char *out)
+{
+    cfw_hmac_sha256_ctx_t ctx;
+
+    if (out == NULL || (key_size != 0 && key == NULL) ||
+        (data_size != 0 && data == NULL)) {
+        return;
+    }
+    cfw_hmac_sha256_init(&ctx, key, key_size);
+    cfw_hmac_sha256_update(&ctx, data, data_size);
+    cfw_hmac_sha256_final(&ctx, out);
 }
 
 int cfw_secure_equal(const void *a, const void *b, size_t size)

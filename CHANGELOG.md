@@ -38,6 +38,10 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 - `debug-tls` CMake preset exercising the TLS module; TLS unit tests
   generate their CA/server/client certificates into the build tree at
   configure time (no key material committed).
+- Streaming HMAC-SHA256: `cfw_hmac_sha256_init`/`update`/`final`
+  allow incremental MAC computation over large or arriving-in-pieces
+  data; `cfw_hmac_sha256` is now implemented on top of the streaming
+  API with identical output (all RFC 4231 vectors still pass).
 - Base64url codec variant (ADR 0059): `cfw_base64url_encode`/
   `cfw_base64url_decode`/`cfw_base64url_encode_bound` implement RFC
   4648 section 5 for URL-safe tokens — unpadded canonical encoding,
