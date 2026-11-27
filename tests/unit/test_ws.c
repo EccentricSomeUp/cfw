@@ -183,6 +183,7 @@ static int test_ws_handshake_accept_extract(void)
 #if CFW_PLATFORM_POSIX
     #include "private/net.h"
 
+    #include <errno.h>
     #include <stdio.h>
     #include <stdlib.h>
     #include <sys/socket.h>
@@ -258,7 +259,8 @@ static cfw_status_t cfw_test_ws_on_message(cfw_ws_t *ws,
         st->last_payload_hash = h;
     }
     st->last_payload_len = msg->payload.size;
-    if (msg->payload.size <= sizeof(st->last_payload)) {
+    if (msg->payload.size != 0 &&
+        msg->payload.size <= sizeof(st->last_payload)) {
         memcpy(st->last_payload, msg->payload.data,
                msg->payload.size);
     }
@@ -1479,6 +1481,148 @@ static int test_ws_drip_feed(void)
     cfw_test_ws_teardown(st);
     return 0;
 }
+
+/* Deterministic mutation fuzz over the WS frame parser (server
+ * side): valid masked frames and random blobs are mutated and fed
+ * through a real upgraded connection. Any crash, hang, or sanitizer
+ * finding fails the test; protocol-level rejection is expected and
+ * fine — the conn may close at any point, in which case the client
+ * reconnects and re-handshakes. */
+static uint64_t cfw_test_ws_rng_state = 0xD1B54A32D192ED03ull;
+
+static uint64_t cfw_test_ws_rng(void)
+{
+    uint64_t x = cfw_test_ws_rng_state;
+    x ^= x << 13;
+    x ^= x >> 7;
+    x ^= x << 17;
+    cfw_test_ws_rng_state = x;
+    return x;
+}
+
+static int cfw_test_ws_fuzz_send(cfw_server_t *server, cfw_fd_t *client,
+                                 const void *data, size_t len)
+{
+    const uint8_t *p = (const uint8_t *)data;
+    size_t sent = 0;
+    int guard = 0;
+
+    while (sent < len && guard++ < 4096) {
+        ssize_t n = send((int)cfw_fd_get(client), p + sent, len - sent,
+                         MSG_DONTWAIT);
+        if (n > 0) {
+            sent += (size_t)n;
+            continue;
+        }
+        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            cfw_timepoint_t deadline;
+            cfw_duration_t slice;
+            cfw_duration_from_millis(5, &slice);
+            cfw_deadline_from_now(&deadline, slice);
+            if (cfw_server_step(server, &deadline) != CFW_OK) {
+                return 1;
+            }
+            continue;
+        }
+        return 1; /* EPIPE etc.: the conn is gone */
+    }
+    return sent != len;
+}
+
+static int cfw_test_ws_fuzz_step(cfw_server_t *server)
+{
+    cfw_timepoint_t deadline;
+    cfw_duration_t slice;
+    cfw_duration_from_millis(5, &slice);
+    cfw_deadline_from_now(&deadline, slice);
+    return cfw_server_step(server, &deadline) != CFW_OK;
+}
+
+static int test_ws_fuzz_frames(void)
+{
+    enum { ITERS = 400 };
+    cfw_test_ws_state *st = &cfw_test_ws_st;
+    cfw_fd_t client;
+    char response[8192];
+    uint8_t buf[512];
+    size_t i;
+    int connected = 0;
+
+    cfw_test_ws_setup(st);
+    st->echo = 0;
+    cfw_fd_init(&client);
+
+    for (i = 0; i < ITERS; i++) {
+        size_t len;
+        size_t mutations;
+        size_t k;
+
+        if (!connected) {
+            CFW_TEST_ASSERT_EQ(
+                cfw_test_ws_connect(&client,
+                                    cfw_server_port(&st->server)),
+                CFW_OK);
+            CFW_TEST_ASSERT_EQ(cfw_test_ws_handshake(
+                                   &st->server, &client, response,
+                                   sizeof(response)),
+                               0);
+            connected = 1;
+        }
+
+        /* Half the iterations start from a valid masked frame, half
+         * from raw bytes; both are then mutated. */
+        if ((cfw_test_ws_rng() & 1u) != 0) {
+            static const struct cfw_test_ws_fuzz_seed {
+                int fin;
+                int op;
+                const char *payload;
+            } seeds[] = {
+                {1, 0x1, "hello"},
+                {1, 0x2, "\x00\x01\x02\x03"},
+                {1, 0x8, ""},
+                {0, 0x1, "frag"},
+                {1, 0x9, "ping"},
+                {1, 0xA, "pong"},
+            };
+            const struct cfw_test_ws_fuzz_seed *seed =
+                &seeds[cfw_test_ws_rng() %
+                      (sizeof(seeds) / sizeof(seeds[0]))];
+            len = cfw_test_ws_masked_frame(
+                buf, seed->fin, seed->op, seed->payload,
+                strlen(seed->payload));
+        } else {
+            len = 1 + (size_t)(cfw_test_ws_rng() % 200);
+            for (k = 0; k < len; k++) {
+                buf[k] = (uint8_t)cfw_test_ws_rng();
+            }
+        }
+        mutations = 1 + (size_t)(cfw_test_ws_rng() % 4);
+        for (k = 0; k < mutations && len != 0; k++) {
+            size_t pos = (size_t)(cfw_test_ws_rng() % len);
+            buf[pos] = (uint8_t)cfw_test_ws_rng();
+        }
+
+        if (cfw_test_ws_fuzz_send(&st->server, &client, buf, len) != 0) {
+            connected = 0;
+            continue;
+        }
+        /* Drain: a few steps let the parser consume whatever arrived. */
+        for (k = 0; k < 3; k++) {
+            if (cfw_test_ws_fuzz_step(&st->server) != 0) {
+                break;
+            }
+        }
+        if (cfw_server_connection_count(&st->server) == 0) {
+            connected = 0;
+        }
+    }
+
+    if (connected) {
+        cfw_fd_close(&client);
+    }
+    cfw_test_ws_teardown(st);
+    return 0;
+}
 #endif /* POSIX */
 
 const cfw_test_case cfw_test_ws_cases[] = {
@@ -1510,6 +1654,7 @@ const cfw_test_case cfw_test_ws_cases[] = {
     {"ws_large_frame_across_recvs",
      test_ws_large_frame_across_recvs},
     {"ws_drip_feed", test_ws_drip_feed},
+    {"ws_fuzz_frames", test_ws_fuzz_frames},
 #endif
     {NULL, NULL},
 };
