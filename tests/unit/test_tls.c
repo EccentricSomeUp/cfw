@@ -808,6 +808,96 @@ static int test_tls_alpn_invalid_args(void)
     return 0;
 }
 
+/* Full-resumption round trip: handshake once, serialize the client
+ * session, install it on a fresh connection, and verify the second
+ * handshake reports session_reused. Also covers the size-then-fetch
+ * overflow contract and argument validation. */
+static int test_tls_session_resumption(void)
+{
+    cfw_tls_ctx_t *sctx = NULL;
+    cfw_tls_ctx_t *cctx = NULL;
+    cfw_tls_conn_t *server = NULL;
+    cfw_tls_conn_t *client = NULL;
+    cfw_tls_conn_t *server2 = NULL;
+    cfw_tls_conn_t *client2 = NULL;
+    unsigned char session[4096];
+    size_t session_len = 0;
+    size_t need = 0;
+    int rc = 1;
+
+    CFW_TEST_ASSERT(tls_ctx_server(&sctx) == 0);
+    CFW_TEST_ASSERT(tls_ctx_client_alpn(NULL, &cctx) == 0);
+
+    /* No session exists before the handshake completes. */
+    CFW_TEST_ASSERT(tls_pair(sctx, cctx, &server, &client) == 0);
+    CFW_TEST_ASSERT(cfw_tls_conn_get_session(client, session,
+                                             sizeof(session),
+                                             &session_len) == CFW_OK);
+    CFW_TEST_ASSERT(session_len == 0);
+    CFW_TEST_ASSERT(cfw_tls_conn_session_reused(client) == 0);
+    CFW_TEST_ASSERT(tls_drive(server, client) == 0);
+    CFW_TEST_ASSERT(cfw_tls_conn_session_reused(client) == 0);
+    CFW_TEST_ASSERT(cfw_tls_conn_session_reused(server) == 0);
+
+    /* TLS 1.3 ships session tickets after the handshake; pump I/O so
+     * the client processes them and its session becomes resumable. */
+    {
+        unsigned char tmp[16];
+        size_t done = 0;
+        int i;
+        int progress = 1;
+        for (i = 0; i < 1000 && progress; i++) {
+            progress = 0;
+            if (cfw_tls_read(client, tmp, sizeof(tmp), &done) ==
+                CFW_OK) {
+                progress = 1;
+            }
+            if (cfw_tls_read(server, tmp, sizeof(tmp), &done) ==
+                CFW_OK) {
+                progress = 1;
+            }
+        }
+    }
+
+    /* Argument validation on the accessors. */
+    CFW_TEST_ASSERT(cfw_tls_conn_get_session(NULL, session,
+                                             sizeof(session),
+                                             &session_len) ==
+                    CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT(cfw_tls_conn_get_session(client, NULL, 16,
+                                             &session_len) ==
+                    CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT(cfw_tls_conn_set_session(client, session, 1) ==
+                    CFW_ERROR_INVALID_ARGUMENT);
+
+    /* Size-then-fetch: undersized buffer reports the required size. */
+    CFW_TEST_ASSERT(cfw_tls_conn_get_session(client, session, 1,
+                                             &need) ==
+                    CFW_ERROR_OVERFLOW);
+    CFW_TEST_ASSERT(need > 1 && need <= sizeof(session));
+    CFW_TEST_ASSERT(cfw_tls_conn_get_session(client, session,
+                                             sizeof(session),
+                                             &session_len) == CFW_OK);
+    CFW_TEST_ASSERT(session_len == need);
+
+    tls_teardown(server, client);
+
+    /* Second connection on the same ctxs: install the session before
+     * the handshake and expect resumption. */
+    CFW_TEST_ASSERT(tls_pair(sctx, cctx, &server2, &client2) == 0);
+    CFW_TEST_ASSERT(cfw_tls_conn_set_session(client2, session,
+                                             session_len) == CFW_OK);
+    CFW_TEST_ASSERT(tls_drive(server2, client2) == 0);
+    CFW_TEST_ASSERT(cfw_tls_conn_session_reused(client2) == 1);
+    CFW_TEST_ASSERT(cfw_tls_conn_session_reused(server2) == 1);
+    rc = 0;
+
+    tls_teardown(server2, client2);
+    cfw_tls_ctx_destroy(sctx);
+    cfw_tls_ctx_destroy(cctx);
+    return rc;
+}
+
 #endif /* CFW_HAVE_TLS */
 
 const cfw_test_case cfw_test_tls_cases[] = {
@@ -826,6 +916,7 @@ const cfw_test_case cfw_test_tls_cases[] = {
     {"tls_alpn_no_match", test_tls_alpn_no_match},
     {"tls_alpn_server_only", test_tls_alpn_server_only},
     {"tls_alpn_invalid_args", test_tls_alpn_invalid_args},
+    {"tls_session_resumption", test_tls_session_resumption},
 #endif
     {NULL, NULL},
 };

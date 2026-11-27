@@ -190,6 +190,40 @@ CFW_API cfw_status_t cfw_tls_conn_peer_cert_der(
     const cfw_tls_conn_t *conn, unsigned char *out, size_t cap,
     size_t *written);
 
+/* Session resumption (ADR 0062). The server side resumption cache is
+ * OpenSSL's built-in per-SSL_CTX session cache — enabled by default
+ * with an automatic timeout; no extra configuration is needed. The
+ * client side is explicit: serialize the negotiated session with
+ * cfw_tls_conn_get_session after the handshake, keep the bytes in
+ * your own cache keyed however you like, and offer them to the next
+ * connection via cfw_tls_conn_set_session BEFORE calling
+ * cfw_tls_handshake.
+ *
+ * get_session writes the DER-encoded SSL_SESSION into `out`;
+ * `written` always receives the length — on CFW_OK the bytes written,
+ * on CFW_ERROR_OVERFLOW the required buffer size (so callers can
+ * size-then-fetch). When no session exists yet (handshake not
+ * complete) it returns CFW_OK with *written == 0. Treat the bytes as
+ * opaque and do not hand them to peers other than the issuing
+ * server.
+ *
+ * set_session decodes and installs a session previously produced by
+ * get_session; it returns CFW_ERROR_INVALID_ARGUMENT for malformed
+ * bytes or when called after the handshake has started. Returns
+ * CFW_ERROR_UNAVAILABLE without TLS support. */
+CFW_API cfw_status_t cfw_tls_conn_get_session(const cfw_tls_conn_t *conn,
+                                              unsigned char *out, size_t cap,
+                                              size_t *written);
+CFW_API cfw_status_t cfw_tls_conn_set_session(cfw_tls_conn_t *conn,
+                                              const unsigned char *data,
+                                              size_t size);
+
+/* Nonzero when the most recently completed handshake resumed a
+ * previously negotiated session instead of running a full
+ * handshake. Returns 0 before the handshake completes or without
+ * TLS support. */
+CFW_API int cfw_tls_conn_session_reused(const cfw_tls_conn_t *conn);
+
 #ifdef __cplusplus
 }
 #endif

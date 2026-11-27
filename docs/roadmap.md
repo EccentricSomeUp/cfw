@@ -93,8 +93,8 @@ audit (audits/2026-11-26-http-server-dos-audit.md) with three fixes.
   `cfw_server_options_t.tls_ctx`, which handshakes each accepted
   connection before HTTP parsing. Unit-tested end-to-end
 - TLS follow-ups — ALPN met (ADR 0060), peer-cert DER access met,
-  mixed cleartext/TLS listeners met (ADR 0061); deferred: session
-  resumption policy tuning, authZ policy plumbing
+  mixed cleartext/TLS listeners met (ADR 0061), session resumption
+  met (ADR 0062); deferred: authZ policy plumbing
 
 Exit criteria: scope decision recorded (ADR 0030), dependency
 approved (ADR 0057), transport module implemented and tested;

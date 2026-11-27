@@ -518,6 +518,76 @@ cfw_status_t cfw_tls_conn_peer_cert_der(const cfw_tls_conn_t *conn,
     return CFW_OK;
 }
 
+cfw_status_t cfw_tls_conn_get_session(const cfw_tls_conn_t *conn,
+                                      unsigned char *out, size_t cap,
+                                      size_t *written)
+{
+    SSL_SESSION *sess;
+    unsigned char *p;
+    int len;
+
+    if (conn == NULL || conn->ssl == NULL || written == NULL ||
+        (cap != 0 && out == NULL)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    *written = 0;
+    sess = SSL_get_session(conn->ssl);
+    if (sess == NULL) {
+        return CFW_OK;
+    }
+    len = i2d_SSL_SESSION(sess, NULL);
+    if (len <= 0) {
+        return CFW_ERROR_IO;
+    }
+    if ((size_t)len > cap) {
+        *written = (size_t)len;
+        return CFW_ERROR_OVERFLOW;
+    }
+    p = out;
+    if (i2d_SSL_SESSION(sess, &p) != len) {
+        return CFW_ERROR_IO;
+    }
+    *written = (size_t)len;
+    return CFW_OK;
+}
+
+cfw_status_t cfw_tls_conn_set_session(cfw_tls_conn_t *conn,
+                                      const unsigned char *data,
+                                      size_t size)
+{
+    const unsigned char *p;
+    SSL_SESSION *sess;
+
+    if (conn == NULL || conn->ssl == NULL || data == NULL || size == 0) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (SSL_is_init_finished(conn->ssl)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    p = data;
+    sess = d2i_SSL_SESSION(NULL, &p, (long)size);
+    if (sess == NULL || (size_t)(p - data) != size) {
+        if (sess != NULL) {
+            SSL_SESSION_free(sess);
+        }
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (SSL_set_session(conn->ssl, sess) != 1) {
+        SSL_SESSION_free(sess);
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    SSL_SESSION_free(sess);
+    return CFW_OK;
+}
+
+int cfw_tls_conn_session_reused(const cfw_tls_conn_t *conn)
+{
+    if (conn == NULL || conn->ssl == NULL) {
+        return 0;
+    }
+    return SSL_session_reused(conn->ssl);
+}
+
 #else /* !CFW_HAVE_TLS — stubs (ADR 0057) */
 
 cfw_status_t cfw_tls_ctx_create(const cfw_tls_ctx_options_t *options,
@@ -639,6 +709,35 @@ cfw_status_t cfw_tls_conn_peer_cert_der(const cfw_tls_conn_t *conn,
         *written = 0;
     }
     return CFW_ERROR_UNAVAILABLE;
+}
+
+cfw_status_t cfw_tls_conn_get_session(const cfw_tls_conn_t *conn,
+                                      unsigned char *out, size_t cap,
+                                      size_t *written)
+{
+    (void)conn;
+    (void)out;
+    (void)cap;
+    if (written != NULL) {
+        *written = 0;
+    }
+    return CFW_ERROR_UNAVAILABLE;
+}
+
+cfw_status_t cfw_tls_conn_set_session(cfw_tls_conn_t *conn,
+                                      const unsigned char *data,
+                                      size_t size)
+{
+    (void)conn;
+    (void)data;
+    (void)size;
+    return CFW_ERROR_UNAVAILABLE;
+}
+
+int cfw_tls_conn_session_reused(const cfw_tls_conn_t *conn)
+{
+    (void)conn;
+    return 0;
 }
 
 #endif /* CFW_HAVE_TLS */

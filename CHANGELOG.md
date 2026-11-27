@@ -16,6 +16,13 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   accepted connection — a TLS handshake record gets TLS, anything
   else is served as cleartext HTTP on the same port. Requires
   `tls_ctx`; `cfw_server_init` rejects `tls_detect` without it.
+- TLS session resumption API (ADR 0062):
+  `cfw_tls_conn_get_session`/`cfw_tls_conn_set_session` serialize
+  and install `SSL_SESSION` blobs so clients can cache and resume
+  sessions across connections (server-side caching uses OpenSSL's
+  built-in per-context cache), and `cfw_tls_conn_session_reused`
+  reports whether a handshake resumed. Only available with TLS
+  support (`CFW_HAVE_TLS`).
 
 ## [0.6.0] - 2026-11-27
 
