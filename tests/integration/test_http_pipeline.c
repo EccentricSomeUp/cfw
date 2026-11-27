@@ -8,13 +8,9 @@
 
 #include "test_harness.h"
 
-#if CFW_PLATFORM_POSIX
-    #include <cfw/net.h>
+#include "test_loopback.h"
 
-    #include <errno.h>
-    #include <string.h>
-    #include <sys/socket.h>
-    #include <unistd.h>
+#include <string.h>
 
 static int cfw_itcp_pair(cfw_fd_t *server_out, cfw_fd_t *client_out)
 {
@@ -62,7 +58,7 @@ static int cfw_itcp_pair(cfw_fd_t *server_out, cfw_fd_t *client_out)
             cfw_fd_close(&client);
             return 1;
         }
-        usleep(1000);
+        cfw_test_sleep_us(1000);
     }
     if (attempts == 1000) {
         cfw_fd_close(&listener);
@@ -79,25 +75,42 @@ static int cfw_itcp_pair(cfw_fd_t *server_out, cfw_fd_t *client_out)
 static int cfw_itcp_send(cfw_fd_t *client, const char *data)
 {
     size_t len = strlen(data);
-    ssize_t n = send((int)cfw_fd_get(client), data, len, 0);
-    return n == (ssize_t)len ? 0 : 1;
+    size_t sent = 0;
+    int attempts;
+
+    for (attempts = 0; attempts < 400 && sent < len; attempts++) {
+        size_t chunk = 0;
+        cfw_status_t st =
+            cfw_net_send(client, data + sent, len - sent, &chunk);
+        if (st == CFW_OK) {
+            sent += chunk;
+            continue;
+        }
+        if (st != CFW_ERROR_WOULDBLOCK) {
+            return 1;
+        }
+        cfw_test_sleep_us(1000);
+    }
+    return sent == len ? 0 : 1;
 }
 
-static ssize_t cfw_itcp_recv(cfw_fd_t *client, char *buffer, size_t capacity)
+/* recv() drop-in for the nonblocking test socket: >0 bytes, 0 EOF,
+ * -1 on WOULDBLOCK/error after retries. */
+static intptr_t cfw_itcp_recv(cfw_fd_t *client, char *buffer,
+                              size_t capacity)
 {
     int attempts;
     for (attempts = 0; attempts < 500; attempts++) {
-        ssize_t n = recv((int)cfw_fd_get(client), buffer, capacity, 0);
-        if (n > 0) {
-            return n;
+        size_t got = 0;
+        cfw_status_t st =
+            cfw_net_recv(client, buffer, capacity, &got);
+        if (st == CFW_OK) {
+            return (intptr_t)got;
         }
-        if (n == 0) {
-            return 0;
-        }
-        if (errno != EAGAIN && errno != EWOULDBLOCK) {
+        if (st != CFW_ERROR_WOULDBLOCK) {
             return -1;
         }
-        usleep(1000);
+        cfw_test_sleep_us(1000);
     }
     return -1;
 }
@@ -199,7 +212,7 @@ static int cfw_pipeline_serve(cfw_pipeline_t *p, int max_dispatches)
         cfw_status_t st = cfw_http1_conn_next_event(&p->conn, &event);
 
         if (st == CFW_ERROR_WOULDBLOCK) {
-            usleep(1000);
+            cfw_test_sleep_us(1000);
             continue;
         }
         if (st != CFW_OK) {
@@ -281,7 +294,7 @@ static int test_integration_get_and_404(void)
     cfw_fd_t client;
     cfw_dispatch_options_t options;
     char response[4096];
-    ssize_t n;
+    intptr_t n;
 
     memset(&p, 0, sizeof(p));
     p.arena = cfw_arena_create(16384);
@@ -363,7 +376,7 @@ static int test_integration_post_body(void)
     cfw_fd_t client;
     cfw_dispatch_options_t options;
     char response[4096];
-    ssize_t n;
+    intptr_t n;
 
     memset(&p, 0, sizeof(p));
     p.arena = cfw_arena_create(16384);
@@ -427,11 +440,3 @@ const cfw_test_case cfw_test_pipeline_cases[] = {
     {"integration_post_body", test_integration_post_body},
     {NULL, NULL},
 };
-
-#else /* Windows */
-
-const cfw_test_case cfw_test_pipeline_cases[] = {
-    {NULL, NULL},
-};
-
-#endif /* POSIX */
