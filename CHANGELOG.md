@@ -9,6 +9,14 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ## [Unreleased]
 
+### Added
+
+- `examples/tcp_echo.c`: nonblocking TCP echo server built entirely on
+  the public socket, pollset, and fd APIs (`cfw/net.h`,
+  `cfw/pollset.h`, `cfw/fd.h`) — a worked example of custom-protocol
+  serving with per-connection pending queues and `CFW_POLL_OUT`
+  interest management.
+
 ## [0.10.0] - 2026-11-27
 
 ### Added

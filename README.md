@@ -144,6 +144,9 @@ multiple `cfw_server_t` instances share one listen address via
 
 `examples/minimal_server.c` is a complete, compilable version of this
 quickstart (built by default; disable with `-DCFW_BUILD_EXAMPLES=OFF`).
+`examples/tcp_echo.c` is a nonblocking TCP echo server built entirely on
+the public socket/pollset/fd APIs for custom-protocol work, and
+`examples/http_client.c` shows the one-shot HTTP/1.1 client.
 
 ```c
 #include <cfw/cfw.h>

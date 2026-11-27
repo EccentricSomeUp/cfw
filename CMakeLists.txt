@@ -226,6 +226,12 @@ if(CFW_BUILD_EXAMPLES)
     cfw_apply_strict_flags(cfw_example_http_client)
     cfw_apply_hardening_flags(cfw_example_http_client)
     cfw_apply_sanitizer_flags(cfw_example_http_client)
+
+    add_executable(cfw_example_tcp_echo examples/tcp_echo.c)
+    target_link_libraries(cfw_example_tcp_echo PRIVATE cfw)
+    cfw_apply_strict_flags(cfw_example_tcp_echo)
+    cfw_apply_hardening_flags(cfw_example_tcp_echo)
+    cfw_apply_sanitizer_flags(cfw_example_tcp_echo)
 endif()
 
 if(CFW_BUILD_TESTING)
