@@ -526,8 +526,8 @@ static int test_ws_client_tls_echo(void)
 /* ------------------------------------------------------------------ */
 
 typedef struct {
-    uint16_t port;
-    int result; /* 0 ok, 1 failure */
+    cfw_atomic_int port; /* written by the fake-server thread */
+    int result;          /* 0 ok, 1 failure */
 } cfw_wsc_fake_t;
 
 static int cfw_wsc_send_all(cfw_fd_t *fd, const void *data, size_t size)
@@ -585,7 +585,8 @@ static int cfw_wsc_fake_main(void *arg)
     CFW_TEST_ASSERT_EQ(cfw_net_listen(&lfd, 1), CFW_OK);
     CFW_TEST_ASSERT_EQ(cfw_net_local_addr(&lfd, &local_addr), CFW_OK);
     CFW_TEST_ASSERT_EQ(cfw_addr_port(&local_addr, &port), CFW_OK);
-    fake->port = port;
+    atomic_store_explicit(&fake->port, (int)port,
+                          memory_order_release);
 
     for (attempts = 0; attempts < 20000; attempts++) {
         cfw_status_t st = cfw_net_accept(&lfd, &peer_addr, &cfd);
@@ -709,17 +710,24 @@ static int test_ws_client_masked_server_frame(void)
     cfw_wsc_got_count = 0;
     cfw_wsc_got_size = 0;
     memset(&fake, 0, sizeof(fake));
+    atomic_init(&fake.port, 0);
     CFW_TEST_ASSERT_EQ(cfw_thread_create(&thread, cfw_wsc_fake_main,
                                          &fake),
                        CFW_OK);
 
     /* Wait for the listener port. */
-    for (i = 0; i < 200 && fake.port == 0; i++) {
+    for (i = 0; i < 200 &&
+                atomic_load_explicit(&fake.port, memory_order_acquire) == 0;
+         i++) {
         cfw_test_sleep_us(1000);
     }
-    CFW_TEST_ASSERT_TRUE(fake.port != 0);
+    CFW_TEST_ASSERT_TRUE(
+        atomic_load_explicit(&fake.port, memory_order_acquire) != 0);
 
-    cfw_wsc_opts_init(&opts, "127.0.0.1", fake.port, "/ws");
+    cfw_wsc_opts_init(&opts, "127.0.0.1",
+                      (uint16_t)atomic_load_explicit(&fake.port,
+                                                   memory_order_acquire),
+                      "/ws");
     CFW_TEST_ASSERT_EQ(cfw_ws_client_connect(&opts, &ws), CFW_OK);
 
     /* The masked frame must trigger a protocol failure: pump returns

@@ -3251,6 +3251,8 @@ typedef struct {
     cfw_server_t server;
 } cfw_test_rp_server;
 
+#if CFW_HAVE_SO_REUSEPORT
+
 static int cfw_test_rp_init(cfw_test_rp_server *s, uint16_t port,
                             int reuse_port)
 {
@@ -3334,8 +3336,6 @@ static int cfw_test_rp_recv(cfw_test_rp_server *a, cfw_test_rp_server *b,
     }
     return 0;
 }
-
-#if CFW_HAVE_SO_REUSEPORT
 
 static int test_server_reuse_port(void)
 {

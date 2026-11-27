@@ -29,9 +29,14 @@
     #define CFW_FILE_READ_FUNC _read
     #define CFW_FILE_CLOSE_FUNC _close
     #define CFW_FILE_SEEK_FUNC _lseeki64
-    /* POSIX mode-test macros are not provided by the MSVC CRT headers. */
-    #define S_ISREG(m) (((m) & _S_IFMT) == _S_IFREG)
-    #define S_ISDIR(m) (((m) & _S_IFMT) == _S_IFDIR)
+    /* POSIX mode-test macros are not provided by the MSVC CRT headers;
+     * MinGW already defines them, so only fill in when absent. */
+    #ifndef S_ISREG
+        #define S_ISREG(m) (((m) & _S_IFMT) == _S_IFREG)
+    #endif
+    #ifndef S_ISDIR
+        #define S_ISDIR(m) (((m) & _S_IFMT) == _S_IFDIR)
+    #endif
 #else
     #include <fcntl.h>
     #include <sys/stat.h>

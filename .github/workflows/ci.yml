@@ -95,10 +95,41 @@ jobs:
       - name: Install OpenSSL
         run: choco install openssl -y
 
+      # Chocolatey's openssl package layout varies by version; discover
+      # the headers and import libraries instead of hardcoding paths.
+      - name: Locate OpenSSL
+        shell: pwsh
+        run: |
+          $roots = @(
+            "${env:ProgramFiles}\OpenSSL-Win64",
+            "${env:ProgramFiles}\OpenSSL",
+            "${env:ProgramFiles(x86)}\OpenSSL-Win64"
+          )
+          $root = $roots | Where-Object {
+            Test-Path "$_\include\openssl\ssl.h"
+          } | Select-Object -First 1
+          if (-not $root) {
+            $found = Get-ChildItem "${env:ProgramFiles}", "${env:ProgramFiles(x86)}" `
+              -Directory -ErrorAction SilentlyContinue |
+              Where-Object { Test-Path "$($_.FullName)\include\openssl\ssl.h" } |
+              Select-Object -First 1
+            $root = $found.FullName
+          }
+          if (-not $root) { throw "OpenSSL headers not found after choco install" }
+          $crypto = Get-ChildItem $root -Recurse -Filter libcrypto.lib |
+            Select-Object -First 1
+          $ssl = Get-ChildItem $root -Recurse -Filter libssl.lib |
+            Select-Object -First 1
+          if (-not $crypto -or -not $ssl) {
+            throw "OpenSSL libraries not found under $root"
+          }
+          "OPENSSL_ROOT_DIR=$root" | Out-File $env:GITHUB_ENV -Append
+          "OPENSSL_INCLUDE_DIR=$root\include" | Out-File $env:GITHUB_ENV -Append
+          "OPENSSL_CRYPTO_LIBRARY=$($crypto.FullName)" | Out-File $env:GITHUB_ENV -Append
+          "OPENSSL_SSL_LIBRARY=$($ssl.FullName)" | Out-File $env:GITHUB_ENV -Append
+
       - name: Configure debug + TLS
-        run: >
-          cmake --preset debug-tls
-          -DOPENSSL_ROOT_DIR="C:\Program Files\OpenSSL-Win64"
+        run: cmake --preset debug-tls
 
       - name: Build debug + TLS
         run: cmake --build --preset debug-tls --config Debug

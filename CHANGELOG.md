@@ -9,6 +9,19 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ## [Unreleased]
 
+### Fixed
+
+- Windows portability: the WSAPoll backend no longer uses `ssize_t`
+  (undefined under MSVC), `S_ISREG`/`S_ISDIR` compatibility macros in
+  `cfw_fs` are only defined when the CRT lacks them (MinGW provides
+  them), and `cfw_http_client` exchange locals are initialized for
+  MSVC's `C4701` analysis.
+- SO_REUSEPORT test helpers in `test_server.c` are now compiled only
+  when `CFW_HAVE_SO_REUSEPORT` is set, fixing `-Werror=unused-function`
+  builds on platforms without the feature (e.g. FreeBSD).
+- `test_ws_client.c` fake-server port handoff is now atomic, fixing a
+  ThreadSanitizer data race reported by CI.
+
 ## [0.13.0] - 2026-11-27
 
 ### Added

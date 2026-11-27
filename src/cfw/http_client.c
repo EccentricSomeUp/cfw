@@ -1131,7 +1131,7 @@ static cfw_status_t cfw_hc_exchange(
     cfw_buffer_t head_buf;
     cfw_http_head_reader_t reader;
     cfw_http_response_head_t resp_head;
-    cfw_http_message_framing_t framing;
+    cfw_http_message_framing_t framing = { 0 };
     int head_reader_ready = 0;
     int reused = 0;
     int stale_used = 0;
@@ -1170,7 +1170,7 @@ static cfw_status_t cfw_hc_exchange(
                                       eff->body_size);
         }
         if (status == CFW_OK) {
-            cfw_strview_t head_view;
+            cfw_strview_t head_view = { NULL, 0 };
             status = cfw_http_head_reader_init(&reader, max_head);
             if (status != CFW_OK) {
                 goto retry_check;

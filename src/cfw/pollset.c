@@ -1250,13 +1250,13 @@ static cfw_status_t cfw_wsapoll_reserve(cfw_pollset_t *pollset,
     return CFW_OK;
 }
 
-static ssize_t cfw_wsapoll_index_of(const cfw_pollset_t *pollset,
-                                    intptr_t handle)
+static ptrdiff_t cfw_wsapoll_index_of(const cfw_pollset_t *pollset,
+                                      intptr_t handle)
 {
     size_t i;
     for (i = 0; i < pollset->count; i++) {
         if (pollset->entries[i].handle == handle) {
-            return (ssize_t)i;
+            return (ptrdiff_t)i;
         }
     }
     return -1;
@@ -1266,7 +1266,7 @@ static cfw_status_t cfw_wsapoll_register(cfw_pollset_t *pollset,
                                          intptr_t handle, uint32_t events,
                                          void *token, int must_exist)
 {
-    ssize_t index;
+    ptrdiff_t index;
     cfw_wsast_entry_t *entry;
     cfw_status_t status;
 
@@ -1288,7 +1288,7 @@ static cfw_status_t cfw_wsapoll_register(cfw_pollset_t *pollset,
         if (status != CFW_OK) {
             return status;
         }
-        index = (ssize_t)pollset->count++;
+        index = (ptrdiff_t)pollset->count++;
     }
 
     entry = &pollset->entries[index];
@@ -1348,7 +1348,7 @@ cfw_status_t cfw_pollset_modify(cfw_pollset_t *pollset, intptr_t handle,
 
 cfw_status_t cfw_pollset_remove(cfw_pollset_t *pollset, intptr_t handle)
 {
-    ssize_t index;
+    ptrdiff_t index;
     size_t i;
 
     if (pollset == NULL || !cfw_pollset_handle_is_valid(handle)) {
