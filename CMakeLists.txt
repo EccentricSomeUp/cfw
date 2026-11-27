@@ -110,7 +110,7 @@ cfw_apply_hardening_flags(cfw)
 cfw_apply_sanitizer_flags(cfw)
 
 if(WIN32)
-    target_link_libraries(cfw PRIVATE bcrypt)
+    target_link_libraries(cfw PRIVATE bcrypt ws2_32)
 else()
     find_package(Threads REQUIRED)
     target_link_libraries(cfw PUBLIC Threads::Threads)

@@ -4,17 +4,20 @@
 
 #include <cfw/http_client.h>
 
-#if !CFW_PLATFORM_WINDOWS
-    #include <cfw/pollset.h>
+#include <cfw/pollset.h>
 
-    #include <cfw/net.h>
-    #include <cfw/span.h>
-    #include <cfw/version.h>
+#include <cfw/net.h>
+#include <cfw/span.h>
+#include <cfw/version.h>
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#if CFW_PLATFORM_WINDOWS
+    #include <winsock2.h>
+#else
     #include <netinet/in.h>
-    #include <stdio.h>
-    #include <stdlib.h>
-    #include <string.h>
     #include <sys/socket.h>
 #endif
 
@@ -48,19 +51,6 @@ void cfw_http_client_response_free(cfw_http_client_response_t *response)
     cfw_buffer_free(&response->body);
     memset(response, 0, sizeof(*response));
 }
-
-#if CFW_PLATFORM_WINDOWS
-
-cfw_status_t cfw_http_client_request(
-    const cfw_http_client_request_t *request,
-    cfw_http_client_response_t *response)
-{
-    (void)request;
-    (void)response;
-    return CFW_ERROR_UNAVAILABLE;
-}
-
-#else /* POSIX */
 
 #define CFW_HTTP_CLIENT_READ_SIZE 16384u
 #define CFW_HTTP_CLIENT_DEFAULT_TIMEOUT_MS 30000ll
@@ -915,4 +905,3 @@ done:
     return status;
 }
 
-#endif /* POSIX */

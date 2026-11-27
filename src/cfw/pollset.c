@@ -1,6 +1,9 @@
 /* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 */
 
 #include "private/platform_detect.h"
+#if CFW_PLATFORM_WINDOWS
+    #include "private/winsock.h"
+#endif
 
 #include <cfw/pollset.h>
 
@@ -66,8 +69,13 @@
     #include <poll.h>
     #include <unistd.h>
     #define CFW_POLLF_HAVE_POLL 1
+#elif CFW_PLATFORM_WINDOWS
+    /* WSAPoll readiness backend (ADR 0072); ws2tcpip.h declares
+     * WSAPOLLFD and the POLL* event flags. */
+    #include <ws2tcpip.h>
+    #define CFW_POLLF_HAVE_WSAPOLL 1
 #else
-    /* IOCP backend is designed but not implemented (ADR 0011). */
+    /* No usable backend on this platform. */
     #define CFW_POLLF_HAVE_NONE 1
 #endif
 
@@ -88,7 +96,7 @@
 /* The none backend validates nothing; these helpers serve the real
  * backends only. */
 #if defined(CFW_POLLF_HAVE_EPOLL) || defined(CFW_POLLF_HAVE_KQUEUE) || \
-    defined(CFW_POLLF_HAVE_POLL)
+    defined(CFW_POLLF_HAVE_POLL) || defined(CFW_POLLF_HAVE_WSAPOLL)
 static int cfw_pollset_level_is_valid(uint32_t events)
 {
     const uint32_t known = CFW_POLL_IN | CFW_POLL_OUT | CFW_POLL_ERR |
@@ -102,9 +110,10 @@ static int cfw_pollset_handle_is_valid(intptr_t handle)
 }
 #endif /* real backends */
 
-/* epoll and poll() wait on millisecond timeouts; kqueue computes its own
- * relative timespec and the none backend never waits. */
-#if defined(CFW_POLLF_HAVE_EPOLL) || defined(CFW_POLLF_HAVE_POLL)
+/* epoll and poll()/WSAPoll wait on millisecond timeouts; kqueue computes
+ * its own relative timespec and the none backend never waits. */
+#if defined(CFW_POLLF_HAVE_EPOLL) || defined(CFW_POLLF_HAVE_POLL) || \
+    defined(CFW_POLLF_HAVE_WSAPOLL)
 static cfw_status_t cfw_pollset_timeout_ms(const cfw_timepoint_t *deadline,
                                            int *timeout_ms)
 {
@@ -1148,6 +1157,268 @@ cfw_status_t cfw_pollset_wait(cfw_pollset_t *pollset,
         }
         events[produced].handle = pollset->entries[i].handle;
         events[produced].events = cfw_poll_to_events(revents);
+        events[produced].token = pollset->entries[i].token;
+        produced++;
+    }
+    *count = produced;
+    return CFW_OK;
+}
+
+/* ------------------------------------------------------------------ */
+/* WSAPoll backend (Windows, ADR 0072)                                */
+/* ------------------------------------------------------------------ */
+
+#elif defined(CFW_POLLF_HAVE_WSAPOLL)
+
+typedef struct cfw_wsast_entry {
+    intptr_t handle;
+    SHORT poll_events;
+    void *token;
+} cfw_wsast_entry_t;
+
+struct cfw_pollset {
+    WSAPOLLFD *pfds;
+    cfw_wsast_entry_t *entries;
+    size_t count;
+    size_t capacity;
+};
+
+static SHORT cfw_events_to_wsapoll(uint32_t events)
+{
+    SHORT mask = 0;
+    if ((events & CFW_POLL_IN) != 0) {
+        mask |= (SHORT)(POLLRDNORM | POLLRDBAND);
+    }
+    if ((events & CFW_POLL_OUT) != 0) {
+        mask |= POLLWRNORM;
+    }
+    return mask;
+}
+
+static uint32_t cfw_wsapoll_to_events(SHORT revents)
+{
+    uint32_t events = 0;
+    if ((revents & (POLLRDNORM | POLLRDBAND)) != 0) {
+        events |= CFW_POLL_IN;
+    }
+    if ((revents & POLLWRNORM) != 0) {
+        events |= CFW_POLL_OUT;
+    }
+    if ((revents & (POLLERR | POLLNVAL)) != 0) {
+        events |= CFW_POLL_ERR;
+    }
+    if ((revents & POLLHUP) != 0) {
+        events |= CFW_POLL_HUP;
+    }
+    return events;
+}
+
+static cfw_status_t cfw_wsapoll_reserve(cfw_pollset_t *pollset,
+                                        size_t needed)
+{
+    size_t new_capacity;
+    WSAPOLLFD *new_pfds;
+    cfw_wsast_entry_t *new_entries;
+
+    if (needed <= pollset->capacity) {
+        return CFW_OK;
+    }
+
+    new_capacity = pollset->capacity == 0 ? 8 : pollset->capacity;
+    while (new_capacity < needed) {
+        if (new_capacity > SIZE_MAX / 2) {
+            new_capacity = needed;
+            break;
+        }
+        new_capacity *= 2;
+    }
+
+    new_entries = (cfw_wsast_entry_t *)realloc(
+        pollset->entries, new_capacity * sizeof(*new_entries));
+    if (new_entries == NULL) {
+        return CFW_ERROR_NOMEM;
+    }
+    pollset->entries = new_entries;
+
+    new_pfds = (WSAPOLLFD *)realloc(pollset->pfds,
+                                    new_capacity * sizeof(*new_pfds));
+    if (new_pfds == NULL) {
+        return CFW_ERROR_NOMEM;
+    }
+    pollset->pfds = new_pfds;
+    pollset->capacity = new_capacity;
+    return CFW_OK;
+}
+
+static ssize_t cfw_wsapoll_index_of(const cfw_pollset_t *pollset,
+                                    intptr_t handle)
+{
+    size_t i;
+    for (i = 0; i < pollset->count; i++) {
+        if (pollset->entries[i].handle == handle) {
+            return (ssize_t)i;
+        }
+    }
+    return -1;
+}
+
+static cfw_status_t cfw_wsapoll_register(cfw_pollset_t *pollset,
+                                         intptr_t handle, uint32_t events,
+                                         void *token, int must_exist)
+{
+    ssize_t index;
+    cfw_wsast_entry_t *entry;
+    cfw_status_t status;
+
+    if (pollset == NULL || !cfw_pollset_handle_is_valid(handle) ||
+        !cfw_pollset_level_is_valid(events)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    index = cfw_wsapoll_index_of(pollset, handle);
+    if (must_exist && index < 0) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (!must_exist && index >= 0) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    if (index < 0) {
+        status = cfw_wsapoll_reserve(pollset, pollset->count + 1);
+        if (status != CFW_OK) {
+            return status;
+        }
+        index = (ssize_t)pollset->count++;
+    }
+
+    entry = &pollset->entries[index];
+    entry->handle = handle;
+    entry->poll_events = cfw_events_to_wsapoll(events);
+    entry->token = token;
+
+    pollset->pfds[index].fd = (SOCKET)handle;
+    pollset->pfds[index].events = entry->poll_events;
+    pollset->pfds[index].revents = 0;
+    return CFW_OK;
+}
+
+cfw_status_t cfw_pollset_create(cfw_pollset_t **pollset)
+{
+    cfw_pollset_t *set;
+    cfw_status_t status;
+
+    if (pollset == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    status = cfw_wsa_ensure();
+    if (status != CFW_OK) {
+        return status;
+    }
+
+    set = (cfw_pollset_t *)calloc(1, sizeof(*set));
+    if (set == NULL) {
+        return CFW_ERROR_NOMEM;
+    }
+    *pollset = set;
+    return CFW_OK;
+}
+
+void cfw_pollset_destroy(cfw_pollset_t *pollset)
+{
+    if (pollset == NULL) {
+        return;
+    }
+    free(pollset->pfds);
+    free(pollset->entries);
+    free(pollset);
+}
+
+cfw_status_t cfw_pollset_add(cfw_pollset_t *pollset, intptr_t handle,
+                             uint32_t events, void *token)
+{
+    return cfw_wsapoll_register(pollset, handle, events, token, 0);
+}
+
+cfw_status_t cfw_pollset_modify(cfw_pollset_t *pollset, intptr_t handle,
+                                uint32_t events, void *token)
+{
+    return cfw_wsapoll_register(pollset, handle, events, token, 1);
+}
+
+cfw_status_t cfw_pollset_remove(cfw_pollset_t *pollset, intptr_t handle)
+{
+    ssize_t index;
+    size_t i;
+
+    if (pollset == NULL || !cfw_pollset_handle_is_valid(handle)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    index = cfw_wsapoll_index_of(pollset, handle);
+    if (index < 0) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    for (i = (size_t)index; i + 1 < pollset->count; i++) {
+        pollset->entries[i] = pollset->entries[i + 1];
+        pollset->pfds[i] = pollset->pfds[i + 1];
+    }
+    pollset->count--;
+    return CFW_OK;
+}
+
+cfw_status_t cfw_pollset_wait(cfw_pollset_t *pollset,
+                              const cfw_timepoint_t *deadline,
+                              cfw_poll_event_t *events, size_t max_events,
+                              size_t *count)
+{
+    int timeout_ms;
+    int ready;
+    size_t i;
+    size_t produced;
+    cfw_status_t status;
+
+    if (pollset == NULL || events == NULL || count == NULL ||
+        max_events == 0 || max_events > INT32_MAX ||
+        max_events > SIZE_MAX / sizeof(WSAPOLLFD)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    status = cfw_pollset_timeout_ms(deadline, &timeout_ms);
+    if (status != CFW_OK) {
+        return status;
+    }
+
+    for (;;) {
+        ready = WSAPoll(pollset->pfds, (ULONG)pollset->count,
+                        timeout_ms);
+        if (ready >= 0) {
+            break;
+        }
+        if (WSAGetLastError() == WSAEINTR) {
+            status = cfw_pollset_timeout_ms(deadline, &timeout_ms);
+            if (status != CFW_OK) {
+                return status;
+            }
+            continue;
+        }
+        return CFW_ERROR_IO;
+    }
+
+    if (ready == 0) {
+        *count = 0;
+        return CFW_ERROR_TIMEOUT;
+    }
+
+    produced = 0;
+    for (i = 0; i < pollset->count && produced < max_events; i++) {
+        SHORT revents = pollset->pfds[i].revents;
+        if (revents == 0) {
+            continue;
+        }
+        events[produced].handle = pollset->entries[i].handle;
+        events[produced].events = cfw_wsapoll_to_events(revents);
         events[produced].token = pollset->entries[i].token;
         produced++;
     }

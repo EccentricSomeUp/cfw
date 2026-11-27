@@ -251,6 +251,14 @@ int main(void)
         unset(CMAKE_REQUIRED_FLAGS)
     endif()
 
+    if(WIN32)
+        # Winsock2 provides getaddrinfo (ws2tcpip.h) and TCP_NODELAY on
+        # every supported Windows target; the POSIX feature probes above
+        # do not run on Windows and the rest stay 0 (ADR 0072).
+        set(CFW_HAVE_GETADDRINFO 1)
+        set(CFW_HAVE_TCP_NODELAY 1)
+    endif()
+
     foreach(_cfw_feature
             EPOLL
             KQUEUE

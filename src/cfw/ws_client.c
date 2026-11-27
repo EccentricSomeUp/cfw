@@ -6,92 +6,28 @@
 #include "private/platform_detect.h"
 #include "private/ws_proto.h"
 
-#if !CFW_PLATFORM_WINDOWS
-    #include <cfw/ws_client.h>
+#include <cfw/ws_client.h>
 
-    #include <cfw/buffer.h>
-    #include <cfw/codec.h>
-    #include <cfw/fd.h>
-    #include <cfw/http.h>
-    #include <cfw/net.h>
-    #include <cfw/pollset.h>
-    #include <cfw/random.h>
-    #include <cfw/strview.h>
-    #include <cfw/tls.h>
+#include <cfw/buffer.h>
+#include <cfw/codec.h>
+#include <cfw/fd.h>
+#include <cfw/http.h>
+#include <cfw/net.h>
+#include <cfw/pollset.h>
+#include <cfw/random.h>
+#include <cfw/strview.h>
+#include <cfw/tls.h>
 
-    #include <netinet/in.h>
-    #include <stdio.h>
-    #include <stdlib.h>
-    #include <string.h>
-    #include <sys/socket.h>
-#endif
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #if CFW_PLATFORM_WINDOWS
-
-cfw_status_t cfw_ws_client_connect(
-    const cfw_ws_client_options_t *options, cfw_ws_client_t **out)
-{
-    (void)options;
-    (void)out;
-    return CFW_ERROR_UNAVAILABLE;
-}
-
-void cfw_ws_client_destroy(cfw_ws_client_t *ws) { (void)ws; }
-int cfw_ws_client_is_closed(const cfw_ws_client_t *ws)
-{
-    (void)ws;
-    return 1;
-}
-cfw_status_t cfw_ws_client_send(cfw_ws_client_t *ws,
-                                cfw_ws_opcode_t opcode,
-                                const void *data, size_t size)
-{
-    (void)ws;
-    (void)opcode;
-    (void)data;
-    (void)size;
-    return CFW_ERROR_UNAVAILABLE;
-}
-cfw_status_t cfw_ws_client_send_text(cfw_ws_client_t *ws,
-                                     const void *data, size_t size)
-{
-    return cfw_ws_client_send(ws, CFW_WS_OPCODE_TEXT, data, size);
-}
-cfw_status_t cfw_ws_client_send_binary(cfw_ws_client_t *ws,
-                                       const void *data, size_t size)
-{
-    return cfw_ws_client_send(ws, CFW_WS_OPCODE_BINARY, data, size);
-}
-cfw_status_t cfw_ws_client_send_ping(cfw_ws_client_t *ws,
-                                     const void *data, size_t size)
-{
-    return cfw_ws_client_send(ws, CFW_WS_OPCODE_PING, data, size);
-}
-cfw_status_t cfw_ws_client_send_pong(cfw_ws_client_t *ws,
-                                     const void *data, size_t size)
-{
-    return cfw_ws_client_send(ws, CFW_WS_OPCODE_PONG, data, size);
-}
-cfw_status_t cfw_ws_client_send_close(cfw_ws_client_t *ws,
-                                      uint16_t status,
-                                      const char *reason,
-                                      size_t reason_size)
-{
-    (void)ws;
-    (void)status;
-    (void)reason;
-    (void)reason_size;
-    return CFW_ERROR_UNAVAILABLE;
-}
-cfw_status_t cfw_ws_client_pump(cfw_ws_client_t *ws,
-                                const cfw_duration_t *timeout)
-{
-    (void)ws;
-    (void)timeout;
-    return CFW_ERROR_UNAVAILABLE;
-}
-
-#else /* POSIX */
+    #include <winsock2.h>
+#else
+    #include <netinet/in.h>
+    #include <sys/socket.h>
+#endif
 
 #define CFW_WSC_DEFAULT_TIMEOUT_MS 10000
 #define CFW_WSC_DEFAULT_MAX_MESSAGE (1024u * 1024u)
@@ -1493,4 +1429,3 @@ cfw_status_t cfw_ws_client_pump(cfw_ws_client_t *ws,
     return CFW_OK;
 }
 
-#endif /* POSIX */

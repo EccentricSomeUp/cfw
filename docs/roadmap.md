@@ -28,7 +28,9 @@ tests.
 
 - [x] Platform capability detection
 - [x] Socket, poll/epoll/kqueue/IOCP abstraction design (epoll, kqueue,
-  and poll implemented internally — ADR 0052; IOCP designed, pending)
+  and poll implemented internally — ADR 0052; Windows Winsock + WSAPoll
+  socket/pollset layer implemented — ADR 0072; IOCP deferred, server
+  port pending)
 - [x] File descriptor/handle ownership rules
 - [x] Threading, mutex, and condition-variable primitives — met
   (`cfw/sync.h` mutex/condvar, ADR 0050; `cfw/thread.h` spawn/join/

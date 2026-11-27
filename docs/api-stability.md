@@ -30,8 +30,8 @@ version and a migration note in `CHANGELOG.md`.
   get new names (`cfw_router_add_ex` is the precedent).
 - Internal headers under `src/cfw/private/` are explicitly not public
   API and may change without notice.
-- Windows stubs return `CFW_ERROR_UNAVAILABLE`; this is contractual,
-  not a bug.
+- Remaining Windows stubs (`cfw_server_t`, `cfw_http1_conn_t`, TLS)
+  return `CFW_ERROR_UNAVAILABLE`; this is contractual, not a bug.
 
 ## Deprecation and migration policy
 

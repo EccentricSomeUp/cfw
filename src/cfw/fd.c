@@ -6,6 +6,8 @@
 
 #if CFW_PLATFORM_POSIX
     #include <unistd.h>
+#elif CFW_PLATFORM_WINDOWS
+    #include <winsock2.h>
 #endif
 
 #define CFW_FD_INVALID ((intptr_t)-1)
@@ -57,11 +59,9 @@ cfw_status_t cfw_fd_close(cfw_fd_t *fd)
     }
 
 #if CFW_PLATFORM_WINDOWS
-    /* Windows sockets require closesocket(); that backend arrives with the
-     * socket layer. The wrapper is left untouched so the descriptor is not
-     * lost. */
-    (void)fd;
-    return CFW_ERROR_UNAVAILABLE;
+    if (closesocket((SOCKET)fd->handle) != 0) {
+        return CFW_ERROR_IO;
+    }
 #else
     if (close((int)fd->handle) != 0) {
         return CFW_ERROR_IO;
