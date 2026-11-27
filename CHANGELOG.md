@@ -9,55 +9,6 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ## [Unreleased]
 
-### Fixed
-
-- Windows portability: the WSAPoll backend no longer uses `ssize_t`
-  (undefined under MSVC), `S_ISREG`/`S_ISDIR` compatibility macros in
-  `cfw_fs` are only defined when the CRT lacks them (MinGW provides
-  them), and `cfw_http_client` exchange locals are initialized for
-  MSVC's `C4701` analysis.
-- SO_REUSEPORT test helpers in `test_server.c` are now compiled only
-  when `CFW_HAVE_SO_REUSEPORT` is set, fixing `-Werror=unused-function`
-  builds on platforms without the feature (e.g. FreeBSD).
-- `test_ws_client.c` fake-server port handoff is now atomic, fixing a
-  ThreadSanitizer data race reported by CI.
-- Windows/MSVC and MinGW hardening surfaced by the full release
-  matrix: `tcp_echo` example includes Winsock2 on Windows, `%zu` log
-  format replaced with a portable cast, `SSL_set1_host` OpenSSL 4.x
-  deprecation suppressed at the include site, CRT-unsafe stdio calls
-  in tests allowed via `_CRT_SECURE_NO_WARNINGS`, `symlink()` test
-  helper stubbed on Windows, constant-truncation and uninitialized
-  `static const` warnings fixed, and `SO_REUSEPORT` detection now
-  compiles a real `setsockopt` probe instead of a symbol lookup.
-- `test_server.c` `!CFW_HAVE_SO_REUSEPORT` variant was missing
-  `max_middleware`, failing dispatch init on platforms without the
-  feature (FreeBSD).
-- Third round: MinGW fuzz-driver builds skip `-fsanitize` (the
-  toolchain ships no ASan/UBSan runtimes; corpus replay still runs),
-  test `strdup` calls go through a portable `cfw_test_strdup` helper
-  (`_strdup` on the MSVC CRT), and the WS close-frame marker uses
-  `unsigned char` to avoid MSVC `C4310` constant-truncation.
-- CTest presets now declare the matching `configuration`, so
-  multi-config generators (Visual Studio on Windows) can actually run
-  the tests; and `cfw_test_socketpair` retries `accept` on
-  `WOULDBLOCK`, fixing a rare FreeBSD flake where the server-side
-  accept queue lagged the client's blocking `connect()` return.
-- WSAPoll `cfw_pollset_wait` now handles a zero-registration pollset:
-  `WSAPoll` rejects `nfds == 0`, so an empty pollset sleeps until the
-  deadline and reports `CFW_ERROR_TIMEOUT` (matching `poll(2)`).
-- The install/package smoke test now propagates the tested CTest
-  configuration (`$<CONFIG>`) to `cmake --install`/`--build`, fixing
-  the Debug preset on multi-config generators (Visual Studio).
-- TLS test certificates now carry `subjectAltName=DNS:localhost`:
-  OpenSSL 4.x no longer falls back to the CN for `X509_check_host`,
-  which broke hostname verification in the TLS and client tests on
-  Windows (choco ships OpenSSL 4.x).
-- The `cfw` target now exports `c_std_11` as a public compile feature,
-  so `find_package(cfw)` consumers automatically compile as C11 or
-  later (required by the public headers' atomics).
-
-## [0.13.0] - 2026-11-27
-
 ### Added
 
 - HTTP client hardening (ADR 0078): `cfw_http_client_session_t` for
@@ -110,6 +61,50 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   racing on pollset internals — found by the new TSan preset).
 - `cfw_addr_*` helpers no longer trip `-Wcast-align` on strict-alignment
   targets, unbreaking the release build on macOS.
+- Windows portability: the WSAPoll backend no longer uses `ssize_t`
+  (undefined under MSVC), `S_ISREG`/`S_ISDIR` compatibility macros in
+  `cfw_fs` are only defined when the CRT lacks them (MinGW provides
+  them), and `cfw_http_client` exchange locals are initialized for
+  MSVC's `C4701` analysis.
+- SO_REUSEPORT test helpers in `test_server.c` are now compiled only
+  when `CFW_HAVE_SO_REUSEPORT` is set, fixing `-Werror=unused-function`
+  builds on platforms without the feature (e.g. FreeBSD).
+- `test_ws_client.c` fake-server port handoff is now atomic, fixing a
+  ThreadSanitizer data race reported by CI.
+- Windows/MSVC and MinGW hardening surfaced by the full release
+  matrix: `tcp_echo` example includes Winsock2 on Windows, `%zu` log
+  format replaced with a portable cast, `SSL_set1_host` OpenSSL 4.x
+  deprecation suppressed at the include site, CRT-unsafe stdio calls
+  in tests allowed via `_CRT_SECURE_NO_WARNINGS`, `symlink()` test
+  helper stubbed on Windows, constant-truncation and uninitialized
+  `static const` warnings fixed, and `SO_REUSEPORT` detection now
+  compiles a real `setsockopt` probe instead of a symbol lookup.
+- `test_server.c` `!CFW_HAVE_SO_REUSEPORT` variant was missing
+  `max_middleware`, failing dispatch init on platforms without the
+  feature (FreeBSD).
+- Third round: MinGW fuzz-driver builds skip `-fsanitize` (the
+  toolchain ships no ASan/UBSan runtimes; corpus replay still runs),
+  test `strdup` calls go through a portable `cfw_test_strdup` helper
+  (`_strdup` on the MSVC CRT), and the WS close-frame marker uses
+  `unsigned char` to avoid MSVC `C4310` constant-truncation.
+- CTest presets now declare the matching `configuration`, so
+  multi-config generators (Visual Studio on Windows) can actually run
+  the tests; and `cfw_test_socketpair` retries `accept` on
+  `WOULDBLOCK`, fixing a rare FreeBSD flake where the server-side
+  accept queue lagged the client's blocking `connect()` return.
+- WSAPoll `cfw_pollset_wait` now handles a zero-registration pollset:
+  `WSAPoll` rejects `nfds == 0`, so an empty pollset sleeps until the
+  deadline and reports `CFW_ERROR_TIMEOUT` (matching `poll(2)`).
+- The install/package smoke test now propagates the tested CTest
+  configuration (`$<CONFIG>`) to `cmake --install`/`--build`, fixing
+  the Debug preset on multi-config generators (Visual Studio).
+- TLS test certificates now carry `subjectAltName=DNS:localhost`:
+  OpenSSL 4.x no longer falls back to the CN for `X509_check_host`,
+  which broke hostname verification in the TLS and client tests on
+  Windows (choco ships OpenSSL 4.x).
+- The `cfw` target now exports `c_std_11` as a public compile feature,
+  so `find_package(cfw)` consumers automatically compile as C11 or
+  later (required by the public headers' atomics).
 
 ## [0.12.0] - 2026-11-27
 
