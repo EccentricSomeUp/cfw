@@ -305,7 +305,7 @@ endif()
 # entry points still run under ASan/UBSan for corpus replay and manual
 # fuzzing.
 if(CFW_ENABLE_FUZZING)
-    set(_cfw_fuzz_targets http uri query multipart head_reader ws_proto crypto http1_conn ws_client ws_server http_client)
+    set(_cfw_fuzz_targets http uri query multipart head_reader ws_proto crypto http1_conn ws_client ws_server http_client static)
     set(_cfw_fuzz_libfuzzer FALSE)
     if(CMAKE_C_COMPILER_ID MATCHES "Clang")
         set(_cfw_fuzz_libfuzzer TRUE)
@@ -319,6 +319,11 @@ if(CFW_ENABLE_FUZZING)
         if(_cfw_fuzz_t STREQUAL "ws_proto")
             list(APPEND _cfw_fuzz_srcs ../src/cfw/private/ws_proto.c)
         endif()
+        set(_cfw_fuzz_def "")
+        if(_cfw_fuzz_t STREQUAL "static")
+            set(_cfw_fuzz_def
+                "CFW_FUZZ_STATIC_ROOT=\"${CMAKE_CURRENT_SOURCE_DIR}/fuzz/corpus\"")
+        endif()
         if(NOT _cfw_fuzz_libfuzzer)
             list(APPEND _cfw_fuzz_srcs fuzz/fuzz_driver.c)
         endif()
@@ -330,6 +335,10 @@ if(CFW_ENABLE_FUZZING)
             ${CMAKE_SOURCE_DIR}/src/cfw
         )
         target_link_libraries(cfw_fuzz_${_cfw_fuzz_t} PRIVATE cfw)
+        if(_cfw_fuzz_def)
+            target_compile_definitions(cfw_fuzz_${_cfw_fuzz_t} PRIVATE
+                ${_cfw_fuzz_def})
+        endif()
 
         if(_cfw_fuzz_libfuzzer)
             target_compile_options(cfw_fuzz_${_cfw_fuzz_t} PRIVATE

@@ -51,7 +51,10 @@ option `CFW_ENABLE_FUZZING` (default OFF):
   opcodes, RSV bits, fragmentation, and truncated payloads —
   and `fuzz_http_client`, where a fake server streams the input as a
   raw HTTP response to `cfw_http_client_request`, covering response
-  head parsing, body framing, and the decoded-body path.
+  head parsing, body framing, and the decoded-body path —
+  and `fuzz_static`, which feeds the input as a request path through
+  `cfw_static_serve` against the checked-in corpus as document root,
+  covering the traversal-safe path validation (ADR 0036/0037).
   All operate on in-memory buffers through the public API — no
   sockets, threads, or filesystem — except `fuzz_http1_conn` and
   `fuzz_ws_client`, which use real loopback TCP
@@ -64,7 +67,7 @@ option `CFW_ENABLE_FUZZING` (default OFF):
   corpus replay and manual mutation fuzzing everywhere, and real
   coverage-guided fuzzing wherever clang is available.
 - New `fuzz` CMake preset (`build/fuzz`, RelWithDebInfo +
-  `CFW_ENABLE_FUZZING=ON`) and a CI `fuzz` job: matrix over the eleven
+  `CFW_ENABLE_FUZZING=ON`) and a CI `fuzz` job: matrix over the twelve
   targets on `ubuntu-latest` with `CC=clang`, each running
   `-max_total_time=120 -max_len=4096` against `tests/fuzz/corpus` as
   the seed corpus, artifacts to `build/fuzz/artifacts/`.
