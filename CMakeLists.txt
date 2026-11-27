@@ -213,6 +213,12 @@ if(CFW_BUILD_EXAMPLES)
     cfw_apply_strict_flags(cfw_example_static_files)
     cfw_apply_hardening_flags(cfw_example_static_files)
     cfw_apply_sanitizer_flags(cfw_example_static_files)
+
+    add_executable(cfw_example_multipart_upload examples/multipart_upload.c)
+    target_link_libraries(cfw_example_multipart_upload PRIVATE cfw)
+    cfw_apply_strict_flags(cfw_example_multipart_upload)
+    cfw_apply_hardening_flags(cfw_example_multipart_upload)
+    cfw_apply_sanitizer_flags(cfw_example_multipart_upload)
 endif()
 
 if(CFW_BUILD_TESTING)
