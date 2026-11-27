@@ -121,6 +121,13 @@ set_target_properties(cfw PROPERTIES
 # as C11 or later. Exported so find_package(cfw) users inherit it.
 target_compile_features(cfw PUBLIC c_std_11)
 
+if(MSVC)
+    # <stdatomic.h> in the public headers additionally requires MSVC's
+    # experimental C11 atomics switch; export it so consumers inherit it.
+    target_compile_options(cfw PUBLIC
+        $<$<COMPILE_LANGUAGE:C>:/experimental:c11atomics>)
+endif()
+
 target_include_directories(cfw
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
