@@ -46,6 +46,8 @@ required for:
 - Add integration tests for cross-module behavior.
 - Add security tests for attacker-controlled inputs and failure paths.
 - Run debug and sanitizer presets for memory-safety-sensitive changes.
+- Run the `tsan` preset for concurrency, threading, or shutdown-path
+  changes (Clang required; see README).
 
 ### 5. Audit
 

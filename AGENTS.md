@@ -45,6 +45,15 @@ cmake --build --preset sanitizers
 ctest --preset sanitizers --output-on-failure
 ```
 
+For concurrency, threading, or shutdown-path changes, also run the
+ThreadSanitizer preset (requires Clang):
+
+```sh
+cmake --preset tsan
+cmake --build --preset tsan
+ctest --preset tsan --output-on-failure
+```
+
 Add or update tests for every behavioral change. New tests must fail before the
 fix and pass afterward when practical.
 

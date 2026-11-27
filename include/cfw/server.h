@@ -15,6 +15,24 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* cfw_server_stop is the supported cross-thread shutdown path, so the
+ * stopping flag is accessed atomically. C++ has no <stdatomic.h>
+ * integer types; std::atomic<int> is layout-compatible (same pattern
+ * as the cfw_atomic_* types in cfw/log.h). The field is managed
+ * exclusively by the API and must not be accessed directly. */
+#ifdef __cplusplus
+#include <atomic>
+typedef std::atomic<int> cfw_atomic_int;
+#else
+#include <stdatomic.h>
+typedef atomic_int cfw_atomic_int;
+#endif
+#ifdef __cplusplus
+static_assert(sizeof(cfw_atomic_int) == sizeof(int),
+              "cfw_atomic_int must be layout-compatible with the C "
+              "_Atomic int used by the implementation");
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -267,7 +285,7 @@ typedef struct cfw_server {
     size_t conn_count;
     size_t conn_capacity_hint;
     cfw_server_options_t options;
-    int stopping;
+    cfw_atomic_int stopping;
     int listening;
     int listener_registered;
     /* Diagnostics counters. */
@@ -296,8 +314,12 @@ CFW_API cfw_status_t cfw_server_run(cfw_server_t *server);
 CFW_API cfw_status_t cfw_server_step(cfw_server_t *server,
                                      const cfw_timepoint_t *wait_deadline);
 
-/* Requests shutdown: the listener is unregistered, the loop is woken,
- * and run() returns. Idempotent. */
+/* Requests shutdown: sets the stopping flag, unregisters the listener
+ * on the event-loop thread, wakes a blocked run(), and run() returns.
+ * Safe to call from a different thread than the one running
+ * cfw_server_run/cfw_server_step; idempotent. cfw_server_free still
+ * requires that no event-loop iteration is in flight on another
+ * thread. */
 CFW_API void cfw_server_stop(cfw_server_t *server);
 
 CFW_API int cfw_server_is_stopping(const cfw_server_t *server);

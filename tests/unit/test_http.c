@@ -1041,8 +1041,8 @@ static int test_http_response_framing(void)
         "HTTP/1.1 200 OK\r\nContent-Length: abc\r\n\r\n",
         "HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip\r\n\r\n",
         "HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip, chunked\r\n\r\n",
-        "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n"
-        "Transfer-Encoding: chunked\r\n\r\n",
+        ("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n"
+         "Transfer-Encoding: chunked\r\n\r\n"),
     };
     cfw_http_response_head_t head;
     cfw_http_message_framing_t framing;

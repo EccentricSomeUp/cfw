@@ -70,6 +70,23 @@ function(cfw_apply_hardening_flags target)
 endfunction()
 
 function(cfw_apply_sanitizer_flags target)
+    if(CFW_ENABLE_TSAN)
+        if(MSVC)
+            message(FATAL_ERROR
+                "CFW_ENABLE_TSAN is not supported on MSVC; "
+                "ThreadSanitizer requires Clang or GCC")
+        endif()
+        if(CMAKE_C_COMPILER_ID MATCHES "Clang")
+            target_compile_options(${target} PRIVATE
+                -fsanitize=thread
+                -fno-omit-frame-pointer
+            )
+            target_link_options(${target} PRIVATE
+                -fsanitize=thread
+            )
+        endif()
+    endif()
+
     if(NOT CFW_ENABLE_SANITIZERS)
         return()
     endif()

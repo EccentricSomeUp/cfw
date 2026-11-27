@@ -303,10 +303,11 @@ endif()
 
 # Install/package smoke test: installs into a scratch prefix, then configures,
 # builds, and runs a consumer project against the installed package files.
-# Skipped under the sanitizers preset: the installed static library is
-# sanitizer-instrumented, and a plain consumer cannot link it without
-# propagating sanitizer runtimes, which is out of scope for a packaging test.
-if(NOT CFW_ENABLE_SANITIZERS)
+# Skipped under the sanitizers and tsan presets: the installed static
+# library is sanitizer-instrumented, and a plain consumer cannot link it
+# without propagating sanitizer runtimes, which is out of scope for a
+# packaging test.
+if(NOT CFW_ENABLE_SANITIZERS AND NOT CFW_ENABLE_TSAN)
     add_test(NAME cfw_install_smoke
         COMMAND ${CMAKE_COMMAND}
             -DCMAKE_COMMAND=${CMAKE_COMMAND}

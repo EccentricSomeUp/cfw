@@ -23,9 +23,25 @@ option(CFW_BUILD_EXAMPLES "Build the cfw example programs" ON)
 option(CFW_BUILD_SHARED "Build cfw as a shared library" OFF)
 option(CFW_ENABLE_WERROR "Treat compiler warnings as errors" ON)
 option(CFW_ENABLE_SANITIZERS "Enable address and undefined behavior sanitizers" OFF)
+option(CFW_ENABLE_TSAN "Enable the ThreadSanitizer data-race detector" OFF)
 option(CFW_ENABLE_HARDENING "Enable available platform hardening flags" ON)
 option(CFW_ENABLE_TLS "Build the optional OpenSSL-backed TLS module (ADR 0057)" OFF)
 option(CFW_ENABLE_FUZZING "Build coverage-guided fuzz targets (ADR 0077)" OFF)
+
+if(CFW_ENABLE_TSAN)
+    if(CFW_ENABLE_SANITIZERS)
+        message(FATAL_ERROR
+            "CFW_ENABLE_TSAN cannot be combined with CFW_ENABLE_SANITIZERS; "
+            "ThreadSanitizer and AddressSanitizer are mutually exclusive")
+    endif()
+    # GCC's ThreadSanitizer runtime is unreliable on modern Linux
+    # (fails with "unexpected memory mapping"); Clang is required.
+    if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR
+            "CFW_ENABLE_TSAN requires Clang; GCC's ThreadSanitizer "
+            "runtime is not supported (${CMAKE_C_COMPILER_ID} detected)")
+    endif()
+endif()
 
 set(CFW_HAVE_TLS 0)
 if(CFW_ENABLE_TLS)

@@ -11,6 +11,11 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ### Added
 
+- `tsan` CMake preset and `CFW_ENABLE_TSAN` option running the suite
+  under ThreadSanitizer (Clang only; mutually exclusive with
+  `CFW_ENABLE_SANITIZERS`). The install-smoke packaging test is skipped
+  under both sanitizer presets since an instrumented static library
+  cannot be consumed without propagating sanitizer runtimes.
 - `docs/roadmap.md` gains a post-1.0 direction section staging candidate
   work (request-pipeline/validation helpers, application-facing security
   primitives, observability, supply-chain verification) under a "secure
@@ -33,6 +38,11 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ### Fixed
 
+- `cfw_server_stop` is now genuinely safe to call from a thread other
+  than the event-loop thread: the `stopping` flag is atomic, and all
+  pollset/listener mutation is deferred to the loop thread (previously
+  `cfw_server_update_listener` ran concurrently with `cfw_server_run`,
+  racing on pollset internals — found by the new TSan preset).
 - `cfw_addr_*` helpers no longer trip `-Wcast-align` on strict-alignment
   targets, unbreaking the release build on macOS.
 

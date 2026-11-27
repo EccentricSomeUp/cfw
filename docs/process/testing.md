@@ -119,7 +119,9 @@ Use it for relative comparisons between builds on the same machine.
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs every configure preset (debug, release,
-sanitizers, shared) on Ubuntu and macOS. The macOS leg exercises the
+sanitizers, tsan, shared, debug-tls) on Ubuntu; macOS runs the same set
+except `tsan` (Clang-only, Ubuntu-verified) and `debug-tls` (needs
+OpenSSL 3). The macOS leg exercises the
 native `kqueue` backend that Linux's `epoll` selection never touches;
 the `poll()` fallback is covered on every POSIX host by
 `cfw_pollset_poll_tests`.
@@ -127,7 +129,9 @@ the `poll()` fallback is covered on every POSIX host by
 ## Coverage and sanitizer expectations
 
 - Debug builds are the default correctness configuration.
-- Sanitizer builds enable ASan and UBSan where supported.
+- Sanitizer builds enable ASan and UBSan where supported; the `tsan`
+  preset (Clang only) enables ThreadSanitizer for data-race detection
+  and cannot be combined with `CFW_ENABLE_SANITIZERS`.
 - Coverage measurement may be added later without external test dependencies.
 - Every memory-safety-sensitive module should have sanitizer and fuzz coverage
   proportional to parser complexity and exposure.

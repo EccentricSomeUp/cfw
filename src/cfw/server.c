@@ -331,7 +331,9 @@ static void cfw_server_sweep(cfw_server_t *server)
 
 static void cfw_server_update_listener(cfw_server_t *server)
 {
-    int want = server->listening && !server->stopping &&
+    int want = server->listening &&
+               !atomic_load_explicit(&server->stopping,
+                                     memory_order_acquire) &&
                server->conn_count < server->options.max_connections;
     intptr_t handle = cfw_fd_get(&server->listener);
 
@@ -1435,7 +1437,8 @@ static void cfw_server_accept(cfw_server_t *server)
         server->accepted_total++;
 
         if (server->conn_count >= server->options.max_connections ||
-            server->stopping) {
+            atomic_load_explicit(&server->stopping,
+                                 memory_order_acquire)) {
             cfw_fd_close(&fd);
             continue;
         }
@@ -1606,7 +1609,8 @@ cfw_status_t cfw_server_run(cfw_server_t *server)
     if (server == NULL) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
-    while (!server->stopping) {
+    while (atomic_load_explicit(&server->stopping,
+                                memory_order_acquire) == 0) {
         st = cfw_server_step(server, NULL);
         if (st != CFW_OK) {
             return st;
@@ -1666,6 +1670,7 @@ cfw_status_t cfw_server_init(cfw_server_t *server,
     }
 
     memset(server, 0, sizeof(*server));
+    atomic_init(&server->stopping, 0);
     cfw_fd_init(&server->listener);
     cfw_fd_init(&server->wakeup[0]);
     cfw_fd_init(&server->wakeup[1]);
@@ -1776,15 +1781,20 @@ void cfw_server_stop(cfw_server_t *server)
 {
     char byte = 1;
 
-    if (server == NULL || server->stopping) {
+    if (server == NULL ||
+        atomic_exchange_explicit(&server->stopping, 1,
+                                 memory_order_acq_rel) != 0) {
         return;
     }
-    server->stopping = 1;
+    /* Only the stopping flag and the wake byte are touched here: this
+     * function is the supported cross-thread shutdown path, so all
+     * pollset/server-listener mutation is deferred to the event-loop
+     * thread, which unregisters the listener on its next step once it
+     * observes the flag. */
     if (server->options.logger != NULL) {
         cfw_log(server->options.logger, CFW_LOG_INFO,
                 "server stopping");
     }
-    cfw_server_update_listener(server);
     if (cfw_fd_valid(&server->wakeup[1])) {
         (void)cfw_server_sock_send(cfw_fd_get(&server->wakeup[1]), &byte,
                                    1, 0);
@@ -1813,7 +1823,9 @@ void cfw_server_free(cfw_server_t *server)
 
 int cfw_server_is_stopping(const cfw_server_t *server)
 {
-    return server != NULL && server->stopping;
+    return server != NULL &&
+           atomic_load_explicit(&server->stopping,
+                                memory_order_acquire) != 0;
 }
 
 size_t cfw_server_connection_count(const cfw_server_t *server)

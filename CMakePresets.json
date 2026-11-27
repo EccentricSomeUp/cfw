@@ -37,6 +37,19 @@
       }
     },
     {
+      "name": "tsan",
+      "displayName": "ThreadSanitizer (data-race detector, Clang)",
+      "binaryDir": "${sourceDir}/build/tsan",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CFW_ENABLE_WERROR": "ON",
+        "CFW_ENABLE_SANITIZERS": "OFF",
+        "CFW_ENABLE_TSAN": "ON"
+      }
+    },
+    {
       "name": "shared",
       "displayName": "Shared library",
       "binaryDir": "${sourceDir}/build/shared",
@@ -84,6 +97,10 @@
       "configurePreset": "sanitizers"
     },
     {
+      "name": "tsan",
+      "configurePreset": "tsan"
+    },
+    {
       "name": "shared",
       "configurePreset": "shared"
     },
@@ -114,6 +131,13 @@
     {
       "name": "sanitizers",
       "configurePreset": "sanitizers",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "tsan",
+      "configurePreset": "tsan",
       "output": {
         "outputOnFailure": true
       }

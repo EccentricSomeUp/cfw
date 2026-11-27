@@ -66,7 +66,8 @@ The script, in order:
    a fresh empty `[Unreleased]` section.
 5. Sets `project(VERSION)` in `CMakeLists.txt`.
 6. Configures, builds, and runs `ctest` for **all presets**
-   (`debug`, `release`, `sanitizers`, `shared`, `debug-tls`). Any failure
+   (`debug`, `release`, `sanitizers`, `shared`, `debug-tls`, and `tsan`
+   when Clang is available). Any failure
    aborts the release and restores the edited files.
 7. Commits `release: vX.Y.Z` (containing only the changelog and version
    bump) and creates the annotated tag `vX.Y.Z`. The release commit must

@@ -88,6 +88,15 @@ cmake --build --preset sanitizers
 ctest --preset sanitizers --output-on-failure
 ```
 
+The `tsan` preset (Clang only) runs the suite under ThreadSanitizer to
+detect data races in the threading and server paths:
+
+```sh
+cmake --preset tsan
+cmake --build --preset tsan
+ctest --preset tsan --output-on-failure
+```
+
 List or run selected unit tests directly:
 
 ```sh
