@@ -6,8 +6,6 @@
 
 #if CFW_HAVE_TLS
 
-    #include <cfw/fd.h>
-
     #include <fcntl.h>
     #include <stdio.h>
     #include <stdlib.h>
@@ -93,14 +91,17 @@ static int tls_drive(cfw_tls_conn_t *a, cfw_tls_conn_t *b)
     return !(a_done && b_done);
 }
 
+/* Raw fds of the most recent tls_pair(); TLS conns borrow them, so
+ * tls_teardown closes them after destroying the conns. */
+static int tls_pair_fds[2] = {-1, -1};
+
 /* Creates a connected nonblocking socketpair wrapped in TLS conns.
- * Returns 0 on success; server_out and client_out own the conns. */
+ * Returns 0 on success; server_out and client_out own the conns (the
+ * borrowed fds are tracked in tls_pair_fds for tls_teardown). */
 static int tls_pair(cfw_tls_ctx_t *sctx, cfw_tls_ctx_t *cctx,
                     cfw_tls_conn_t **server_out, cfw_tls_conn_t **client_out)
 {
     int fds[2];
-    cfw_fd_t sfd;
-    cfw_fd_t cfd;
     cfw_tls_conn_t *server;
     cfw_tls_conn_t *client;
     int flags;
@@ -114,27 +115,39 @@ static int tls_pair(cfw_tls_ctx_t *sctx, cfw_tls_ctx_t *cctx,
     flags = fcntl(fds[1], F_GETFL, 0);
     (void)fcntl(fds[1], F_SETFL, flags | O_NONBLOCK);
 
-    cfw_fd_init(&sfd);
-    cfw_fd_init(&cfd);
-    sfd.handle = fds[0];
-    cfd.handle = fds[1];
-
-    st = cfw_tls_conn_create(sctx, &sfd, &server);
+    st = cfw_tls_conn_create(sctx, fds[0], &server);
     if (st != CFW_OK) {
         close(fds[0]);
         close(fds[1]);
         return 1;
     }
-    st = cfw_tls_conn_create(cctx, &cfd, &client);
+    st = cfw_tls_conn_create(cctx, fds[1], &client);
     if (st != CFW_OK) {
         cfw_tls_conn_destroy(server);
+        close(fds[0]);
         close(fds[1]);
         return 1;
     }
 
+    tls_pair_fds[0] = fds[0];
+    tls_pair_fds[1] = fds[1];
     *server_out = server;
     *client_out = client;
     return 0;
+}
+
+static void tls_teardown(cfw_tls_conn_t *server, cfw_tls_conn_t *client)
+{
+    cfw_tls_conn_destroy(server);
+    cfw_tls_conn_destroy(client);
+    if (tls_pair_fds[0] >= 0) {
+        close(tls_pair_fds[0]);
+        tls_pair_fds[0] = -1;
+    }
+    if (tls_pair_fds[1] >= 0) {
+        close(tls_pair_fds[1]);
+        tls_pair_fds[1] = -1;
+    }
 }
 
 /* Writes all of `text` client->server (retrying partial writes and
@@ -262,8 +275,7 @@ static int test_tls_handshake_and_echo(void)
     }
     rc = 0;
 done:
-    cfw_tls_conn_destroy(server);
-    cfw_tls_conn_destroy(client);
+    tls_teardown(server, client);
     cfw_tls_ctx_destroy(sctx);
     cfw_tls_ctx_destroy(cctx);
     return rc;
@@ -314,8 +326,7 @@ static int test_tls_wouldblock_progression(void)
     CFW_TEST_ASSERT(cfw_tls_handshake_done(server));
     rc = 0;
 done:
-    cfw_tls_conn_destroy(server);
-    cfw_tls_conn_destroy(client);
+    tls_teardown(server, client);
     cfw_tls_ctx_destroy(sctx);
     cfw_tls_ctx_destroy(cctx);
     return rc;
@@ -343,8 +354,7 @@ static int test_tls_client_verifies_server(void)
     CFW_TEST_ASSERT(tls_pair(sctx, cctx, &server, &client) == 0);
     CFW_TEST_ASSERT(tls_drive(server, client) == 0);
     rc = 0;
-    cfw_tls_conn_destroy(server);
-    cfw_tls_conn_destroy(client);
+    tls_teardown(server, client);
     cfw_tls_ctx_destroy(sctx);
     cfw_tls_ctx_destroy(cctx);
     return rc;
@@ -391,8 +401,7 @@ static int test_tls_client_rejects_bad_ca(void)
     }
     CFW_TEST_ASSERT(client_failed || i >= 100000);
     CFW_TEST_ASSERT(!cfw_tls_handshake_done(client));
-    cfw_tls_conn_destroy(server);
-    cfw_tls_conn_destroy(client);
+    tls_teardown(server, client);
     cfw_tls_ctx_destroy(sctx);
     cfw_tls_ctx_destroy(cctx);
     return 0;
@@ -445,8 +454,7 @@ static int test_tls_server_requires_client_cert(void)
     }
     CFW_TEST_ASSERT(server_failed || i >= 100000);
     CFW_TEST_ASSERT(!cfw_tls_handshake_done(server));
-    cfw_tls_conn_destroy(server);
-    cfw_tls_conn_destroy(client);
+    tls_teardown(server, client);
     cfw_tls_ctx_destroy(sctx);
     cfw_tls_ctx_destroy(cctx);
     return 0;
@@ -495,8 +503,7 @@ static int test_tls_client_cert_accepted(void)
     CFW_TEST_ASSERT(tls_pair(sctx, cctx, &server, &client) == 0);
     CFW_TEST_ASSERT(tls_drive(server, client) == 0);
     rc = 0;
-    cfw_tls_conn_destroy(server);
-    cfw_tls_conn_destroy(client);
+    tls_teardown(server, client);
     cfw_tls_ctx_destroy(sctx);
     cfw_tls_ctx_destroy(cctx);
     return rc;
@@ -570,8 +577,7 @@ static int test_tls_shutdown_and_eof(void)
         }
     }
 done:
-    cfw_tls_conn_destroy(server);
-    cfw_tls_conn_destroy(client);
+    tls_teardown(server, client);
     cfw_tls_ctx_destroy(sctx);
     cfw_tls_ctx_destroy(cctx);
     return rc;

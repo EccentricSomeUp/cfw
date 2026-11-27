@@ -310,6 +310,7 @@ static int test_integration_get_and_404(void)
     {
         cfw_fd_t server_fd;
         cfw_http1_conn_options_t conn_options;
+        memset(&conn_options, 0, sizeof(conn_options));
         cfw_fd_init(&server_fd);
         CFW_TEST_ASSERT_EQ(cfw_itcp_pair(&server_fd, &client), 0);
         conn_options.http.max_head_size = 8192;
@@ -388,6 +389,7 @@ static int test_integration_post_body(void)
     {
         cfw_fd_t server_fd;
         cfw_http1_conn_options_t conn_options;
+        memset(&conn_options, 0, sizeof(conn_options));
         cfw_fd_init(&server_fd);
         CFW_TEST_ASSERT_EQ(cfw_itcp_pair(&server_fd, &client), 0);
         conn_options.http.max_head_size = 8192;

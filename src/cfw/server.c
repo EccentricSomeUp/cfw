@@ -162,6 +162,12 @@ struct cfw_server_conn {
     void *upload;
     cfw_timepoint_t deadline;
     int deadline_set;
+    /* TLS state (ADR 0058): non-NULL when the server tls_ctx option
+     * is set. The TLS session borrows conn->http's fd; the http
+     * connection remains the fd owner. transport is the embedded
+     * callback bundle handed to cfw_http1_conn at init. */
+    cfw_tls_conn_t *tls;
+    cfw_http1_transport_t transport;
     /* Request audit state (ADR 0055): armed at each parsed head and
      * emitted exactly once — when the final response is queued, an
      * upgrade activates, a stream finishes, or the conn closes with a
@@ -265,6 +271,14 @@ static void cfw_server_close_conn(cfw_server_t *server,
      * whatever status/bytes were determined. */
     cfw_server_emit_request_done(server, conn, conn->upgraded);
     cfw_pollset_remove(server->pollset, conn->handle);
+    /* Best-effort close_notify before teardown; the fd is still open
+     * (owned by conn->http, freed below). Failure is ignored — the
+     * socket is closing regardless. */
+    if (conn->tls != NULL) {
+        (void)cfw_tls_shutdown(conn->tls);
+        cfw_tls_conn_destroy(conn->tls);
+        conn->tls = NULL;
+    }
     cfw_http1_conn_free(&conn->http);
     cfw_buffer_free(&conn->body);
     cfw_buffer_free(&conn->head_scratch);
@@ -328,6 +342,21 @@ static void cfw_server_update_listener(cfw_server_t *server)
      * needed while `want` stays true. */
 }
 
+/* TLS transport callbacks (ADR 0058): cfw_tls_read/cfw_tls_write
+ * already match the cfw_http1_transport_t signature modulo the
+ * leading conn pointer, so these are thin adapters. */
+static cfw_status_t cfw_server_tls_read(void *user, void *buf,
+                                        size_t size, size_t *done)
+{
+    return cfw_tls_read((cfw_tls_conn_t *)user, buf, size, done);
+}
+
+static cfw_status_t cfw_server_tls_write(void *user, const void *data,
+                                         size_t size, size_t *done)
+{
+    return cfw_tls_write((cfw_tls_conn_t *)user, data, size, done);
+}
+
 static void cfw_server_update_conn_interest(cfw_server_t *server,
                                             cfw_server_conn_t *conn)
 {
@@ -348,6 +377,16 @@ static void cfw_server_update_conn_interest(cfw_server_t *server,
     }
     if (cfw_http1_conn_pending_out(&conn->http) > 0) {
         events |= CFW_POLL_OUT;
+    }
+    if (conn->tls != NULL && !cfw_tls_handshake_done(conn->tls)) {
+        /* Handshake progress is driven by the want flags: reads are
+         * always possible, writes only when the session asked for
+         * them — arming POLLOUT unconditionally would spin on a
+         * writable socket while the peer stalls. */
+        events |= CFW_POLL_IN;
+        if (cfw_tls_conn_want_write(conn->tls)) {
+            events |= CFW_POLL_OUT;
+        }
     }
     if (events == 0) {
         conn->dead = 1;
@@ -1237,6 +1276,22 @@ static void cfw_server_service_conn(cfw_server_t *server,
         cfw_server_update_conn_interest(server, conn);
         return;
     }
+    /* TLS handshake gate (ADR 0058): no HTTP bytes are parsed until
+     * the handshake completes. Retries happen on every event in
+     * either direction; a fatal TLS error kills the connection. */
+    if (conn->tls != NULL && !cfw_tls_handshake_done(conn->tls)) {
+        cfw_status_t hs = cfw_tls_handshake(conn->tls);
+        if (hs == CFW_ERROR_IO) {
+            conn->dead = 1;
+        } else if (hs != CFW_OK) {
+            /* WOULDBLOCK: wait for the indicated direction. */
+            cfw_server_update_conn_interest(server, conn);
+            return;
+        }
+        if (conn->dead) {
+            return;
+        }
+    }
     if (!conn->rejecting && conn->stream_fn == NULL &&
         (events & (CFW_POLL_IN | CFW_POLL_ERR | CFW_POLL_HUP))) {
         if (!conn->http.input_closed) {
@@ -1328,8 +1383,29 @@ static void cfw_server_accept(cfw_server_t *server)
             cfw_fd_close(&fd);
             continue;
         }
+        /* TLS (ADR 0058): the session borrows the fd handle; the
+         * http1 connection created below remains the fd owner. The
+         * transport bundle lives inside conn so the pointer stored
+         * by cfw_http1_conn_init stays valid for the conn's life. */
+        conn_options.transport = NULL;
+        if (server->options.tls_ctx != NULL) {
+            st = cfw_tls_conn_create(server->options.tls_ctx,
+                                     cfw_fd_get(&fd), &conn->tls);
+            if (st != CFW_OK) {
+                cfw_fd_close(&fd);
+                free(conn);
+                continue;
+            }
+            conn->transport.user = conn->tls;
+            conn->transport.read = cfw_server_tls_read;
+            conn->transport.write = cfw_server_tls_write;
+            conn_options.transport = &conn->transport;
+        }
         st = cfw_http1_conn_init(&conn->http, &fd, &conn_options);
         if (st != CFW_OK) {
+            if (conn->tls != NULL) {
+                cfw_tls_conn_destroy(conn->tls);
+            }
             free(conn);
             continue;
         }
@@ -1344,6 +1420,9 @@ static void cfw_server_accept(cfw_server_t *server)
             cfw_buffer_init(&conn->head_scratch) != CFW_OK ||
             cfw_buffer_init(&conn->upgrade_pending) != CFW_OK) {
             cfw_http1_conn_free(&conn->http);
+            if (conn->tls != NULL) {
+                cfw_tls_conn_destroy(conn->tls);
+            }
             free(conn->headers);
             free(conn->params);
             free(conn);
@@ -1517,6 +1596,9 @@ cfw_status_t cfw_server_init(cfw_server_t *server,
         (options->upload_begin == NULL) !=
             (options->upload_write == NULL)) {
         return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (options->tls_ctx != NULL && !CFW_HAVE_TLS) {
+        return CFW_ERROR_UNAVAILABLE;
     }
 
     memset(server, 0, sizeof(*server));

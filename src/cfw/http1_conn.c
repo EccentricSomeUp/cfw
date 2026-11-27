@@ -106,6 +106,7 @@ cfw_status_t cfw_http1_conn_init(cfw_http1_conn_t *conn, cfw_fd_t *fd,
 
     conn->fd.handle = cfw_fd_release(fd);
     conn->max_out_size = options->max_out_size;
+    conn->transport = options->transport;
     return CFW_OK;
 }
 
@@ -154,10 +155,42 @@ cfw_status_t cfw_http1_conn_next_event(cfw_http1_conn_t *conn,
         }
 
         {
-            ssize_t n = recv((int)conn->fd.handle, buffer, sizeof(buffer), 0);
+            /* Transport-aware read: raw recv() by default, or the
+             * configured transport (e.g. TLS) which returns the same
+             * outcomes — bytes, EOF (done == 0), WOULDBLOCK, error. */
+            size_t got = 0;
+            int transport_eof = 0;
+            int transport_wouldblock = 0;
+            int transport_error = 0;
             cfw_span_t span;
-            if (n > 0) {
-                cfw_span_init(&span, buffer, (size_t)n);
+
+            if (conn->transport != NULL && conn->transport->read != NULL) {
+                cfw_status_t tst =
+                    conn->transport->read(conn->transport->user, buffer,
+                                          sizeof(buffer), &got);
+                if (tst == CFW_OK) {
+                    transport_eof = (got == 0);
+                } else if (tst == CFW_ERROR_WOULDBLOCK) {
+                    transport_wouldblock = 1;
+                } else {
+                    transport_error = 1;
+                }
+            } else {
+                ssize_t n = recv((int)conn->fd.handle, buffer,
+                                 sizeof(buffer), 0);
+                if (n > 0) {
+                    got = (size_t)n;
+                } else if (n == 0) {
+                    transport_eof = 1;
+                } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    transport_wouldblock = 1;
+                } else {
+                    transport_error = 1;
+                }
+            }
+
+            if (got > 0) {
+                cfw_span_init(&span, buffer, got);
                 status = cfw_http1_server_feed(&conn->server, &span);
                 if (status != CFW_OK) {
                     conn->failed = 1;
@@ -166,7 +199,7 @@ cfw_status_t cfw_http1_conn_next_event(cfw_http1_conn_t *conn,
                 }
                 continue;
             }
-            if (n == 0) {
+            if (transport_eof) {
                 conn->input_closed = 1;
                 if (conn->close_after_write &&
                     cfw_http1_conn_pending_out(conn) == 0) {
@@ -174,9 +207,14 @@ cfw_status_t cfw_http1_conn_next_event(cfw_http1_conn_t *conn,
                 }
                 return CFW_ERROR_WOULDBLOCK;
             }
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            if (transport_wouldblock) {
                 return CFW_ERROR_WOULDBLOCK;
             }
+            if (transport_error) {
+                conn->failed = 1;
+                return CFW_ERROR_IO;
+            }
+            /* Unreachable: every branch above sets exactly one flag. */
             conn->failed = 1;
             return CFW_ERROR_IO;
         }
@@ -226,7 +264,25 @@ cfw_status_t cfw_http1_conn_flush(cfw_http1_conn_t *conn)
     }
 
     while (conn->out_pos < conn->out.size) {
-        ssize_t n;
+        if (conn->transport != NULL && conn->transport->write != NULL) {
+            size_t done = 0;
+            cfw_status_t tst =
+                conn->transport->write(conn->transport->user,
+                                       conn->out.data + conn->out_pos,
+                                       conn->out.size - conn->out_pos,
+                                       &done);
+            if (tst == CFW_OK && done > 0) {
+                conn->out_pos += done;
+                continue;
+            }
+            if (tst == CFW_ERROR_WOULDBLOCK) {
+                return CFW_ERROR_WOULDBLOCK;
+            }
+            /* CFW_OK with done == 0 or any other status is fatal. */
+            return CFW_ERROR_IO;
+        }
+        {
+            ssize_t n;
 #if CFW_HAVE_MSG_NOSIGNAL
         n = send((int)conn->fd.handle, conn->out.data + conn->out_pos,
                  conn->out.size - conn->out_pos, MSG_NOSIGNAL);
@@ -245,6 +301,7 @@ cfw_status_t cfw_http1_conn_flush(cfw_http1_conn_t *conn)
             return CFW_ERROR_WOULDBLOCK;
         }
         return CFW_ERROR_IO;
+        }
     }
 
     conn->out.size = 0;

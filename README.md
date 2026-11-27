@@ -30,8 +30,9 @@ mutex/condition-variable primitives and thread spawn/join/detach for
 application-owned concurrency (`cfw/sync.h`, `cfw/thread.h`, ADRs
 0050/0051), and a per-request completion audit hook delivering status,
 byte counts, duration, and peer address for every parsed request
-(ADR 0055). TLS is out
-of scope (ADR 0030).
+(ADR 0055). TLS is available as an optional OpenSSL-backed module with
+`cfw_server_t` HTTPS listener support (ADRs 0057/0058); the default
+build remains dependency-free and cleartext.
 
 ## Priorities
 
@@ -104,8 +105,14 @@ ctest --preset debug-tls --output-on-failure
 This links `libssl`/`libcrypto` and defines `CFW_HAVE_TLS` as 1 in
 `cfw_config.h`. Without it, the `cfw_tls_*` entry points exist but
 return `CFW_ERROR_UNAVAILABLE`. See `docs/decisions/0057` for the
-license and pinning rationale; `cfw_server_t` listener integration is
-a documented follow-up.
+license and pinning rationale.
+
+With TLS enabled, `cfw_server_options_t.tls_ctx` turns the listener
+into an HTTPS server: each accepted connection performs a TLS
+handshake before HTTP parsing and all bytes flow through
+`cfw_tls_read`/`cfw_tls_write` (ADR 0058). The same seam
+(`cfw_http1_transport_t` in `cfw_http1_conn_options_t`) lets custom
+transports wrap any `cfw_http1_conn_t`.
 
 ## Minimal server
 
@@ -167,8 +174,10 @@ int main(void)
 }
 ```
 
-The server is single-threaded and cleartext-only (TLS deferred, ADR 0030);
-terminate TLS in a reverse proxy for production HTTPS.
+The server is single-threaded; it serves cleartext by default and
+HTTPS when built with `CFW_ENABLE_TLS` and given a `tls_ctx`
+(ADR 0058). For production HTTPS on a cleartext build, terminate TLS
+in a reverse proxy.
 
 ## Project layout
 

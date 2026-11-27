@@ -10,6 +10,7 @@
 #include <cfw/log.h>
 #include <cfw/status.h>
 #include <cfw/time.h>
+#include <cfw/tls.h>
 
 #include <stddef.h>
 #include <stdint.h>
@@ -237,6 +238,14 @@ typedef struct cfw_server_options {
      * cfw_request_record_t for field semantics and lifetimes. */
     cfw_request_done_fn request_done;
     void *request_done_user;
+    /* Optional TLS context (ADR 0058); may be NULL for cleartext.
+     * When set, every accepted connection performs a TLS handshake
+     * (cfw_tls_handshake) before HTTP parsing and all subsequent
+     * bytes flow through cfw_tls_read/cfw_tls_write. Requires a
+     * CFW_ENABLE_TLS build; init fails with
+     * CFW_ERROR_UNAVAILABLE when TLS support is not compiled in.
+     * The context is NOT owned — it must outlive the server. */
+    cfw_tls_ctx_t *tls_ctx;
 } cfw_server_options_t;
 
 typedef struct cfw_server {

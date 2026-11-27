@@ -3522,6 +3522,204 @@ static int test_server_ipv6(void)
     return 0;
 }
 
+#if CFW_HAVE_TLS
+
+/* Steps the server with a short deadline; returns nonzero while the
+ * budget lasts. */
+static int cfw_test_tls_step(cfw_server_t *server)
+{
+    cfw_timepoint_t deadline;
+    cfw_duration_t slice;
+
+    cfw_duration_from_millis(50, &slice);
+    cfw_deadline_from_now(&deadline, slice);
+    return cfw_server_step(server, &deadline) == CFW_OK;
+}
+
+/* Drives the client-side TLS handshake while stepping the server.
+ * Returns 0 on success. */
+static int cfw_test_tls_handshake(cfw_server_t *server,
+                                  cfw_tls_conn_t *client)
+{
+    int i;
+
+    for (i = 0; i < 4000; i++) {
+        cfw_status_t st = cfw_tls_handshake(client);
+        if (st == CFW_OK) {
+            return cfw_tls_handshake_done(client) ? 0 : 1;
+        }
+        if (st != CFW_ERROR_WOULDBLOCK) {
+            return 1;
+        }
+        if (!cfw_test_tls_step(server)) {
+            return 1;
+        }
+    }
+    return 1;
+}
+
+/* Writes the full request over TLS, retrying WOULDBLOCK while
+ * stepping the server. */
+static int cfw_test_tls_write_all(cfw_server_t *server,
+                                  cfw_tls_conn_t *client,
+                                  const char *data)
+{
+    size_t len = strlen(data);
+    size_t sent = 0;
+    int i;
+
+    for (i = 0; i < 4000 && sent < len; i++) {
+        size_t done = 0;
+        cfw_status_t st =
+            cfw_tls_write(client, data + sent, len - sent, &done);
+        if (st == CFW_OK) {
+            sent += done;
+        } else if (st != CFW_ERROR_WOULDBLOCK) {
+            return 1;
+        }
+        if (!cfw_test_tls_step(server)) {
+            return 1;
+        }
+    }
+    return sent != len;
+}
+
+/* Reads TLS plaintext until `needle` appears or the budget ends.
+ * Returns total bytes accumulated (>0) or -1. */
+static ssize_t cfw_test_tls_read_until(cfw_server_t *server,
+                                       cfw_tls_conn_t *client,
+                                       char *buffer, size_t capacity,
+                                       const char *needle)
+{
+    size_t got = 0;
+    int i;
+
+    for (i = 0; i < 4000; i++) {
+        size_t done = 0;
+        cfw_status_t st = cfw_tls_read(client, buffer + got,
+                                       capacity - 1 - got, &done);
+        if (st == CFW_OK) {
+            if (done == 0) {
+                break;
+            }
+            got += done;
+            buffer[got] = '\0';
+            if (cfw_test_contains(buffer, got, needle)) {
+                return (ssize_t)got;
+            }
+        } else if (st != CFW_ERROR_WOULDBLOCK) {
+            return -1;
+        }
+        if (!cfw_test_tls_step(server)) {
+            return -1;
+        }
+    }
+    return got > 0 ? (ssize_t)got : -1;
+}
+
+static int test_server_tls_request_response(void)
+{
+    cfw_test_server ts;
+    cfw_server_options_t options;
+    cfw_dispatch_options_t doptions;
+    cfw_tls_ctx_options_t sopt;
+    cfw_tls_ctx_options_t copt;
+    cfw_tls_ctx_t *sctx = NULL;
+    cfw_tls_ctx_t *cctx = NULL;
+    cfw_tls_conn_t *client = NULL;
+    cfw_fd_t raw;
+    char cert[512];
+    char key[512];
+    char response[8192];
+    ssize_t n;
+    uint16_t port;
+    int rc = 1;
+
+    memset(&sopt, 0, sizeof(sopt));
+    sopt.role = CFW_TLS_SERVER;
+    snprintf(cert, sizeof(cert), "%s/server.crt", CFW_TEST_TLS_DIR);
+    snprintf(key, sizeof(key), "%s/server.key", CFW_TEST_TLS_DIR);
+    sopt.cert_file = cert;
+    sopt.key_file = key;
+    CFW_TEST_ASSERT_EQ(cfw_tls_ctx_create(&sopt, &sctx), CFW_OK);
+
+    memset(&copt, 0, sizeof(copt));
+    copt.role = CFW_TLS_CLIENT;
+    CFW_TEST_ASSERT_EQ(cfw_tls_ctx_create(&copt, &cctx), CFW_OK);
+
+    /* Minimal server setup mirroring cfw_test_server_setup but with
+     * tls_ctx enabled. */
+    memset(&ts, 0, sizeof(ts));
+    ts.arena = cfw_arena_create(32768);
+    CFW_TEST_ASSERT_TRUE(ts.arena != NULL);
+    CFW_TEST_ASSERT_EQ(cfw_router_init(&ts.router, ts.arena), CFW_OK);
+    memset(&doptions, 0, sizeof(doptions));
+    doptions.router = &ts.router;
+    doptions.handler = cfw_test_ok_handler;
+    doptions.max_middleware = 4;
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_init(&ts.dispatch, ts.arena,
+                                         &doptions),
+                       CFW_OK);
+    {
+        cfw_strview_t pattern;
+        cfw_strview_from_cstr(&pattern, "/hello");
+        CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(
+                               &ts.dispatch, CFW_HTTP_METHOD_GET,
+                               &pattern, cfw_test_ok_handler, NULL),
+                           CFW_OK);
+    }
+    memset(&options, 0, sizeof(options));
+    options.host = "127.0.0.1";
+    options.port = 0;
+    options.backlog = 16;
+    options.dispatch = &ts.dispatch;
+    options.http.max_head_size = 8192;
+    options.http.max_body_size = 65536;
+    options.http.max_pending_size = 65536;
+    options.max_out_size = 65536;
+    options.max_connections = 8;
+    options.max_headers = 32;
+    options.max_params = 16;
+    options.tls_ctx = sctx;
+    CFW_TEST_ASSERT_EQ(cfw_server_init(&ts.server, &options), CFW_OK);
+    port = cfw_server_port(&ts.server);
+    CFW_TEST_ASSERT_TRUE(port != 0);
+
+    cfw_fd_init(&raw);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&raw, port), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_tls_conn_create(cctx, cfw_fd_get(&raw),
+                                           &client),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_tls_handshake(&ts.server, client), 0);
+
+    CFW_TEST_ASSERT_EQ(cfw_test_tls_write_all(
+                           &ts.server, client,
+                           "GET /hello HTTP/1.1\r\n"
+                           "Host: test\r\n\r\n"),
+                       0);
+    n = cfw_test_tls_read_until(&ts.server, client, response,
+                                sizeof(response), "srv-ok");
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    response[n] = '\0';
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                           "HTTP/1.1 200 OK"));
+    CFW_TEST_ASSERT_EQ(cfw_server_requests_total(&ts.server), 1);
+    rc = 0;
+
+    if (client != NULL) {
+        cfw_tls_conn_destroy(client);
+    }
+    cfw_fd_close(&raw);
+    cfw_tls_ctx_destroy(sctx);
+    cfw_tls_ctx_destroy(cctx);
+    if (ts.arena != NULL) {
+        cfw_test_server_teardown(&ts);
+    }
+    return rc;
+}
+
+#endif /* CFW_HAVE_TLS */
+
 const cfw_test_case cfw_test_server_cases[] = {
     {"server_upload_content_length", test_server_upload_content_length},
     {"server_upload_chunked", test_server_upload_chunked},
@@ -3568,6 +3766,9 @@ const cfw_test_case cfw_test_server_cases[] = {
     {"server_reuse_port", test_server_reuse_port},
     {"server_reuse_port_cluster", test_server_reuse_port_cluster},
     {"server_ipv6", test_server_ipv6},
+#if CFW_HAVE_TLS
+    {"server_tls_request_response", test_server_tls_request_response},
+#endif
     {NULL, NULL},
 };
 

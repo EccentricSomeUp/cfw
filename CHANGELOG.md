@@ -21,8 +21,20 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   (CMake option `CFW_ENABLE_TLS`, default OFF — the default build
   remains dependency-free); `CFW_HAVE_TLS` in `cfw_config.h` reports
   availability and all entry points return `CFW_ERROR_UNAVAILABLE`
-  when compiled out. `cfw_server_t` listener integration is a
-  documented follow-up.
+  when compiled out.
+- `cfw_server_t` HTTPS listener support (ADR 0058): setting
+  `cfw_server_options_t.tls_ctx` makes every accepted connection
+  perform a TLS handshake before HTTP parsing, with poll interest
+  driven by the TLS want-direction hints during the handshake and
+  `close_notify` sent best-effort on teardown. `cfw_server_init`
+  returns `CFW_ERROR_UNAVAILABLE` when `tls_ctx` is set in a
+  non-TLS build.
+- `cfw_http1_conn_options_t.transport`: optional
+  `cfw_http1_transport_t` read/write override letting any byte-stream
+  transform (TLS today) wrap a `cfw_http1_conn_t` while the conn
+  retains fd ownership. Options structs must now be zero-initialized
+  (`memset`) so optional fields default off — all in-tree callers
+  updated. Cleartext behavior is unchanged when `transport` is NULL.
 - `debug-tls` CMake preset exercising the TLS module; TLS unit tests
   generate their CA/server/client certificates into the build tree at
   configure time (no key material committed).

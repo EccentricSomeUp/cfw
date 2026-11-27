@@ -122,6 +122,7 @@ static ssize_t cfw_test_client_recv(cfw_fd_t *client, char *buffer,
 static cfw_http1_conn_options_t cfw_test_conn_options(void)
 {
     cfw_http1_conn_options_t options;
+    memset(&options, 0, sizeof(options));
     options.http.max_head_size = 4096;
     options.http.max_body_size = 0;
     options.http.max_pending_size = 65536;

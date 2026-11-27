@@ -88,8 +88,12 @@ audit (audits/2026-11-26-http-server-dos-audit.md) with three fixes.
 - `cfw_tls` transport module — met (context + nonblocking conn,
   handshake/read/write/shutdown, want-direction hints, peer
   verification; unit-tested over socketpairs)
-- `cfw_server_t` TLS listener integration — deferred (accept →
-  handshake → decrypted stream into `cfw_http1_conn`)
+- `cfw_server_t` TLS listener integration — met (ADR 0058): optional
+  `cfw_http1_transport_t` seam in `cfw_http1_conn_t` plus
+  `cfw_server_options_t.tls_ctx`, which handshakes each accepted
+  connection before HTTP parsing. Unit-tested end-to-end
+- TLS follow-ups — deferred: ALPN, session resumption policy,
+  mixed cleartext/TLS listeners, client-cert auth plumbing, example
 
 Exit criteria: scope decision recorded (ADR 0030), dependency
 approved (ADR 0057), transport module implemented and tested;

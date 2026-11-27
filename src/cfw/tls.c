@@ -19,7 +19,7 @@ struct cfw_tls_ctx {
 
 struct cfw_tls_conn {
     SSL *ssl;
-    cfw_fd_t fd;
+    intptr_t fd;
     int want_read;
     int want_write;
 };
@@ -158,15 +158,14 @@ void cfw_tls_ctx_destroy(cfw_tls_ctx_t *ctx)
     free(ctx);
 }
 
-cfw_status_t cfw_tls_conn_create(cfw_tls_ctx_t *ctx, cfw_fd_t *fd,
+cfw_status_t cfw_tls_conn_create(cfw_tls_ctx_t *ctx, intptr_t fd,
                                  cfw_tls_conn_t **conn)
 {
     cfw_tls_conn_t *created;
     SSL *ssl;
     long modes;
 
-    if (ctx == NULL || fd == NULL || conn == NULL ||
-        !cfw_fd_valid(fd)) {
+    if (ctx == NULL || conn == NULL || fd < 0) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
 
@@ -191,10 +190,9 @@ cfw_status_t cfw_tls_conn_create(cfw_tls_ctx_t *ctx, cfw_fd_t *fd,
         SSL_free(ssl);
         return CFW_ERROR_NOMEM;
     }
-    cfw_fd_init(&created->fd);
-    created->fd.handle = cfw_fd_release(fd);
+    created->fd = fd;
     created->ssl = ssl;
-    SSL_set_fd(ssl, (int)created->fd.handle);
+    SSL_set_fd(ssl, (int)created->fd);
     if (ctx->role == CFW_TLS_SERVER) {
         SSL_set_accept_state(ssl);
     } else {
@@ -213,7 +211,7 @@ void cfw_tls_conn_destroy(cfw_tls_conn_t *conn)
     if (conn->ssl != NULL) {
         SSL_free(conn->ssl);
     }
-    cfw_fd_close(&conn->fd);
+    /* The descriptor is borrowed: the caller owns and closes it. */
     free(conn);
 }
 
@@ -222,7 +220,7 @@ intptr_t cfw_tls_conn_fd(const cfw_tls_conn_t *conn)
     if (conn == NULL) {
         return -1;
     }
-    return cfw_fd_get(&conn->fd);
+    return conn->fd;
 }
 
 cfw_status_t cfw_tls_handshake(cfw_tls_conn_t *conn)
@@ -256,7 +254,7 @@ cfw_status_t cfw_tls_read(cfw_tls_conn_t *conn, void *buf, size_t size,
     int ret;
 
     if (conn == NULL || buf == NULL || done == NULL || size == 0 ||
-        size > INT32_MAX || !cfw_fd_valid(&conn->fd)) {
+        size > INT32_MAX || conn->fd < 0) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
 
@@ -289,7 +287,7 @@ cfw_status_t cfw_tls_write(cfw_tls_conn_t *conn, const void *data,
     int ret;
 
     if (conn == NULL || data == NULL || done == NULL || size == 0 ||
-        size > INT32_MAX || !cfw_fd_valid(&conn->fd)) {
+        size > INT32_MAX || conn->fd < 0) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
 
@@ -311,7 +309,7 @@ cfw_status_t cfw_tls_shutdown(cfw_tls_conn_t *conn)
     int ret;
 
     if (conn == NULL || conn->ssl == NULL ||
-        !cfw_fd_valid(&conn->fd)) {
+        conn->fd < 0) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
     ret = SSL_shutdown(conn->ssl);
@@ -365,7 +363,7 @@ void cfw_tls_ctx_destroy(cfw_tls_ctx_t *ctx)
     (void)ctx;
 }
 
-cfw_status_t cfw_tls_conn_create(cfw_tls_ctx_t *ctx, cfw_fd_t *fd,
+cfw_status_t cfw_tls_conn_create(cfw_tls_ctx_t *ctx, intptr_t fd,
                                  cfw_tls_conn_t **conn)
 {
     (void)ctx;

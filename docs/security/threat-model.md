@@ -55,9 +55,10 @@ business-logic rules.
 - Operators are responsible for secure deployment, TLS termination choices,
   firewalling, and secret management unless the framework explicitly provides
   those features later. The optional `cfw_tls` module (ADR 0057, enabled via
-  `CFW_ENABLE_TLS`) provides transport confidentiality when compiled in;
-  default builds remain cleartext-only and peer authentication is opt-in
-  per context.
+  `CFW_ENABLE_TLS`) provides transport confidentiality when compiled in —
+  including direct `cfw_server_t` HTTPS listeners via `tls_ctx`
+  (ADR 0058); default builds remain cleartext-only and peer
+  authentication is opt-in per context.
 - Third-party dependencies, if ever approved, must be audited and pinned.
   OpenSSL 3.x is the single approved optional dependency (ADR 0057);
   it is consumed from the system, not vendored or pinned by cfw.

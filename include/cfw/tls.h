@@ -5,7 +5,6 @@
 
 #include <cfw/cfw_config.h>
 #include <cfw/export.h>
-#include <cfw/fd.h>
 #include <cfw/status.h>
 
 #include <stddef.h>
@@ -32,14 +31,16 @@ extern "C" {
  *   on the creating thread. It is NOT internally synchronized —
  *   create/destroy it before spawning workers.
  * - cfw_tls_conn_t wraps one nonblocking socket descriptor with a
- *   TLS session. The underlying fd MUST be nonblocking; all I/O entry
- *   points are nonblocking and report CFW_ERROR_WOULDBLOCK when the
- *   operation cannot complete immediately. Callers drive progress
- *   from a pollset using cfw_tls_conn_want_read/want_write and
- *   cfw_tls_pending.
- * - Ownership: cfw_tls_conn_create takes ownership of the cfw_fd_t
- *   (same convention as cfw_http1_conn_init). cfw_tls_conn_destroy
- *   closes the descriptor unless cfw_tls_conn_detach was called.
+ *   TLS session. The underlying fd MUST be nonblocking and MUST
+ *   outlive the connection: cfw_tls_conn_create BORROWS the
+ *   descriptor (unlike cfw_http1_conn_init it does not take
+ *   ownership) and cfw_tls_conn_destroy does not close it — the
+ *   caller remains responsible for closing the socket. This lets a
+ *   TLS session layer under an existing fd owner such as
+ *   cfw_http1_conn_t. All I/O entry points are nonblocking and
+ *   report CFW_ERROR_WOULDBLOCK when the operation cannot complete
+ *   immediately. Callers drive progress from a pollset using
+ *   cfw_tls_conn_want_read/want_write and cfw_tls_pending.
  * - No application data is ever logged by this module; TLS errors are
  *   mapped to cfw_status_t without detail strings that could leak
  *   key material or handshake internals.
@@ -96,13 +97,14 @@ CFW_API cfw_status_t cfw_tls_ctx_create(
     const cfw_tls_ctx_options_t *options, cfw_tls_ctx_t **ctx);
 CFW_API void cfw_tls_ctx_destroy(cfw_tls_ctx_t *ctx);
 
-/* Creates a TLS connection over an owned nonblocking socket.
- * `fd` ownership transfers to the connection on success (the fd is
- * invalidated even on failure paths where the SSL object was created —
- * see docs). Returns CFW_ERROR_INVALID_ARGUMENT for NULL arguments or
- * a non-socket/invalid fd, CFW_ERROR_UNAVAILABLE when TLS is not
- * compiled in. */
-CFW_API cfw_status_t cfw_tls_conn_create(cfw_tls_ctx_t *ctx, cfw_fd_t *fd,
+/* Creates a TLS connection over a borrowed nonblocking socket
+ * descriptor. `fd` must be a valid nonblocking socket (e.g. from
+ * cfw_fd_get) that outlives the connection; the descriptor is NOT
+ * owned and is not closed by cfw_tls_conn_destroy. Returns
+ * CFW_ERROR_INVALID_ARGUMENT for a negative fd or NULL conn out-param,
+ * CFW_ERROR_NOMEM on allocation failure, CFW_ERROR_UNAVAILABLE when
+ * TLS support is not compiled in. */
+CFW_API cfw_status_t cfw_tls_conn_create(cfw_tls_ctx_t *ctx, intptr_t fd,
                                          cfw_tls_conn_t **conn);
 CFW_API void cfw_tls_conn_destroy(cfw_tls_conn_t *conn);
 

@@ -31,6 +31,7 @@
 #include <cfw/sync.h>
 #include <cfw/thread.h>
 #include <cfw/time.h>
+#include <cfw/tls.h>
 #include <cfw/uri.h>
 #include <cfw/version.h>
 #include <cfw/ws.h>

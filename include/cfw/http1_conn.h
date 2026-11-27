@@ -31,12 +31,35 @@ extern "C" {
  * Both may be set simultaneously; the caller may service either order.
  */
 
+/* Optional transport override (ADR 0058): when set, socket reads and
+ * writes go through these callbacks instead of raw recv/send on the
+ * connection's fd. The fd remains the pollable descriptor and is
+ * still owned and closed by the connection; the transport only
+ * transforms the byte stream (e.g. TLS via cfw/tls.h). The transport
+ * struct and its user pointer must outlive the connection. */
+typedef struct cfw_http1_transport {
+    void *user;
+    /* Reads up to size bytes; CFW_OK with *done > 0 delivers bytes,
+     * CFW_OK with *done == 0 signals orderly EOF, CFW_ERROR_WOULDBLOCK
+     * means retry later, anything else is a fatal transport error. */
+    cfw_status_t (*read)(void *user, void *buf, size_t size,
+                         size_t *done);
+    /* Writes up to size bytes; same contract as read but *done == 0
+     * with CFW_OK is treated as a fatal error. */
+    cfw_status_t (*write)(void *user, const void *data, size_t size,
+                          size_t *done);
+} cfw_http1_transport_t;
+
+/* Options must be zero-initialized (memset) before use so that optional
+ * fields such as transport default to off. */
 typedef struct cfw_http1_conn_options {
     /* Request-reader limits (head/body/pending). */
     cfw_http1_server_options_t http;
     /* Maximum queued response bytes; must be > 0. queue() fails rather
      * than exceed it — flush first. */
     size_t max_out_size;
+    /* Optional transport override; NULL uses raw socket I/O. */
+    const cfw_http1_transport_t *transport;
 } cfw_http1_conn_options_t;
 
 typedef struct cfw_http1_conn {
@@ -48,6 +71,7 @@ typedef struct cfw_http1_conn {
     int input_closed;
     int failed;
     size_t max_out_size;
+    const cfw_http1_transport_t *transport;
 } cfw_http1_conn_t;
 
 /* Takes ownership of *fd, which must be a valid nonblocking socket.
