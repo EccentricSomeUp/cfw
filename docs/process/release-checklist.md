@@ -36,7 +36,13 @@ releaser's responsibility.
 
 ## Required before 1.0
 
-- [ ] Public API and ABI stability policy is accepted
-- [ ] All critical and high audit findings are fixed or explicitly accepted
-- [ ] Migration and deprecation policy is documented
-- [ ] Security reporting process has been tested
+- [x] Public API and ABI stability policy is accepted
+      (`docs/api-stability.md`; freeze applies at the 1.0.0 tag)
+- [x] All critical and high audit findings are fixed or explicitly
+      accepted (`audits/2026-11-27-1-0-candidate-audit.md` — none open)
+- [x] Migration and deprecation policy is documented
+      (`docs/api-stability.md` + `docs/process/versioning.md`; no
+      migration needed pre-1.0)
+- [ ] Security reporting process has been tested — channel documented
+      in `docs/security/process.md`; a test report submission is still
+      outstanding
