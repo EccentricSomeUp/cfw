@@ -1343,9 +1343,9 @@ static int test_client_tls_roundtrip(void)
     memset(&opts, 0, sizeof(opts));
     opts.role = CFW_TLS_SERVER;
     snprintf(path, sizeof(path), "%s/server.crt", CFW_TEST_TLS_DIR);
-    opts.cert_file = strdup(path);
+    opts.cert_file = cfw_test_strdup(path);
     snprintf(path, sizeof(path), "%s/server.key", CFW_TEST_TLS_DIR);
-    opts.key_file = strdup(path);
+    opts.key_file = cfw_test_strdup(path);
     status = cfw_tls_ctx_create(&opts, &server_ctx);
     free((void *)opts.cert_file);
     free((void *)opts.key_file);
@@ -1354,7 +1354,7 @@ static int test_client_tls_roundtrip(void)
     memset(&opts, 0, sizeof(opts));
     opts.role = CFW_TLS_CLIENT;
     snprintf(path, sizeof(path), "%s/ca.crt", CFW_TEST_TLS_DIR);
-    opts.ca_file = strdup(path);
+    opts.ca_file = cfw_test_strdup(path);
     opts.verify_peer = 1;
     status = cfw_tls_ctx_create(&opts, &client_ctx);
     free((void *)opts.ca_file);

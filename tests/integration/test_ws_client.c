@@ -476,9 +476,9 @@ static int test_ws_client_tls_echo(void)
     memset(&topts, 0, sizeof(topts));
     topts.role = CFW_TLS_SERVER;
     snprintf(path, sizeof(path), "%s/server.crt", CFW_TEST_TLS_DIR);
-    topts.cert_file = strdup(path);
+    topts.cert_file = cfw_test_strdup(path);
     snprintf(path, sizeof(path), "%s/server.key", CFW_TEST_TLS_DIR);
-    topts.key_file = strdup(path);
+    topts.key_file = cfw_test_strdup(path);
     status = cfw_tls_ctx_create(&topts, &server_ctx);
     free((void *)topts.cert_file);
     free((void *)topts.key_file);
@@ -487,7 +487,7 @@ static int test_ws_client_tls_echo(void)
     memset(&topts, 0, sizeof(topts));
     topts.role = CFW_TLS_CLIENT;
     snprintf(path, sizeof(path), "%s/ca.crt", CFW_TEST_TLS_DIR);
-    topts.ca_file = strdup(path);
+    topts.ca_file = cfw_test_strdup(path);
     topts.verify_peer = 1;
     status = cfw_tls_ctx_create(&topts, &client_ctx);
     free((void *)topts.ca_file);

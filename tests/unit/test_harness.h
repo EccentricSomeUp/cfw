@@ -16,6 +16,17 @@
     #define CFW_TEST_MSG_DONTWAIT 0
 #endif
 
+/* strdup() is a deprecated POSIX alias on the MSVC CRT; _strdup is the
+ * conformant name there. Tests must free the result either way. */
+static inline char *cfw_test_strdup(const char *s)
+{
+#if CFW_PLATFORM_WINDOWS
+    return _strdup(s);
+#else
+    return strdup(s);
+#endif
+}
+
 typedef int (*cfw_test_fn)(void);
 
 typedef struct cfw_test_case {

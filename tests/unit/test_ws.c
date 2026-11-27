@@ -958,18 +958,20 @@ static int cfw_test_ws_expect_close(cfw_test_ws_state *st,
                                     size_t flen, uint16_t status)
 {
     size_t used = 0;
-    char nstr[5];
+    /* unsigned char: frame bytes may exceed SCHAR_MAX; the marker is
+     * passed to recv_until as a plain byte string. */
+    unsigned char nstr[5];
 
     /* Close frame: 0x88 0x02 <status hi> <status lo>. */
-    nstr[0] = (char)(int8_t)0x88;
-    nstr[1] = (char)0x02;
-    nstr[2] = (char)(status >> 8);
-    nstr[3] = (char)status;
-    nstr[4] = '\0';
+    nstr[0] = 0x88u;
+    nstr[1] = 0x02u;
+    nstr[2] = (unsigned char)(status >> 8);
+    nstr[3] = (unsigned char)status;
+    nstr[4] = 0u;
     CFW_TEST_ASSERT_EQ(cfw_test_ws_send(client, frame, flen), 0);
     CFW_TEST_ASSERT_TRUE(cfw_test_ws_recv_until(
                              &st->server, client, response, capacity,
-                             nstr, &used) > 0);
+                             (const char *)nstr, &used) > 0);
     CFW_TEST_ASSERT_TRUE(cfw_ws_is_closed(st->ws));
     CFW_TEST_ASSERT_EQ(st->messages, 0);
     return 0;

@@ -379,6 +379,9 @@ if(CFW_ENABLE_FUZZING)
         elseif(MSVC)
             target_compile_options(cfw_fuzz_${_cfw_fuzz_t} PRIVATE
                 /fsanitize=address)
+        elseif(MINGW)
+            # MinGW GCC has no ASan/UBSan runtime libraries; the
+            # standalone driver still replays the corpus unsanitized.
         else()
             target_compile_options(cfw_fuzz_${_cfw_fuzz_t} PRIVATE
                 -fsanitize=address,undefined)

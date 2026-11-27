@@ -31,17 +31,17 @@ static int make_ctx(cfw_tls_ctx_options_t *o, const char *cert,
     memset(o, 0, sizeof(*o));
     if (cert != NULL) {
         tls_path(path, sizeof(path), cert);
-        o->cert_file = strdup(path);
+        o->cert_file = cfw_test_strdup(path);
         CFW_TEST_ASSERT(o->cert_file != NULL);
     }
     if (key != NULL) {
         tls_path(path, sizeof(path), key);
-        o->key_file = strdup(path);
+        o->key_file = cfw_test_strdup(path);
         CFW_TEST_ASSERT(o->key_file != NULL);
     }
     if (ca != NULL) {
         tls_path(path, sizeof(path), ca);
-        o->ca_file = strdup(path);
+        o->ca_file = cfw_test_strdup(path);
         CFW_TEST_ASSERT(o->ca_file != NULL);
     }
     o->verify_peer = verify;

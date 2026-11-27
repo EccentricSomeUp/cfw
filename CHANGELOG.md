@@ -32,6 +32,11 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 - `test_server.c` `!CFW_HAVE_SO_REUSEPORT` variant was missing
   `max_middleware`, failing dispatch init on platforms without the
   feature (FreeBSD).
+- Third round: MinGW fuzz-driver builds skip `-fsanitize` (the
+  toolchain ships no ASan/UBSan runtimes; corpus replay still runs),
+  test `strdup` calls go through a portable `cfw_test_strdup` helper
+  (`_strdup` on the MSVC CRT), and the WS close-frame marker uses
+  `unsigned char` to avoid MSVC `C4310` constant-truncation.
 
 ## [0.13.0] - 2026-11-27
 
