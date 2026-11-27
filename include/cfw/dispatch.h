@@ -10,6 +10,7 @@
 #include <cfw/span.h>
 #include <cfw/status.h>
 #include <cfw/strview.h>
+#include <cfw/tls.h>
 
 #include <stddef.h>
 #include <stdint.h>
@@ -138,6 +139,13 @@ typedef struct cfw_request {
      * (cfw_server_options_t upload_*); NULL when unused or when the
      * body was buffered into `body`. */
     void *upload;
+    /* The connection's TLS session when the request arrived over a
+     * TLS-terminating transport (cfw_server_options_t.tls_ctx), NULL
+     * otherwise. Valid for the duration of the dispatch call; use it
+     * for authorization decisions such as cfw_tls_conn_peer_cert_der
+     * or cfw_tls_conn_alpn (ADR 0063). Appended last per the
+     * struct-extension convention (docs/api-stability.md). */
+    const cfw_tls_conn_t *tls_conn;
 } cfw_request_t;
 
 typedef struct cfw_response {
@@ -266,6 +274,9 @@ typedef struct cfw_dispatch_request_info {
      * transport delivered the body elsewhere, so the body/framing
      * consistency check against `body` is skipped. */
     void *upload;
+    /* TLS session for the connection, copied into req.tls_conn.
+     * Borrowed: valid only for the dispatch call; do not destroy. */
+    const cfw_tls_conn_t *tls_conn;
 } cfw_dispatch_request_info_t;
 
 /* Extended variant of cfw_dispatch_request that additionally supplies

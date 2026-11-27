@@ -564,6 +564,7 @@ static void cfw_server_handle_done(cfw_server_t *server,
      * sees a consistent sink; the token then belongs to the app. */
     memset(&info, 0, sizeof(info));
     info.remote_addr = &conn->remote_addr;
+    info.tls_conn = conn->tls;
     if (conn->upload != NULL) {
         if (server->options.upload_end != NULL) {
             server->options.upload_end(conn->upload, 1);

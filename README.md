@@ -117,8 +117,9 @@ handshake before HTTP parsing and all bytes flow through
 (`cfw_http1_transport_t` in `cfw_http1_conn_options_t`) lets custom
 transports wrap any `cfw_http1_conn_t`. ALPN protocol negotiation is
 available via `cfw_tls_ctx_options_t.alpn_protos` and
-`cfw_tls_conn_alpn` (ADR 0060), peer-certificate DER access via
-`cfw_tls_conn_peer_cert_der` for mutual-TLS authorization, session
+`cfw_tls_conn_alpn` (ADR 0060), peer-certificate access via
+`cfw_tls_conn_peer_cert_der` for mutual-TLS authorization (also
+reachable from handlers as `req->tls_conn`, ADR 0063), session
 resumption via `cfw_tls_conn_get_session`/`cfw_tls_conn_set_session`
 (ADR 0062), and mixed cleartext/TLS listeners via `tls_detect`,
 which sniffs each connection's first byte to serve HTTP and HTTPS on

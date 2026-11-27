@@ -219,6 +219,7 @@ cfw_status_t cfw_dispatch_request_ex(
             req.remote_addr = *info->remote_addr;
         }
         req.upload = info->upload;
+        req.tls_conn = info->tls_conn;
     }
 
     /* Transport-independent validation: framing rules and body size.

@@ -9,6 +9,17 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ## [Unreleased]
 
+### Added
+
+- TLS session exposure to handlers (ADR 0063):
+  `cfw_request_t.tls_conn` carries the connection's
+  `cfw_tls_conn_t` (borrowed, valid for the dispatch call) when the
+  request arrived over TLS — NULL on cleartext — enabling
+  mutual-TLS authorization via `cfw_tls_conn_peer_cert_der`,
+  ALPN-aware routing via `cfw_tls_conn_alpn`, and session-reuse
+  telemetry. Supplied through
+  `cfw_dispatch_request_info_t.tls_conn`.
+
 ## [0.7.0] - 2026-11-27
 
 ### Added

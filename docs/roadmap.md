@@ -94,7 +94,8 @@ audit (audits/2026-11-26-http-server-dos-audit.md) with three fixes.
   connection before HTTP parsing. Unit-tested end-to-end
 - TLS follow-ups — ALPN met (ADR 0060), peer-cert DER access met,
   mixed cleartext/TLS listeners met (ADR 0061), session resumption
-  met (ADR 0062); deferred: authZ policy plumbing
+  met (ADR 0062), authZ plumbing met (ADR 0063: `req->tls_conn`
+  exposes the session to handlers/middleware)
 
 Exit criteria: scope decision recorded (ADR 0030), dependency
 approved (ADR 0057), transport module implemented and tested;

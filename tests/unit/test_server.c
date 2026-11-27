@@ -87,6 +87,23 @@ static cfw_status_t cfw_test_addr_handler(cfw_request_t *req,
     return CFW_OK;
 }
 
+/* Records whether req->tls_conn was non-NULL for the last /probe
+ * request: -1 unset, 0 cleartext, 1 TLS (ADR 0063). */
+static int cfw_test_tls_conn_seen = -1;
+
+static cfw_status_t cfw_test_tls_probe_handler(cfw_request_t *req,
+                                               cfw_response_t *res,
+                                               void *user)
+{
+    static const char body[] = "probe-ok";
+    (void)user;
+    cfw_test_tls_conn_seen = req->tls_conn != NULL;
+    res->status = CFW_HTTP_STATUS_OK;
+    res->body.data = (const uint8_t *)body;
+    res->body.size = sizeof(body) - 1;
+    return CFW_OK;
+}
+
 static cfw_status_t cfw_test_mw(cfw_request_t *req, cfw_response_t *res,
                                 cfw_dispatch_next_t next,
                                 cfw_dispatch_frame_t *frame, void *user)
@@ -167,6 +184,13 @@ static int cfw_test_server_setup_ex(cfw_test_server *ts,
     CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(&ts->dispatch,
                                               CFW_HTTP_METHOD_GET,
                                               &pattern, cfw_test_ok_handler,
+                                              NULL),
+                       CFW_OK);
+    cfw_strview_from_cstr(&pattern, "/probe");
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(&ts->dispatch,
+                                              CFW_HTTP_METHOD_GET,
+                                              &pattern,
+                                              cfw_test_tls_probe_handler,
                                               NULL),
                        CFW_OK);
 
@@ -292,6 +316,43 @@ static int test_server_request_response(void)
     cfw_fd_close(&client);
     cfw_test_server_teardown(&ts);
     return 0;
+}
+
+/* Cleartext requests observe req->tls_conn == NULL (ADR 0063). */
+static int test_server_tls_conn_null_cleartext(void)
+{
+    cfw_test_server ts;
+    cfw_fd_t client;
+    char response[8192];
+    ssize_t n;
+    uint16_t port;
+    int rc = 1;
+
+    cfw_test_tls_conn_seen = -1;
+    CFW_TEST_ASSERT_EQ(cfw_test_server_setup(
+                           &ts, (cfw_duration_t){0},
+                           (cfw_duration_t){0}, 8),
+                       0);
+    port = cfw_server_port(&ts.server);
+    CFW_TEST_ASSERT_TRUE(port != 0);
+    cfw_fd_init(&client);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&client, port), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&client,
+                                     "GET /probe HTTP/1.1\r\n"
+                                     "Host: test\r\n\r\n"),
+                       0);
+    n = cfw_test_serve_recv(&ts.server, &client, response,
+                            sizeof(response) - 1);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    response[n] = '\0';
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                           "probe-ok"));
+    CFW_TEST_ASSERT_EQ(cfw_test_tls_conn_seen, 0);
+    rc = 0;
+
+    cfw_fd_close(&client);
+    cfw_test_server_teardown(&ts);
+    return rc;
 }
 
 static char cfw_test_pad_names[28][12];
@@ -3714,6 +3775,12 @@ static int test_server_tls_request_response(void)
                                &ts.dispatch, CFW_HTTP_METHOD_GET,
                                &pattern, cfw_test_ok_handler, NULL),
                            CFW_OK);
+        cfw_strview_from_cstr(&pattern, "/probe");
+        CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(
+                               &ts.dispatch, CFW_HTTP_METHOD_GET,
+                               &pattern, cfw_test_tls_probe_handler,
+                               NULL),
+                           CFW_OK);
     }
     memset(&options, 0, sizeof(options));
     options.host = "127.0.0.1";
@@ -3751,6 +3818,20 @@ static int test_server_tls_request_response(void)
     CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
                                            "HTTP/1.1 200 OK"));
     CFW_TEST_ASSERT_EQ(cfw_server_requests_total(&ts.server), 1);
+
+    /* req->tls_conn exposes the session to handlers for authZ
+     * decisions (ADR 0063). */
+    cfw_test_tls_conn_seen = -1;
+    CFW_TEST_ASSERT_EQ(cfw_test_tls_write_all(
+                           &ts.server, client,
+                           "GET /probe HTTP/1.1\r\n"
+                           "Host: t\r\n\r\n"),
+                       0);
+    memset(response, 0, sizeof(response));
+    n = cfw_test_tls_read_until(&ts.server, client, response,
+                                sizeof(response), "probe-ok");
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    CFW_TEST_ASSERT_EQ(cfw_test_tls_conn_seen, 1);
     rc = 0;
 
     if (client != NULL) {
@@ -4034,6 +4115,8 @@ const cfw_test_case cfw_test_server_cases[] = {
     {"server_file_stream_response", test_server_file_stream_response},
     {"server_stream_end_on_close", test_server_stream_end_on_close},
     {"server_request_response", test_server_request_response},
+    {"server_tls_conn_null_cleartext",
+     test_server_tls_conn_null_cleartext},
     {"server_large_response_head", test_server_large_response_head},
     {"server_post_body", test_server_post_body},
     {"server_remote_addr", test_server_remote_addr},
