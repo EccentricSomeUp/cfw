@@ -38,6 +38,9 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 - `debug-tls` CMake preset exercising the TLS module; TLS unit tests
   generate their CA/server/client certificates into the build tree at
   configure time (no key material committed).
+- `cfw_example_tls_server` example demonstrating `tls_ctx` HTTPS
+  serving; compiles in all builds and reports a clear message when
+  TLS support is not enabled.
 
 ### Changed
 
