@@ -23,6 +23,9 @@
 _Static_assert(sizeof(struct sockaddr_storage) <=
                    CFW_ADDR_STORAGE_CAPACITY,
                "sockaddr_storage does not fit cfw_addr_t storage");
+_Static_assert(_Alignof(struct sockaddr_storage) <=
+                   _Alignof(cfw_max_align_t),
+               "sockaddr_storage alignment exceeds cfw_max_align_t");
 
 static cfw_status_t cfw_net_wsa_error(void)
 {
@@ -52,9 +55,14 @@ static int cfw_addr_valid(const cfw_addr_t *addr)
     return 1;
 }
 
-static const struct sockaddr *cfw_addr_sockaddr(const cfw_addr_t *addr)
+static const struct sockaddr_storage *cfw_addr_sockaddr(
+    const cfw_addr_t *addr)
 {
-    return (const struct sockaddr *)(const void *)addr->storage.opaque;
+    /* Read through the union's aligned member: opaque is unsigned char
+     * storage, so casting it directly trips -Wcast-align when callers
+     * convert to sockaddr_in/sockaddr_in6. */
+    return (const struct sockaddr_storage *)(const void *)
+        &addr->storage.alignment;
 }
 
 static cfw_status_t cfw_addr_store(cfw_addr_t *addr,
@@ -176,7 +184,7 @@ cfw_status_t cfw_addr_resolve(cfw_addr_t *addr, const char *host,
 cfw_status_t cfw_addr_to_str(const cfw_addr_t *addr, char *buffer,
                              size_t capacity)
 {
-    const struct sockaddr *sa;
+    const struct sockaddr_storage *ss;
     PCSTR result;
     int family;
     cfw_status_t status;
@@ -188,17 +196,17 @@ cfw_status_t cfw_addr_to_str(const cfw_addr_t *addr, char *buffer,
     if (!cfw_addr_valid(addr) || buffer == NULL || capacity == 0) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
-    sa = cfw_addr_sockaddr(addr);
-    family = sa->sa_family;
+    ss = cfw_addr_sockaddr(addr);
+    family = ss->ss_family;
 
     if (family == AF_INET) {
         const struct sockaddr_in *in4 =
-            (const struct sockaddr_in *)sa;
+            (const struct sockaddr_in *)ss;
         result = inet_ntop(AF_INET, &in4->sin_addr, buffer,
                            (size_t)capacity);
     } else if (family == AF_INET6) {
         const struct sockaddr_in6 *in6 =
-            (const struct sockaddr_in6 *)sa;
+            (const struct sockaddr_in6 *)ss;
         result = inet_ntop(AF_INET6, &in6->sin6_addr, buffer,
                            (size_t)capacity);
     } else {
@@ -213,22 +221,22 @@ cfw_status_t cfw_addr_to_str(const cfw_addr_t *addr, char *buffer,
 
 cfw_status_t cfw_addr_port(const cfw_addr_t *addr, uint16_t *port)
 {
-    const struct sockaddr *sa;
+    const struct sockaddr_storage *ss;
 
     if (!cfw_addr_valid(addr) || port == NULL) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
-    sa = cfw_addr_sockaddr(addr);
+    ss = cfw_addr_sockaddr(addr);
 
-    if (sa->sa_family == AF_INET) {
+    if (ss->ss_family == AF_INET) {
         const struct sockaddr_in *in4 =
-            (const struct sockaddr_in *)sa;
+            (const struct sockaddr_in *)ss;
         *port = ntohs(in4->sin_port);
         return CFW_OK;
     }
-    if (sa->sa_family == AF_INET6) {
+    if (ss->ss_family == AF_INET6) {
         const struct sockaddr_in6 *in6 =
-            (const struct sockaddr_in6 *)sa;
+            (const struct sockaddr_in6 *)ss;
         *port = ntohs(in6->sin6_port);
         return CFW_OK;
     }
@@ -238,13 +246,13 @@ cfw_status_t cfw_addr_port(const cfw_addr_t *addr, uint16_t *port)
 int cfw_addr_is_ipv4(const cfw_addr_t *addr)
 {
     return cfw_addr_valid(addr) &&
-           cfw_addr_sockaddr(addr)->sa_family == AF_INET;
+           cfw_addr_sockaddr(addr)->ss_family == AF_INET;
 }
 
 int cfw_addr_is_ipv6(const cfw_addr_t *addr)
 {
     return cfw_addr_valid(addr) &&
-           cfw_addr_sockaddr(addr)->sa_family == AF_INET6;
+           cfw_addr_sockaddr(addr)->ss_family == AF_INET6;
 }
 
 cfw_status_t cfw_addr_any(uint16_t port, int ipv6, cfw_addr_t *addr)
@@ -532,6 +540,9 @@ cfw_status_t cfw_net_so_error(cfw_fd_t *fd, int *error)
 _Static_assert(sizeof(struct sockaddr_storage) <=
                    CFW_ADDR_STORAGE_CAPACITY,
                "sockaddr_storage does not fit cfw_addr_t storage");
+_Static_assert(_Alignof(struct sockaddr_storage) <=
+                   _Alignof(cfw_max_align_t),
+               "sockaddr_storage alignment exceeds cfw_max_align_t");
 
 /* Suppresses SIGPIPE on platforms lacking MSG_NOSIGNAL (macOS, BSD);
  * send() then reports EPIPE instead of killing the process. */
@@ -576,9 +587,14 @@ static int cfw_addr_valid(const cfw_addr_t *addr)
     return 1;
 }
 
-static const struct sockaddr *cfw_addr_sockaddr(const cfw_addr_t *addr)
+static const struct sockaddr_storage *cfw_addr_sockaddr(
+    const cfw_addr_t *addr)
 {
-    return (const struct sockaddr *)(const void *)addr->storage.opaque;
+    /* Read through the union's aligned member: opaque is unsigned char
+     * storage, so casting it directly trips -Wcast-align when callers
+     * convert to sockaddr_in/sockaddr_in6. */
+    return (const struct sockaddr_storage *)(const void *)
+        &addr->storage.alignment;
 }
 
 /* Copies a platform sockaddr into the public address value. */
@@ -704,24 +720,24 @@ cfw_status_t cfw_addr_resolve(cfw_addr_t *addr, const char *host,
 cfw_status_t cfw_addr_to_str(const cfw_addr_t *addr, char *buffer,
                              size_t capacity)
 {
-    const struct sockaddr *sa;
+    const struct sockaddr_storage *ss;
     const char *result;
     int family;
 
     if (!cfw_addr_valid(addr) || buffer == NULL || capacity == 0) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
-    sa = cfw_addr_sockaddr(addr);
-    family = sa->sa_family;
+    ss = cfw_addr_sockaddr(addr);
+    family = ss->ss_family;
 
     if (family == AF_INET) {
         const struct sockaddr_in *in4 =
-            (const struct sockaddr_in *)sa;
+            (const struct sockaddr_in *)ss;
         result = inet_ntop(AF_INET, &in4->sin_addr, buffer,
                            (socklen_t)capacity);
     } else if (family == AF_INET6) {
         const struct sockaddr_in6 *in6 =
-            (const struct sockaddr_in6 *)sa;
+            (const struct sockaddr_in6 *)ss;
         result = inet_ntop(AF_INET6, &in6->sin6_addr, buffer,
                            (socklen_t)capacity);
     } else {
@@ -736,22 +752,22 @@ cfw_status_t cfw_addr_to_str(const cfw_addr_t *addr, char *buffer,
 
 cfw_status_t cfw_addr_port(const cfw_addr_t *addr, uint16_t *port)
 {
-    const struct sockaddr *sa;
+    const struct sockaddr_storage *ss;
 
     if (!cfw_addr_valid(addr) || port == NULL) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
-    sa = cfw_addr_sockaddr(addr);
+    ss = cfw_addr_sockaddr(addr);
 
-    if (sa->sa_family == AF_INET) {
+    if (ss->ss_family == AF_INET) {
         const struct sockaddr_in *in4 =
-            (const struct sockaddr_in *)sa;
+            (const struct sockaddr_in *)ss;
         *port = ntohs(in4->sin_port);
         return CFW_OK;
     }
-    if (sa->sa_family == AF_INET6) {
+    if (ss->ss_family == AF_INET6) {
         const struct sockaddr_in6 *in6 =
-            (const struct sockaddr_in6 *)sa;
+            (const struct sockaddr_in6 *)ss;
         *port = ntohs(in6->sin6_port);
         return CFW_OK;
     }
@@ -761,13 +777,13 @@ cfw_status_t cfw_addr_port(const cfw_addr_t *addr, uint16_t *port)
 int cfw_addr_is_ipv4(const cfw_addr_t *addr)
 {
     return cfw_addr_valid(addr) &&
-           cfw_addr_sockaddr(addr)->sa_family == AF_INET;
+           cfw_addr_sockaddr(addr)->ss_family == AF_INET;
 }
 
 int cfw_addr_is_ipv6(const cfw_addr_t *addr)
 {
     return cfw_addr_valid(addr) &&
-           cfw_addr_sockaddr(addr)->sa_family == AF_INET6;
+           cfw_addr_sockaddr(addr)->ss_family == AF_INET6;
 }
 
 cfw_status_t cfw_addr_any(uint16_t port, int ipv6, cfw_addr_t *addr)
