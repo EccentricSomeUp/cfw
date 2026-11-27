@@ -273,6 +273,25 @@ static int test_ws_client_echo(void)
     CFW_TEST_ASSERT_TRUE(ws != NULL);
     CFW_TEST_ASSERT_TRUE(!cfw_ws_client_is_closed(ws));
 
+    /* Malformed close payloads are rejected before touching the
+     * wire: odd length, reserved status, non-UTF-8 reason. */
+    {
+        uint8_t bad_status[] = {0x03, 0xe8}; /* 1000 is fine; use 999 */
+        uint8_t bad_len[] = {0x00};
+        uint8_t bad_reason[] = {0x03, 0xe8, 0xff};
+        bad_status[0] = 0x03;
+        bad_status[1] = 0xe7; /* 999: not a registered code */
+        CFW_TEST_ASSERT_EQ(cfw_ws_client_send(ws, CFW_WS_OPCODE_CLOSE,
+                                              bad_len, 1),
+                           CFW_ERROR_INVALID_ARGUMENT);
+        CFW_TEST_ASSERT_EQ(cfw_ws_client_send(ws, CFW_WS_OPCODE_CLOSE,
+                                              bad_status, 2),
+                           CFW_ERROR_INVALID_ARGUMENT);
+        CFW_TEST_ASSERT_EQ(cfw_ws_client_send(ws, CFW_WS_OPCODE_CLOSE,
+                                              bad_reason, 3),
+                           CFW_ERROR_INVALID_ARGUMENT);
+    }
+
     prev = cfw_wsc_got_count;
     CFW_TEST_ASSERT_EQ(cfw_ws_client_send_text(
                            ws, "hello-ws-client",

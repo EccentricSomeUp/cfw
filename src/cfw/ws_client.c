@@ -1360,6 +1360,22 @@ cfw_status_t cfw_ws_client_send(cfw_ws_client_t *ws,
         if (size > CFW_WSC_MAX_CTRL) {
             return CFW_ERROR_INVALID_ARGUMENT;
         }
+        /* The payload is a raw close body: empty, or a 2-byte status
+         * (cfw_ws_close_status_ok) plus an optional UTF-8 reason.
+         * Validate it here so the generic path cannot emit a close
+         * frame a peer must protocol-fail. */
+        if (size == 1) {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+        if (size >= 2) {
+            const uint8_t *p = (const uint8_t *)data;
+            uint16_t close_status = (uint16_t)((p[0] << 8) | p[1]);
+            if (!cfw_ws_close_status_ok(close_status) ||
+                (size > 2 &&
+                 !cfw_ws_utf8_valid(p + 2, size - 2))) {
+                return CFW_ERROR_INVALID_ARGUMENT;
+            }
+        }
         status = cfw_wsc_send_frame(ws, 1, opcode, data, size);
         if (status == CFW_OK) {
             ws->close_sent = 1;

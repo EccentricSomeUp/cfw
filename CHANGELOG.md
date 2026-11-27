@@ -19,6 +19,9 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 - `cfw_ws_client_send_close` now arms the per-call I/O deadline like
   every other send entry point; previously it inherited a stale or
   infinite pump deadline.
+- `cfw_ws_client_send` with `CFW_WS_OPCODE_CLOSE` now validates the
+  raw close payload (status code and UTF-8 reason) before writing,
+  matching `cfw_ws_client_send_close` semantics.
 
 ## [0.11.0] - 2026-11-27
 
