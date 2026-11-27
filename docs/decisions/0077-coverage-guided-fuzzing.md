@@ -36,15 +36,18 @@ option `CFW_ENABLE_FUZZING` (default OFF):
   validator, SHA-1 accept-key primitive, close-status allowlist —
   links `ws_proto.c` directly like the pollset compile fixtures), plus
   `fuzz_crypto` (SHA-256/HMAC streaming, base64/base64url/hex codecs,
-  signed-token decode, Cookie header parse), and `fuzz_http1_conn`,
+  signed-token decode, Cookie header parse), `fuzz_http1_conn`,
   which drives `cfw_http1_conn` over a real TCP loopback pair with
   incremental input feeding — covering the transport path the
-  in-memory `fuzz_http` pipeline cannot.
+  in-memory `fuzz_http` pipeline cannot — and `fuzz_ws_client`,
+  which runs `cfw_ws_client_connect` against a fake server on a
+  `cfw_thread` and streams the input as server-to-client WebSocket
+  frames, covering the RFC 6455 client-side frame parser.
   All operate on in-memory buffers through the public API — no
-  sockets, threads, or filesystem — except `fuzz_http1_conn` and `fuzz_ws_client`,
-  which use real loopback TCP (`cfw_test_socketpair` and a
-  listener+`cfw_thread` fake server respectively) — so they are fully deterministic
-  and platform-independent.
+  sockets, threads, or filesystem — except `fuzz_http1_conn` and
+  `fuzz_ws_client`, which use real loopback TCP
+  (`cfw_test_socketpair` and a listener+`cfw_thread` fake server
+  respectively). They are deterministic and platform-independent.
 - Toolchain split: Clang builds link `-fsanitize=fuzzer` (libFuzzer
   provides `main`); GCC/MSVC/Windows builds compile `fuzz_driver.c`,
   a standalone `main` that replays input files/stdin through the same
