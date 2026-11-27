@@ -38,6 +38,12 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 - `debug-tls` CMake preset exercising the TLS module; TLS unit tests
   generate their CA/server/client certificates into the build tree at
   configure time (no key material committed).
+- Peer certificate access (ADR 0057 follow-up):
+  `cfw_tls_conn_peer_cert_der` returns the DER encoding of the
+  certificate the peer presented — the identity needed for
+  mutual-TLS authorization — with a size-then-fetch contract
+  (`CFW_ERROR_OVERFLOW` reports the required buffer size) and an
+  empty result when no certificate was sent. TLS builds only.
 - TLS ALPN negotiation (ADR 0060): `cfw_tls_ctx_options_t.alpn_protos`
   configures a protocol list — servers select by server preference
   with NOACK fallback when nothing matches, clients send their list

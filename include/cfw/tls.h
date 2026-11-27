@@ -174,6 +174,22 @@ CFW_API size_t cfw_tls_pending(const cfw_tls_conn_t *conn);
 CFW_API cfw_status_t cfw_tls_conn_alpn(const cfw_tls_conn_t *conn,
                                        cfw_strview_t *proto);
 
+/* Writes the DER encoding of the peer's certificate (RFC 5280) into
+ * `out` — the identity a verified client or server presented. Useful
+ * for mutual-TLS authorization decisions above the transport layer.
+ *
+ * `written` always receives the DER length: on CFW_OK it is the
+ * number of bytes written; on CFW_ERROR_OVERFLOW it is the required
+ * buffer size so callers can size-then-fetch. When the peer sent no
+ * certificate (e.g. server side without verify_peer), returns CFW_OK
+ * with *written == 0. The bytes are owned by the caller; parse or
+ * hash them as needed — the framework does not interpret them.
+ * Returns CFW_ERROR_INVALID_ARGUMENT for bad arguments,
+ * CFW_ERROR_UNAVAILABLE without TLS support. */
+CFW_API cfw_status_t cfw_tls_conn_peer_cert_der(
+    const cfw_tls_conn_t *conn, unsigned char *out, size_t cap,
+    size_t *written);
+
 #ifdef __cplusplus
 }
 #endif

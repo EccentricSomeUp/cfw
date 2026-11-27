@@ -481,6 +481,43 @@ cfw_status_t cfw_tls_conn_alpn(const cfw_tls_conn_t *conn,
     return CFW_OK;
 }
 
+cfw_status_t cfw_tls_conn_peer_cert_der(const cfw_tls_conn_t *conn,
+                                        unsigned char *out, size_t cap,
+                                        size_t *written)
+{
+    X509 *cert;
+    int len;
+    unsigned char *p;
+
+    if (conn == NULL || conn->ssl == NULL || written == NULL ||
+        (cap != 0 && out == NULL)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    *written = 0;
+    cert = SSL_get1_peer_certificate(conn->ssl);
+    if (cert == NULL) {
+        return CFW_OK;
+    }
+    len = i2d_X509(cert, NULL);
+    if (len <= 0) {
+        X509_free(cert);
+        return CFW_ERROR_IO;
+    }
+    if ((size_t)len > cap) {
+        *written = (size_t)len;
+        X509_free(cert);
+        return CFW_ERROR_OVERFLOW;
+    }
+    p = out;
+    if (i2d_X509(cert, &p) != len) {
+        X509_free(cert);
+        return CFW_ERROR_IO;
+    }
+    X509_free(cert);
+    *written = (size_t)len;
+    return CFW_OK;
+}
+
 #else /* !CFW_HAVE_TLS — stubs (ADR 0057) */
 
 cfw_status_t cfw_tls_ctx_create(const cfw_tls_ctx_options_t *options,
@@ -587,6 +624,19 @@ cfw_status_t cfw_tls_conn_alpn(const cfw_tls_conn_t *conn,
     if (proto != NULL) {
         proto->data = NULL;
         proto->size = 0;
+    }
+    return CFW_ERROR_UNAVAILABLE;
+}
+
+cfw_status_t cfw_tls_conn_peer_cert_der(const cfw_tls_conn_t *conn,
+                                        unsigned char *out, size_t cap,
+                                        size_t *written)
+{
+    (void)conn;
+    (void)out;
+    (void)cap;
+    if (written != NULL) {
+        *written = 0;
     }
     return CFW_ERROR_UNAVAILABLE;
 }

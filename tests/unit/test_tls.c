@@ -60,6 +60,9 @@ static int tls_ctx_server(cfw_tls_ctx_t **ctx)
     return make_ctx(&o, "server.crt", "server.key", NULL, 0, ctx);
 }
 
+static int tls_ctx_client_alpn(const char * const *protos,
+                               cfw_tls_ctx_t **ctx);
+
 /* Drives both handshakes alternately until both complete, one side
  * fails, or the iteration bound is hit. Returns 0 on success. */
 static int tls_drive(cfw_tls_conn_t *a, cfw_tls_conn_t *b)
@@ -502,6 +505,62 @@ static int test_tls_client_cert_accepted(void)
     }
     CFW_TEST_ASSERT(tls_pair(sctx, cctx, &server, &client) == 0);
     CFW_TEST_ASSERT(tls_drive(server, client) == 0);
+
+    /* The server sees the client's certificate DER; the client sees
+     * the server's. Both must be well-formed X.509 DER (SEQUENCE
+     * tag 0x30) and sizeable (>200 bytes for these test certs). */
+    {
+        unsigned char der[4096];
+        size_t len = 0;
+        size_t need = 0;
+
+        CFW_TEST_ASSERT(cfw_tls_conn_peer_cert_der(server, der,
+                                                   sizeof(der),
+                                                   &len) == CFW_OK);
+        CFW_TEST_ASSERT(len > 200u && len <= sizeof(der));
+        CFW_TEST_ASSERT(der[0] == 0x30u);
+
+        /* Sizing query: too-small buffer reports the required size. */
+        CFW_TEST_ASSERT(cfw_tls_conn_peer_cert_der(server, der, 1,
+                                                   &need) ==
+                        CFW_ERROR_OVERFLOW);
+        CFW_TEST_ASSERT(need == len);
+
+        CFW_TEST_ASSERT(cfw_tls_conn_peer_cert_der(client, der,
+                                                   sizeof(der),
+                                                   &len) == CFW_OK);
+        CFW_TEST_ASSERT(len > 200u && len <= sizeof(der));
+        CFW_TEST_ASSERT(der[0] == 0x30u);
+    }
+    rc = 0;
+    tls_teardown(server, client);
+    cfw_tls_ctx_destroy(sctx);
+    cfw_tls_ctx_destroy(cctx);
+    return rc;
+}
+
+/* Without a peer certificate the accessor reports an empty result
+ * rather than an error. */
+static int test_tls_peer_cert_absent(void)
+{
+    cfw_tls_ctx_t *sctx = NULL;
+    cfw_tls_ctx_t *cctx = NULL;
+    cfw_tls_conn_t *server = NULL;
+    cfw_tls_conn_t *client = NULL;
+    unsigned char der[16];
+    size_t len = 1;
+    int rc = 1;
+
+    CFW_TEST_ASSERT(tls_ctx_server(&sctx) == 0);
+    CFW_TEST_ASSERT(tls_ctx_client_alpn(NULL, &cctx) == 0);
+    CFW_TEST_ASSERT(tls_pair(sctx, cctx, &server, &client) == 0);
+    CFW_TEST_ASSERT(tls_drive(server, client) == 0);
+
+    /* Server did not request a client cert: no peer certificate. */
+    CFW_TEST_ASSERT(cfw_tls_conn_peer_cert_der(server, der,
+                                               sizeof(der),
+                                               &len) == CFW_OK);
+    CFW_TEST_ASSERT(len == 0u);
     rc = 0;
     tls_teardown(server, client);
     cfw_tls_ctx_destroy(sctx);
@@ -761,6 +820,7 @@ const cfw_test_case cfw_test_tls_cases[] = {
     {"tls_server_requires_client_cert",
      test_tls_server_requires_client_cert},
     {"tls_client_cert_accepted", test_tls_client_cert_accepted},
+    {"tls_peer_cert_absent", test_tls_peer_cert_absent},
     {"tls_shutdown_and_eof", test_tls_shutdown_and_eof},
     {"tls_alpn_negotiated", test_tls_alpn_negotiated},
     {"tls_alpn_no_match", test_tls_alpn_no_match},
