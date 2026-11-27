@@ -120,3 +120,65 @@ audits/2026-11-27-tls-error-queue-isolation-audit.md).
   upgrade smuggling)
 - Documentation and migration completeness — met (README quickstart and
   minimal-server example; migration guide N/A pre-1.0)
+
+## Post-1.0 direction
+
+The phases below are candidates, not commitments. Each requires a planning
+decision record recording scope before implementation, consistent with
+ADR 0030 (TLS shipped as an optional module rather than core). The guiding
+rule is "secure core, optional breadth": the core stays small and
+dependency-free; anything carrying application policy, persistence, or a
+large API surface ships only as an opt-in module or remains an application
+concern.
+
+### Phase 8: Request pipeline and validation helpers
+
+- Request-ID/correlation hooks in the dispatch pipeline so applications
+  can propagate context across handlers and logs
+- Declarative, bounds-checked request validation helpers (parameters,
+  headers, body fields) as an opt-in module; validation stays
+  syntax-level — business rules remain application code
+- Standard error-response helpers so applications emit consistent,
+  non-leaking failures instead of ad-hoc error bodies
+- Security-headers middleware module (CSP, frame, nosniff, referrer)
+  with per-route opt-out and clear guidance that browser headers do not
+  apply indiscriminately to non-browser API responses
+
+### Phase 9: Application-facing security primitives
+
+- Session/token issuance helpers built on `cfw_signed` + `cfw_cookie`
+  (rotation, expiry, fixation-resistant issuance) as an opt-in module
+- CSRF helper pairing the signed-token primitive with documented cookie
+  policies for cookie-authenticated state changes
+- Rate-limiting primitives with documented per-instance vs. shared-store
+  semantics; the framework must not label per-instance limits as global
+
+### Phase 10: Observability and operations
+
+- Structured request/trace context hooks for correlating logs, metrics,
+  and audit events across a request lifecycle
+- Metrics interface with stable naming guidance and defaults that avoid
+  high-cardinality labels (no raw IDs, tokens, or arbitrary paths)
+- Liveness/readiness guidance in deployment docs: readiness may depend on
+  subsystems; liveness must not restart-loop on dependency outages
+- Audit-event schema extension building on the ADR 0055 completion hook
+
+### Phase 11: Supply chain and verification
+
+- SBOM generation and build-provenance documentation for releases
+- Published vulnerability-reporting channel and supported-version policy
+- Optional mapping of `docs/security/audit-catalog.md` entries to a named
+  external standard (for example a pinned OWASP ASVS version) with an
+  explicit selected requirement subset, so verification claims cite a
+  standard rather than an informal checklist
+
+### Explicitly out of framework scope
+
+The following are application-layer concerns. `cfw` provides primitives
+(signed tokens, crypto, sockets, parsers, static-file confinement) but
+will not grow built-in: authentication/authorization policy engines,
+multi-tenancy enforcement, database/ORM tooling, templating, GraphQL/RPC
+adapters, admin UIs, durable job queues, internationalization, and
+payment/CMS/search integrations. If a demonstrated need arises, an ADR
+may propose an opt-in module; it must remain dependency-free C11 or
+justify a newly approved dependency.

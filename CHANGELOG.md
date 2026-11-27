@@ -9,6 +9,19 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ## [Unreleased]
 
+### Added
+
+- `docs/roadmap.md` gains a post-1.0 direction section staging candidate
+  work (request-pipeline/validation helpers, application-facing security
+  primitives, observability, supply-chain verification) under a "secure
+  core, optional breadth" rule, plus an explicit list of
+  application-layer concerns the framework will not absorb.
+- `docs/architecture.md` documents the framework/application
+  responsibility boundary.
+- `docs/security/process.md` requires audit records touching
+  standard-covered areas to name the standard version and selected
+  requirement subset.
+
 ### Changed
 
 - Release workflow now publishes a single GitHub release after all preset

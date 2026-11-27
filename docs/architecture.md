@@ -141,6 +141,20 @@ Extensibility occurs through typed callbacks and lifecycle hooks rather
 than macro injection or global mutable state. Middleware ordering, ownership,
 and cancellation behavior are specified in `cfw/dispatch.h` and ADR 0031.
 
+## Responsibility boundary
+
+`cfw` provides protocol, transport, routing, and safety primitives. It does
+not provide application policy: authentication and authorization decisions,
+tenant isolation, business validation, persistence, and presentation are
+the application's responsibility. Security-relevant helpers `cfw` does
+offer (signed tokens, cookie handling, static-file confinement, request
+limits, TLS transport) are opt-in or documented modules with explicit
+guarantees, and the documentation states where each guarantee ends.
+New capabilities are evaluated against the "secure core, optional
+breadth" rule: the core stays small; optional features ship as
+maintainable, replaceable modules rather than growing the default
+surface.
+
 ## Compatibility policy
 
 Until a stability decision record says otherwise:

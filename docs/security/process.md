@@ -40,7 +40,10 @@ The following always require security review:
   accepted with rationale, or deferred.
 
 Audit records should include scope, method, findings, severity, disposition,
-and verification evidence.
+and verification evidence. Where a change touches an area covered by an
+external standard (for example a pinned OWASP ASVS version), the audit
+record should name the standard version and the selected requirement
+subset rather than citing an informal checklist.
 
 ## Severity guidance
 
