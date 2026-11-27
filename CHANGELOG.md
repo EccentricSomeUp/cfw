@@ -42,6 +42,12 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   serving; compiles in all builds and reports a clear message when
   TLS support is not enabled.
 
+### Fixed
+
+- `cfw_upgraded_recv` now honors the connection transport, so
+  protocol upgrades (WebSocket/`wss://` and the generic `upgrade`
+  hook) work over TLS listeners instead of receiving ciphertext.
+
 ### Changed
 
 - Reduced per-request event-loop overhead: connection interest changes

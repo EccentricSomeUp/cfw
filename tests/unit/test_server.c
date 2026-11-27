@@ -3718,6 +3718,128 @@ static int test_server_tls_request_response(void)
     return rc;
 }
 
+/* WebSocket-style upgrade over TLS (wss://): proves cfw_upgraded_recv
+ * routes through the connection transport instead of raw recv(), which
+ * would otherwise expose ciphertext to the upgraded protocol. */
+static int test_server_tls_upgrade_echo(void)
+{
+    cfw_test_server ts;
+    cfw_server_options_t options;
+    cfw_dispatch_options_t doptions;
+    cfw_tls_ctx_options_t sopt;
+    cfw_tls_ctx_options_t copt;
+    cfw_tls_ctx_t *sctx = NULL;
+    cfw_tls_ctx_t *cctx = NULL;
+    cfw_tls_conn_t *client = NULL;
+    cfw_fd_t raw;
+    char cert[512];
+    char key[512];
+    char response[8192];
+    ssize_t n;
+    uint16_t port;
+    int rc = 1;
+
+    cfw_test_upgrade_reset();
+    memset(&sopt, 0, sizeof(sopt));
+    sopt.role = CFW_TLS_SERVER;
+    snprintf(cert, sizeof(cert), "%s/server.crt", CFW_TEST_TLS_DIR);
+    snprintf(key, sizeof(key), "%s/server.key", CFW_TEST_TLS_DIR);
+    sopt.cert_file = cert;
+    sopt.key_file = key;
+    CFW_TEST_ASSERT_EQ(cfw_tls_ctx_create(&sopt, &sctx), CFW_OK);
+
+    memset(&copt, 0, sizeof(copt));
+    copt.role = CFW_TLS_CLIENT;
+    CFW_TEST_ASSERT_EQ(cfw_tls_ctx_create(&copt, &cctx), CFW_OK);
+
+    memset(&ts, 0, sizeof(ts));
+    ts.arena = cfw_arena_create(32768);
+    CFW_TEST_ASSERT_TRUE(ts.arena != NULL);
+    CFW_TEST_ASSERT_EQ(cfw_router_init(&ts.router, ts.arena), CFW_OK);
+    memset(&doptions, 0, sizeof(doptions));
+    doptions.router = &ts.router;
+    doptions.handler = cfw_test_ok_handler;
+    doptions.max_middleware = 4;
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_init(&ts.dispatch, ts.arena,
+                                         &doptions),
+                       CFW_OK);
+    {
+        cfw_strview_t pattern;
+        cfw_strview_from_cstr(&pattern, "/upgrade");
+        CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(
+                               &ts.dispatch, CFW_HTTP_METHOD_GET,
+                               &pattern, cfw_test_upgrade_handler, NULL),
+                           CFW_OK);
+    }
+    memset(&options, 0, sizeof(options));
+    options.host = "127.0.0.1";
+    options.port = 0;
+    options.backlog = 16;
+    options.dispatch = &ts.dispatch;
+    options.http.max_head_size = 8192;
+    options.http.max_body_size = 65536;
+    options.http.max_pending_size = 65536;
+    options.max_out_size = 65536;
+    options.max_connections = 8;
+    options.max_headers = 32;
+    options.max_params = 16;
+    options.upgrade = cfw_test_upgrade_echo;
+    options.upgrade_user = &cfw_test_upgrade_magic;
+    options.tls_ctx = sctx;
+    CFW_TEST_ASSERT_EQ(cfw_server_init(&ts.server, &options), CFW_OK);
+    port = cfw_server_port(&ts.server);
+    CFW_TEST_ASSERT_TRUE(port != 0);
+
+    cfw_fd_init(&raw);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&raw, port), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_tls_conn_create(cctx, cfw_fd_get(&raw),
+                                           &client),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_tls_handshake(&ts.server, client), 0);
+
+    CFW_TEST_ASSERT_EQ(cfw_test_tls_write_all(
+                           &ts.server, client,
+                           "GET /upgrade HTTP/1.1\r\n"
+                           "Host: t\r\n"
+                           "Upgrade: cfw-test\r\n"
+                           "Connection: upgrade\r\n\r\n"),
+                       0);
+    memset(response, 0, sizeof(response));
+    n = cfw_test_tls_read_until(&ts.server, client, response,
+                                sizeof(response), "101");
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    response[n] = '\0';
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                           "cfw-test"));
+    CFW_TEST_ASSERT_TRUE(cfw_test_upgrade_ready_seen);
+
+    /* Raw protocol bytes must be decrypted before reaching the
+     * upgraded echo handler. */
+    CFW_TEST_ASSERT_EQ(cfw_test_tls_write_all(&ts.server, client,
+                                              "ping-tls"),
+                       0);
+    memset(response, 0, sizeof(response));
+    n = cfw_test_tls_read_until(&ts.server, client, response,
+                                sizeof(response), "ping-tls");
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    CFW_TEST_ASSERT_EQ(cfw_test_upgrade_last_send, CFW_OK);
+    CFW_TEST_ASSERT_EQ(memcmp(cfw_test_upgrade_echoed, "ping-tls",
+                              sizeof("ping-tls") - 1),
+                       0);
+    rc = 0;
+
+    if (client != NULL) {
+        cfw_tls_conn_destroy(client);
+    }
+    cfw_fd_close(&raw);
+    cfw_tls_ctx_destroy(sctx);
+    cfw_tls_ctx_destroy(cctx);
+    if (ts.arena != NULL) {
+        cfw_test_server_teardown(&ts);
+    }
+    return rc;
+}
+
 #endif /* CFW_HAVE_TLS */
 
 const cfw_test_case cfw_test_server_cases[] = {
@@ -3768,6 +3890,7 @@ const cfw_test_case cfw_test_server_cases[] = {
     {"server_ipv6", test_server_ipv6},
 #if CFW_HAVE_TLS
     {"server_tls_request_response", test_server_tls_request_response},
+    {"server_tls_upgrade_echo", test_server_tls_upgrade_echo},
 #endif
     {NULL, NULL},
 };

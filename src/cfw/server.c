@@ -1815,6 +1815,36 @@ cfw_status_t cfw_upgraded_recv(cfw_upgraded_conn_t *conn, void *buffer,
         return CFW_OK;
     }
 
+    /* Route through the connection transport (ADR 0058) so upgraded
+     * protocols such as WebSocket also work over TLS: the transport
+     * returns the same outcomes as recv — bytes, EOF (done == 0),
+     * WOULDBLOCK, or a fatal error. */
+    if (conn->http.transport != NULL &&
+        conn->http.transport->read != NULL) {
+        size_t got = 0;
+        cfw_status_t tst = conn->http.transport->read(
+            conn->http.transport->user, (char *)buffer + done,
+            capacity - done, &got);
+        if (tst == CFW_OK) {
+            if (got > 0) {
+                *received = done + got;
+                return CFW_OK;
+            }
+            conn->http.input_closed = 1;
+            *received = done;
+            return CFW_OK;
+        }
+        if (tst == CFW_ERROR_WOULDBLOCK) {
+            if (done != 0) {
+                *received = done;
+                return CFW_OK;
+            }
+            return CFW_ERROR_WOULDBLOCK;
+        }
+        conn->dead = 1;
+        return CFW_ERROR_IO;
+    }
+
     n = recv((int)conn->http.fd.handle, (char *)buffer + done,
              capacity - done, 0);
     if (n > 0) {
