@@ -2521,7 +2521,7 @@ static cfw_status_t cfw_test_upgrade_echo(cfw_upgraded_conn_t *conn,
 static cfw_status_t cfw_test_upgrade_probe(cfw_upgraded_conn_t *conn,
                                            uint32_t events, void *user)
 {
-    static const char blob[600];
+    static const char blob[600] = "";
     (void)events;
     (void)user;
     cfw_test_upgrade_calls++;
@@ -3480,6 +3480,7 @@ static int test_server_reuse_port(void)
     memset(&doptions, 0, sizeof(doptions));
     doptions.router = &router;
     doptions.handler = cfw_test_ok_handler;
+    doptions.max_middleware = 4;
     CFW_TEST_ASSERT_EQ(cfw_dispatch_init(&dispatch, arena, &doptions),
                        CFW_OK);
     cfw_strview_from_cstr(&pattern, "/hello");

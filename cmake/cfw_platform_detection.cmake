@@ -191,8 +191,19 @@ int main(void)
                             CFW_CHECK_HAVE_MSG_DONTWAIT)
         check_symbol_exists(SO_NOSIGPIPE "sys/socket.h"
                             CFW_CHECK_HAVE_SO_NOSIGPIPE)
-        check_symbol_exists(SO_REUSEPORT "sys/socket.h"
-                            CFW_CHECK_HAVE_SO_REUSEPORT)
+        # SO_REUSEPORT is a macro on some platforms; compile a program
+        # that performs the exact setsockopt the server issues.
+        check_c_source_compiles([==[
+#include <sys/socket.h>
+#include <netinet/in.h>
+int main(void)
+{
+    int one = 1;
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    return setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &one,
+                      (socklen_t)sizeof(one));
+}
+]==] CFW_CHECK_HAVE_SO_REUSEPORT)
         check_symbol_exists(O_NOFOLLOW "fcntl.h"
                             CFW_CHECK_HAVE_O_NOFOLLOW)
         check_symbol_exists(O_CLOEXEC "fcntl.h"

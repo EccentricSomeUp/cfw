@@ -21,6 +21,17 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   builds on platforms without the feature (e.g. FreeBSD).
 - `test_ws_client.c` fake-server port handoff is now atomic, fixing a
   ThreadSanitizer data race reported by CI.
+- Windows/MSVC and MinGW hardening surfaced by the full release
+  matrix: `tcp_echo` example includes Winsock2 on Windows, `%zu` log
+  format replaced with a portable cast, `SSL_set1_host` OpenSSL 4.x
+  deprecation suppressed at the include site, CRT-unsafe stdio calls
+  in tests allowed via `_CRT_SECURE_NO_WARNINGS`, `symlink()` test
+  helper stubbed on Windows, constant-truncation and uninitialized
+  `static const` warnings fixed, and `SO_REUSEPORT` detection now
+  compiles a real `setsockopt` probe instead of a symbol lookup.
+- `test_server.c` `!CFW_HAVE_SO_REUSEPORT` variant was missing
+  `max_middleware`, failing dispatch init on platforms without the
+  feature (FreeBSD).
 
 ## [0.13.0] - 2026-11-27
 

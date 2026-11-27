@@ -32,7 +32,12 @@ static int cfw_test_mkdir(const char *path)
 static int cfw_test_symlink(const char *target, const char *linkpath)
 {
 #if CFW_PLATFORM_WINDOWS
-    return symlink(target, linkpath);
+    /* symlink() is unavailable in the MSVC CRT headers and creating
+     * links needs SeCreateSymbolicLinkPrivilege anyway; callers on
+     * Windows only use the best-effort (void) form. */
+    (void)target;
+    (void)linkpath;
+    return -1;
 #else
     return symlink(target, linkpath);
 #endif

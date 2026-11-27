@@ -1499,7 +1499,8 @@ static void cfw_server_accept(cfw_server_t *server)
         server->conn_count++;
         if (server->options.logger != NULL) {
             cfw_log(server->options.logger, CFW_LOG_DEBUG,
-                    "connection accepted (%zu active)", server->conn_count);
+                    "connection accepted (%llu active)",
+                    (unsigned long long)server->conn_count);
         }
         cfw_pollset_add(server->pollset, conn->handle, CFW_POLL_IN,
                         conn);

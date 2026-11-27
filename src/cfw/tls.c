@@ -6,6 +6,10 @@
 
 #if CFW_HAVE_TLS
 
+    /* OpenSSL 4.x marks still-required APIs deprecated (e.g.
+     * SSL_set1_host); keep its deprecation diagnostics out of our
+     * -Werror build. */
+    #define OPENSSL_SUPPRESS_DEPRECATED
     #include <openssl/err.h>
     #include <openssl/ssl.h>
     #include <openssl/tls1.h>

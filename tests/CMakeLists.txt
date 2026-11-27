@@ -1,5 +1,11 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
+# Shared POSIX test helpers use plain fopen/fwrite; the MSVC CRT's
+# "safe" variants would fork every call site for no test value.
+if(MSVC)
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+endif()
+
 # TLS test certificates (ADR 0057): generated into the build tree at
 # configure time so no private key material is ever committed. Requires
 # the openssl CLI that ships with OpenSSL 3.x installations.

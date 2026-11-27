@@ -961,7 +961,7 @@ static int cfw_test_ws_expect_close(cfw_test_ws_state *st,
     char nstr[5];
 
     /* Close frame: 0x88 0x02 <status hi> <status lo>. */
-    nstr[0] = (char)0x88;
+    nstr[0] = (char)(int8_t)0x88;
     nstr[1] = (char)0x02;
     nstr[2] = (char)(status >> 8);
     nstr[3] = (char)status;
@@ -1395,7 +1395,7 @@ static int test_ws_large_frame_across_recvs(void)
         frame[0] = 0x82; /* FIN + binary */
         frame[1] = (uint8_t)(0x80 | 126);
         frame[2] = (uint8_t)(sizeof(payload) >> 8);
-        frame[3] = (uint8_t)sizeof(payload);
+        frame[3] = (uint8_t)(sizeof(payload) & 0xffu);
         memcpy(frame + 4, mask, 4);
         flen = 8;
         CFW_TEST_ASSERT_EQ(cfw_test_ws_send(&client, frame, flen), 0);

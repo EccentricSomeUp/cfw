@@ -16,11 +16,16 @@
 
 #include <cfw/cfw.h>
 
-#include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
+
+#if defined(_WIN32)
+    #include <winsock2.h>
+#else
+    #include <netinet/in.h>
+    #include <sys/socket.h>
+#endif
 
 #define CFW_ECHO_MAX_CLIENTS 64
 #define CFW_ECHO_PENDING_CAP 8192
