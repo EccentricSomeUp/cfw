@@ -5,119 +5,121 @@
 #include <cfw/server.h>
 #include <cfw/strview.h>
 
-#if CFW_PLATFORM_WINDOWS
-
-cfw_status_t cfw_server_init(cfw_server_t *server,
-                             const cfw_server_options_t *options)
-{
-    (void)server;
-    (void)options;
-    return CFW_ERROR_UNAVAILABLE;
-}
-
-void cfw_server_free(cfw_server_t *server) { (void)server; }
-
-cfw_status_t cfw_server_run(cfw_server_t *server)
-{
-    (void)server;
-    return CFW_ERROR_UNAVAILABLE;
-}
-
-cfw_status_t cfw_server_step(cfw_server_t *server,
-                             const cfw_timepoint_t *wait_deadline)
-{
-    (void)server;
-    (void)wait_deadline;
-    return CFW_ERROR_UNAVAILABLE;
-}
-
-void cfw_server_stop(cfw_server_t *server) { (void)server; }
-int cfw_server_is_stopping(const cfw_server_t *server)
-{
-    (void)server;
-    return 0;
-}
-size_t cfw_server_connection_count(const cfw_server_t *server)
-{
-    (void)server;
-    return 0;
-}
-uint16_t cfw_server_port(const cfw_server_t *server)
-{
-    (void)server;
-    return 0;
-}
-uint64_t cfw_server_accepted_total(const cfw_server_t *server)
-{
-    (void)server;
-    return 0;
-}
-uint64_t cfw_server_requests_total(const cfw_server_t *server)
-{
-    (void)server;
-    return 0;
-}
-uint64_t cfw_server_errors_total(const cfw_server_t *server)
-{
-    (void)server;
-    return 0;
-}
-
-cfw_status_t cfw_upgraded_recv(cfw_upgraded_conn_t *conn, void *buffer,
-                               size_t capacity, size_t *received)
-{
-    (void)conn;
-    (void)buffer;
-    (void)capacity;
-    (void)received;
-    return CFW_ERROR_UNAVAILABLE;
-}
-
-cfw_status_t cfw_upgraded_send(cfw_upgraded_conn_t *conn, const void *data,
-                               size_t size)
-{
-    (void)conn;
-    (void)data;
-    (void)size;
-    return CFW_ERROR_UNAVAILABLE;
-}
-
-void cfw_upgraded_close(cfw_upgraded_conn_t *conn) { (void)conn; }
-
-size_t cfw_upgraded_out_free(cfw_upgraded_conn_t *conn)
-{
-    (void)conn;
-    return 0;
-}
-
-void *cfw_upgraded_user(cfw_upgraded_conn_t *conn)
-{
-    (void)conn;
-    return NULL;
-}
-
-void cfw_upgraded_set_user(cfw_upgraded_conn_t *conn, void *user)
-{
-    (void)conn;
-    (void)user;
-}
-
-#else /* POSIX */
 
 #include <cfw/net.h>
 #include <cfw/pollset.h>
 
-#include <errno.h>
-#include <fcntl.h>
+#if CFW_PLATFORM_WINDOWS
+    #include <winsock2.h>
+#else
+    #include <errno.h>
+    #include <fcntl.h>
+    #include <sys/socket.h>
+    #include <unistd.h>
+#endif
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
-#include <unistd.h>
 
 #define CFW_SERVER_MAX_EVENTS 64u
 #define CFW_SERVER_WAKE_TOKEN ((void *)(intptr_t)1)
+
+/* Raw socket I/O for paths needing recv/send flags (MSG_PEEK) or call
+ * shapes cfw_net_* does not expose. Byte count >= 0 on success, -1 on
+ * error; classify failures with cfw_server_sock_wouldblock. Handles
+ * are intptr_t so SOCKET values fit on Windows. */
+static intptr_t cfw_server_sock_recv(intptr_t handle, void *buffer,
+                                     size_t size, int flags)
+{
+#if CFW_PLATFORM_WINDOWS
+    if (size > (size_t)INT32_MAX) {
+        size = (size_t)INT32_MAX;
+    }
+    return recv((SOCKET)handle, (char *)buffer, (int)size, flags);
+#else
+    return recv((int)handle, buffer, size, flags);
+#endif
+}
+
+static intptr_t cfw_server_sock_send(intptr_t handle, const void *data,
+                                     size_t size, int flags)
+{
+#if CFW_PLATFORM_WINDOWS
+    if (size > (size_t)INT32_MAX) {
+        size = (size_t)INT32_MAX;
+    }
+    return send((SOCKET)handle, (const char *)data, (int)size, flags);
+#else
+    return send((int)handle, data, size, flags);
+#endif
+}
+
+/* Must be called immediately after a failed cfw_server_sock_* call,
+ * before any other Winsock/POSIX call can clobber the error state. */
+static int cfw_server_sock_wouldblock(void)
+{
+#if CFW_PLATFORM_WINDOWS
+    return WSAGetLastError() == WSAEWOULDBLOCK;
+#else
+    return errno == EAGAIN || errno == EWOULDBLOCK;
+#endif
+}
+
+#if CFW_PLATFORM_WINDOWS
+/* Windows has no socketpair()/AF_UNIX wake channel; emulate it with a
+ * loopback TCP pair. The client connect runs on a temporarily blocking
+ * socket (instant on loopback) so no pollset wait is needed during
+ * init; both ends end up nonblocking per the net.h contract. */
+static cfw_status_t cfw_server_wake_channel(cfw_fd_t *read_end,
+                                           cfw_fd_t *write_end)
+{
+    cfw_fd_t listen_fd;
+    cfw_addr_t addr;
+    cfw_status_t st;
+
+    cfw_fd_init(&listen_fd);
+    cfw_fd_init(read_end);
+    cfw_fd_init(write_end);
+
+    st = cfw_addr_from_str(&addr, "127.0.0.1", 0);
+    if (st == CFW_OK) {
+        st = cfw_net_socket(AF_INET, SOCK_STREAM, 0, &listen_fd);
+    }
+    if (st == CFW_OK) {
+        st = cfw_net_bind(&listen_fd, &addr);
+    }
+    if (st == CFW_OK) {
+        st = cfw_net_listen(&listen_fd, 1);
+    }
+    if (st == CFW_OK) {
+        st = cfw_net_local_addr(&listen_fd, &addr);
+    }
+    if (st == CFW_OK) {
+        st = cfw_net_socket(AF_INET, SOCK_STREAM, 0, write_end);
+    }
+    if (st == CFW_OK) {
+        st = cfw_net_set_nonblocking(write_end, 0);
+    }
+    if (st == CFW_OK) {
+        st = cfw_net_connect(write_end, &addr);
+    }
+    if (st == CFW_OK) {
+        st = cfw_net_accept(&listen_fd, NULL, read_end);
+    }
+    if (st == CFW_OK) {
+        st = cfw_net_set_nonblocking(write_end, 1);
+    }
+    cfw_fd_close(&listen_fd);
+    if (st != CFW_OK) {
+        cfw_fd_close(read_end);
+        cfw_fd_close(write_end);
+        cfw_fd_init(read_end);
+        cfw_fd_init(write_end);
+    }
+    return st;
+}
+#endif /* CFW_PLATFORM_WINDOWS */
 
 struct cfw_server_conn {
     cfw_http1_conn_t http;
@@ -1312,8 +1314,8 @@ static void cfw_server_service_conn(cfw_server_t *server,
 #if CFW_HAVE_MSG_DONTWAIT
             peek_flags |= MSG_DONTWAIT;
 #endif
-            ssize_t n = recv((int)conn->http.fd.handle, &b, 1,
-                             peek_flags);
+            intptr_t n = cfw_server_sock_recv(
+                conn->http.fd.handle, &b, 1, peek_flags);
             if (n == 1) {
                 if (b == 0x16u &&
                     cfw_server_conn_attach_tls(server, conn) != CFW_OK) {
@@ -1324,7 +1326,7 @@ static void cfw_server_service_conn(cfw_server_t *server,
             } else if (n == 0) {
                 conn->dead = 1;
                 return;
-            } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
+            } else if (n < 0 && !cfw_server_sock_wouldblock()) {
                 conn->dead = 1;
                 return;
             }
@@ -1578,8 +1580,8 @@ cfw_status_t cfw_server_step(cfw_server_t *server,
 #if CFW_HAVE_MSG_DONTWAIT
             drain_flags = MSG_DONTWAIT;
 #endif
-            while (recv((int)handle, drain, sizeof(drain),
-                        drain_flags) > 0) {
+            while (cfw_server_sock_recv(handle, drain, sizeof(drain),
+                                        drain_flags) > 0) {
             }
             continue;
         }
@@ -1641,7 +1643,9 @@ cfw_status_t cfw_server_init(cfw_server_t *server,
 {
     cfw_addr_t addr;
     cfw_status_t st;
+#if !CFW_PLATFORM_WINDOWS
     int sv[2];
+#endif
 
     if (server == NULL || options == NULL || options->dispatch == NULL ||
         options->max_connections == 0 || options->max_out_size == 0 ||
@@ -1672,9 +1676,19 @@ cfw_status_t cfw_server_init(cfw_server_t *server,
         return st;
     }
 
-    /* Wake channel for prompt stop. SOCK_NONBLOCK/SOCK_CLOEXEC are not
-     * portable (absent on macOS/BSD), so the pair is created blocking
-     * and configured with fcntl afterwards. */
+    /* Wake channel for prompt stop. */
+#if CFW_PLATFORM_WINDOWS
+    st = cfw_server_wake_channel(&server->wakeup[0],
+                                 &server->wakeup[1]);
+    if (st != CFW_OK) {
+        cfw_pollset_destroy(server->pollset);
+        server->pollset = NULL;
+        return st;
+    }
+#else
+    /* SOCK_NONBLOCK/SOCK_CLOEXEC are not portable (absent on
+     * macOS/BSD), so the pair is created blocking and configured with
+     * fcntl afterwards. */
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) {
         cfw_pollset_destroy(server->pollset);
         server->pollset = NULL;
@@ -1705,8 +1719,9 @@ cfw_status_t cfw_server_init(cfw_server_t *server,
     }
     server->wakeup[0].handle = sv[0];
     server->wakeup[1].handle = sv[1];
-    cfw_pollset_add(server->pollset, sv[0], CFW_POLL_IN,
-                    CFW_SERVER_WAKE_TOKEN);
+#endif
+    cfw_pollset_add(server->pollset, cfw_fd_get(&server->wakeup[0]),
+                    CFW_POLL_IN, CFW_SERVER_WAKE_TOKEN);
 
     /* Listener. */
     st = cfw_net_socket(options->ipv6 ? AF_INET6 : AF_INET, SOCK_STREAM, 0,
@@ -1771,7 +1786,8 @@ void cfw_server_stop(cfw_server_t *server)
     }
     cfw_server_update_listener(server);
     if (cfw_fd_valid(&server->wakeup[1])) {
-        (void)send((int)cfw_fd_get(&server->wakeup[1]), &byte, 1, 0);
+        (void)cfw_server_sock_send(cfw_fd_get(&server->wakeup[1]), &byte,
+                                   1, 0);
     }
 }
 
@@ -1845,7 +1861,7 @@ cfw_status_t cfw_upgraded_recv(cfw_upgraded_conn_t *conn, void *buffer,
                                size_t capacity, size_t *received)
 {
     size_t done = 0;
-    ssize_t n;
+    intptr_t n;
 
     if (conn == NULL || received == NULL ||
         (capacity != 0 && buffer == NULL) || !conn->upgraded ||
@@ -1906,8 +1922,8 @@ cfw_status_t cfw_upgraded_recv(cfw_upgraded_conn_t *conn, void *buffer,
         return CFW_ERROR_IO;
     }
 
-    n = recv((int)conn->http.fd.handle, (char *)buffer + done,
-             capacity - done, 0);
+    n = cfw_server_sock_recv(conn->http.fd.handle,
+                             (char *)buffer + done, capacity - done, 0);
     if (n > 0) {
         *received = done + (size_t)n;
         return CFW_OK;
@@ -1917,7 +1933,7 @@ cfw_status_t cfw_upgraded_recv(cfw_upgraded_conn_t *conn, void *buffer,
         *received = done;
         return CFW_OK;
     }
-    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+    if (cfw_server_sock_wouldblock()) {
         if (done != 0) {
             *received = done;
             return CFW_OK;
@@ -2008,4 +2024,3 @@ void cfw_upgraded_set_user(cfw_upgraded_conn_t *conn, void *user)
     }
 }
 
-#endif /* POSIX */

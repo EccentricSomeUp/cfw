@@ -17,9 +17,12 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   Winsock2, unblocking cleartext `cfw_http_client_request` and
   `cfw_ws_client_connect`.
 - `cfw_http1_conn_t` now performs socket I/O through `cfw_net_*`
-  (ADR 0073) and compiles on Windows; `cfw_server_t` and all TLS paths
-  remain `CFW_ERROR_UNAVAILABLE` stubs pending the server port and a
-  Windows TLS decision.
+  (ADR 0073) and compiles on Windows.
+- `cfw_server_t` now builds and runs on Windows for cleartext HTTP
+  (ADR 0074): a loopback TCP pair replaces the `AF_UNIX` wake channel,
+  and recv/send/errno call sites go through small platform wrappers.
+  All TLS paths remain `CFW_ERROR_UNAVAILABLE` stubs pending a Windows
+  TLS backend decision.
 
 ### Fixed
 
