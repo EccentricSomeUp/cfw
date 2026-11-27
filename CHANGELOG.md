@@ -38,6 +38,11 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 - `debug-tls` CMake preset exercising the TLS module; TLS unit tests
   generate their CA/server/client certificates into the build tree at
   configure time (no key material committed).
+- TLS ALPN negotiation (ADR 0060): `cfw_tls_ctx_options_t.alpn_protos`
+  configures a protocol list — servers select by server preference
+  with NOACK fallback when nothing matches, clients send their list
+  in the ClientHello, and `cfw_tls_conn_alpn` reports the negotiated
+  protocol. Available in `CFW_ENABLE_TLS` builds.
 - Streaming HMAC-SHA256: `cfw_hmac_sha256_init`/`update`/`final`
   allow incremental MAC computation over large or arriving-in-pieces
   data; `cfw_hmac_sha256` is now implemented on top of the streaming

@@ -6,6 +6,7 @@
 #include <cfw/cfw_config.h>
 #include <cfw/export.h>
 #include <cfw/status.h>
+#include <cfw/strview.h>
 
 #include <stddef.h>
 #include <stdint.h>
@@ -83,6 +84,16 @@ typedef struct cfw_tls_ctx_options {
      * keeps the safer "buffer must remain unchanged until accepted"
      * contract. */
     int allow_moving_write_buffer;
+    /* Optional NULL-terminated list of ALPN protocol identifiers
+     * (ADR 0060), e.g. {"http/1.1", NULL}. Each identifier must be
+     * 1-255 bytes. For CFW_TLS_SERVER the list is the server's
+     * preference order: the first configured protocol the client also
+     * offered is selected; if the client offers ALPN but nothing
+     * matches, the handshake continues without ALPN (no fatal
+     * alert). For CFW_TLS_CLIENT the list is sent verbatim in the
+     * ClientHello. The strings are only read during
+     * cfw_tls_ctx_create; NULL disables ALPN. */
+    const char * const *alpn_protos;
 } cfw_tls_ctx_options_t;
 
 typedef struct cfw_tls_ctx cfw_tls_ctx_t;
@@ -152,6 +163,16 @@ CFW_API int cfw_tls_conn_want_write(const cfw_tls_conn_t *conn);
  * Pollset integrations should keep the fd readable-armed while this
  * is nonzero. */
 CFW_API size_t cfw_tls_pending(const cfw_tls_conn_t *conn);
+
+/* Returns the ALPN protocol negotiated during the handshake (ADR
+ * 0060). On CFW_OK, `proto` is a view into TLS-session memory valid
+ * until cfw_tls_conn_destroy (do not free it); an empty view
+ * (data == NULL, size == 0) means no protocol was negotiated —
+ * either ALPN was not configured or the peer declined. Returns
+ * CFW_ERROR_INVALID_ARGUMENT for NULL arguments,
+ * CFW_ERROR_UNAVAILABLE without TLS support. */
+CFW_API cfw_status_t cfw_tls_conn_alpn(const cfw_tls_conn_t *conn,
+                                       cfw_strview_t *proto);
 
 #ifdef __cplusplus
 }

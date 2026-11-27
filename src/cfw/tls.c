@@ -15,6 +15,10 @@ struct cfw_tls_ctx {
     SSL_CTX *ssl_ctx;
     cfw_tls_role_t role;
     int allow_moving_write_buffer;
+    /* Wire-encoded ALPN protocol list ([len][bytes]...); NULL when
+     * ALPN is disabled. Owned by the ctx. */
+    unsigned char *alpn_wire;
+    size_t alpn_wire_len;
 };
 
 struct cfw_tls_conn {
@@ -63,6 +67,93 @@ static cfw_status_t cfw_tls_map_error(cfw_tls_conn_t *conn, int ret)
     }
 }
 
+/* Encodes a NULL-terminated ALPN identifier list into the wire
+ * format ([len][bytes] per entry, total <= 65535). Returns NULL with
+ * *out_len 0 when the list is NULL/empty; CFW_ERROR_INVALID_ARGUMENT
+ * for malformed entries; CFW_ERROR_OVERFLOW when the wire form does
+ * not fit. */
+static cfw_status_t cfw_tls_encode_alpn(const char * const *protos,
+                                        unsigned char **out,
+                                        size_t *out_len)
+{
+    size_t count = 0;
+    size_t total = 0;
+    size_t i;
+    unsigned char *wire;
+    unsigned char *w;
+
+    *out = NULL;
+    *out_len = 0;
+    if (protos == NULL) {
+        return CFW_OK;
+    }
+    for (i = 0; protos[i] != NULL; i++) {
+        size_t len = strlen(protos[i]);
+        if (len == 0u || len > 255u) {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+        count++;
+        total += 1u + len;
+        if (total > 65535u) {
+            return CFW_ERROR_OVERFLOW;
+        }
+    }
+    if (count == 0u) {
+        return CFW_OK;
+    }
+    wire = (unsigned char *)malloc(total);
+    if (wire == NULL) {
+        return CFW_ERROR_NOMEM;
+    }
+    w = wire;
+    for (i = 0; protos[i] != NULL; i++) {
+        size_t len = strlen(protos[i]);
+        *w++ = (unsigned char)len;
+        memcpy(w, protos[i], len);
+        w += len;
+    }
+    *out = wire;
+    *out_len = total;
+    return CFW_OK;
+}
+
+/* Server-side ALPN selection callback (ADR 0060): server preference
+ * order — the first configured protocol the client also offered
+ * wins. Returns SSL_TLSEXT_ERR_NOACK when nothing matches so the
+ * handshake continues without ALPN rather than failing. */
+static int cfw_tls_alpn_select(SSL *ssl, const unsigned char **out,
+                               unsigned char *outlen,
+                               const unsigned char *in,
+                               unsigned int inlen, void *arg)
+{
+    cfw_tls_ctx_t *ctx = (cfw_tls_ctx_t *)arg;
+    const unsigned char *sp = ctx->alpn_wire;
+    const unsigned char *send = ctx->alpn_wire + ctx->alpn_wire_len;
+
+    (void)ssl;
+    while (sp < send) {
+        unsigned int slen = *sp++;
+        const unsigned char *sproto = sp;
+        const unsigned char *cp = in;
+        const unsigned char *cin_end = in + inlen;
+
+        sp += slen;
+        while (cp < cin_end) {
+            unsigned int clen = *cp++;
+            if ((size_t)(cin_end - cp) < clen) {
+                break; /* malformed client list: stop scanning */
+            }
+            if (clen == slen && memcmp(cp, sproto, slen) == 0) {
+                *out = sproto;
+                *outlen = (unsigned char)slen;
+                return SSL_TLSEXT_ERR_OK;
+            }
+            cp += clen;
+        }
+    }
+    return SSL_TLSEXT_ERR_NOACK;
+}
+
 cfw_status_t cfw_tls_ctx_create(const cfw_tls_ctx_options_t *options,
                                 cfw_tls_ctx_t **ctx)
 {
@@ -70,6 +161,7 @@ cfw_status_t cfw_tls_ctx_create(const cfw_tls_ctx_options_t *options,
     SSL_CTX *ssl_ctx;
     const SSL_METHOD *method;
     int have_cert;
+    cfw_status_t st;
 
     if (options == NULL || ctx == NULL ||
         (options->role != CFW_TLS_SERVER &&
@@ -94,6 +186,27 @@ cfw_status_t cfw_tls_ctx_create(const cfw_tls_ctx_options_t *options,
         return CFW_ERROR_NOMEM;
     }
 
+    /* Allocate the wrapper early: the ALPN select callback needs it
+     * as its argument, so it must exist before any handshake. */
+    created = (cfw_tls_ctx_t *)calloc(1, sizeof(*created));
+    if (created == NULL) {
+        SSL_CTX_free(ssl_ctx);
+        return CFW_ERROR_NOMEM;
+    }
+    created->ssl_ctx = ssl_ctx;
+    created->role = options->role;
+    created->allow_moving_write_buffer =
+        options->allow_moving_write_buffer != 0;
+
+    st = cfw_tls_encode_alpn(options->alpn_protos, &created->alpn_wire,
+                             &created->alpn_wire_len);
+    if (st != CFW_OK) {
+        goto fail;
+    }
+    if (options->role == CFW_TLS_SERVER && created->alpn_wire != NULL) {
+        SSL_CTX_set_alpn_select_cb(ssl_ctx, cfw_tls_alpn_select, created);
+    }
+
     /* TLS 1.2 floor: the framework's security posture does not accept
      * protocol versions with known plaintext-recovery weaknesses. */
     SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_2_VERSION);
@@ -105,16 +218,16 @@ cfw_status_t cfw_tls_ctx_create(const cfw_tls_ctx_options_t *options,
             SSL_CTX_use_PrivateKey_file(ssl_ctx, options->key_file,
                                         SSL_FILETYPE_PEM) != 1 ||
             SSL_CTX_check_private_key(ssl_ctx) != 1) {
-            SSL_CTX_free(ssl_ctx);
-            return CFW_ERROR_IO;
+            st = CFW_ERROR_IO;
+            goto fail;
         }
     }
 
     if (options->ca_file != NULL &&
         SSL_CTX_load_verify_locations(ssl_ctx, options->ca_file,
                                       NULL) != 1) {
-        SSL_CTX_free(ssl_ctx);
-        return CFW_ERROR_IO;
+        st = CFW_ERROR_IO;
+        goto fail;
     }
 
     if (options->role == CFW_TLS_SERVER) {
@@ -134,17 +247,14 @@ cfw_status_t cfw_tls_ctx_create(const cfw_tls_ctx_options_t *options,
         SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, NULL);
     }
 
-    created = (cfw_tls_ctx_t *)calloc(1, sizeof(*created));
-    if (created == NULL) {
-        SSL_CTX_free(ssl_ctx);
-        return CFW_ERROR_NOMEM;
-    }
-    created->ssl_ctx = ssl_ctx;
-    created->role = options->role;
-    created->allow_moving_write_buffer =
-        options->allow_moving_write_buffer != 0;
     *ctx = created;
     return CFW_OK;
+
+fail:
+    free(created->alpn_wire);
+    SSL_CTX_free(ssl_ctx);
+    free(created);
+    return st;
 }
 
 void cfw_tls_ctx_destroy(cfw_tls_ctx_t *ctx)
@@ -155,6 +265,7 @@ void cfw_tls_ctx_destroy(cfw_tls_ctx_t *ctx)
     if (ctx->ssl_ctx != NULL) {
         SSL_CTX_free(ctx->ssl_ctx);
     }
+    free(ctx->alpn_wire);
     free(ctx);
 }
 
@@ -197,6 +308,10 @@ cfw_status_t cfw_tls_conn_create(cfw_tls_ctx_t *ctx, intptr_t fd,
         SSL_set_accept_state(ssl);
     } else {
         SSL_set_connect_state(ssl);
+        if (ctx->alpn_wire != NULL) {
+            SSL_set_alpn_protos(ssl, ctx->alpn_wire,
+                                (unsigned int)ctx->alpn_wire_len);
+        }
     }
 
     *conn = created;
@@ -346,6 +461,26 @@ size_t cfw_tls_pending(const cfw_tls_conn_t *conn)
     return (size_t)SSL_pending(conn->ssl);
 }
 
+cfw_status_t cfw_tls_conn_alpn(const cfw_tls_conn_t *conn,
+                               cfw_strview_t *proto)
+{
+    const unsigned char *data = NULL;
+    unsigned int len = 0;
+
+    if (conn == NULL || conn->ssl == NULL || proto == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    proto->data = NULL;
+    proto->size = 0;
+    SSL_get0_alpn_selected(conn->ssl, &data, &len);
+    if (data == NULL || len == 0u) {
+        return CFW_OK;
+    }
+    proto->data = (const char *)data;
+    proto->size = (size_t)len;
+    return CFW_OK;
+}
+
 #else /* !CFW_HAVE_TLS — stubs (ADR 0057) */
 
 cfw_status_t cfw_tls_ctx_create(const cfw_tls_ctx_options_t *options,
@@ -443,6 +578,17 @@ size_t cfw_tls_pending(const cfw_tls_conn_t *conn)
 {
     (void)conn;
     return 0;
+}
+
+cfw_status_t cfw_tls_conn_alpn(const cfw_tls_conn_t *conn,
+                               cfw_strview_t *proto)
+{
+    (void)conn;
+    if (proto != NULL) {
+        proto->data = NULL;
+        proto->size = 0;
+    }
+    return CFW_ERROR_UNAVAILABLE;
 }
 
 #endif /* CFW_HAVE_TLS */

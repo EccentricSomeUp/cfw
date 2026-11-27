@@ -583,6 +583,172 @@ done:
     return rc;
 }
 
+/* ctx helpers carrying an ALPN list; same file-path handling as
+ * make_ctx. */
+static int tls_ctx_server_alpn(const char * const *protos,
+                               cfw_tls_ctx_t **ctx)
+{
+    cfw_tls_ctx_options_t o;
+    cfw_status_t st;
+    char cert[512];
+    char key[512];
+
+    memset(&o, 0, sizeof(o));
+    o.role = CFW_TLS_SERVER;
+    tls_path(cert, sizeof(cert), "server.crt");
+    tls_path(key, sizeof(key), "server.key");
+    o.cert_file = cert;
+    o.key_file = key;
+    o.alpn_protos = protos;
+    st = cfw_tls_ctx_create(&o, ctx);
+    return st == CFW_OK ? 0 : 1;
+}
+
+static int tls_ctx_client_alpn(const char * const *protos,
+                               cfw_tls_ctx_t **ctx)
+{
+    cfw_tls_ctx_options_t o;
+    cfw_status_t st;
+
+    memset(&o, 0, sizeof(o));
+    o.role = CFW_TLS_CLIENT;
+    o.alpn_protos = protos;
+    st = cfw_tls_ctx_create(&o, ctx);
+    return st == CFW_OK ? 0 : 1;
+}
+
+static int tls_alpn_expect(cfw_tls_conn_t *conn, const char *want)
+{
+    cfw_strview_t proto;
+    CFW_TEST_ASSERT(cfw_tls_conn_alpn(conn, &proto) == CFW_OK);
+    if (want == NULL) {
+        CFW_TEST_ASSERT(proto.data == NULL && proto.size == 0);
+        return 0;
+    }
+    CFW_TEST_ASSERT(proto.size == strlen(want));
+    CFW_TEST_ASSERT(memcmp(proto.data, want, proto.size) == 0);
+    return 0;
+}
+
+/* Server preference order wins: server lists "h2" first and the
+ * client offers both, so "h2" is selected on both ends. */
+static int test_tls_alpn_negotiated(void)
+{
+    static const char * const server_protos[] = {"h2", "http/1.1", NULL};
+    static const char * const client_protos[] = {"http/1.1", "h2", NULL};
+    cfw_tls_ctx_t *sctx = NULL;
+    cfw_tls_ctx_t *cctx = NULL;
+    cfw_tls_conn_t *server = NULL;
+    cfw_tls_conn_t *client = NULL;
+    int rc = 1;
+
+    CFW_TEST_ASSERT(tls_ctx_server_alpn(server_protos, &sctx) == 0);
+    CFW_TEST_ASSERT(tls_ctx_client_alpn(client_protos, &cctx) == 0);
+    CFW_TEST_ASSERT(tls_pair(sctx, cctx, &server, &client) == 0);
+    CFW_TEST_ASSERT(tls_drive(server, client) == 0);
+    tls_alpn_expect(server, "h2");
+    tls_alpn_expect(client, "h2");
+    rc = 0;
+
+    tls_teardown(server, client);
+    cfw_tls_ctx_destroy(sctx);
+    cfw_tls_ctx_destroy(cctx);
+    return rc;
+}
+
+/* Client offers ALPN but nothing matches the server list: handshake
+ * still succeeds and no protocol is negotiated (NOACK policy). */
+static int test_tls_alpn_no_match(void)
+{
+    static const char * const server_protos[] = {"h2", NULL};
+    static const char * const client_protos[] = {"http/1.1", NULL};
+    cfw_tls_ctx_t *sctx = NULL;
+    cfw_tls_ctx_t *cctx = NULL;
+    cfw_tls_conn_t *server = NULL;
+    cfw_tls_conn_t *client = NULL;
+    int rc = 1;
+
+    CFW_TEST_ASSERT(tls_ctx_server_alpn(server_protos, &sctx) == 0);
+    CFW_TEST_ASSERT(tls_ctx_client_alpn(client_protos, &cctx) == 0);
+    CFW_TEST_ASSERT(tls_pair(sctx, cctx, &server, &client) == 0);
+    CFW_TEST_ASSERT(tls_drive(server, client) == 0);
+    tls_alpn_expect(server, NULL);
+    tls_alpn_expect(client, NULL);
+    rc = 0;
+
+    tls_teardown(server, client);
+    cfw_tls_ctx_destroy(sctx);
+    cfw_tls_ctx_destroy(cctx);
+    return rc;
+}
+
+/* ALPN configured only on the server: the client never sends the
+ * extension, so nothing is negotiated. */
+static int test_tls_alpn_server_only(void)
+{
+    static const char * const server_protos[] = {"http/1.1", NULL};
+    cfw_tls_ctx_t *sctx = NULL;
+    cfw_tls_ctx_t *cctx = NULL;
+    cfw_tls_conn_t *server = NULL;
+    cfw_tls_conn_t *client = NULL;
+    int rc = 1;
+
+    CFW_TEST_ASSERT(tls_ctx_server_alpn(server_protos, &sctx) == 0);
+    CFW_TEST_ASSERT(tls_ctx_client_alpn(NULL, &cctx) == 0);
+    CFW_TEST_ASSERT(tls_pair(sctx, cctx, &server, &client) == 0);
+    CFW_TEST_ASSERT(tls_drive(server, client) == 0);
+    tls_alpn_expect(server, NULL);
+    tls_alpn_expect(client, NULL);
+    rc = 0;
+
+    tls_teardown(server, client);
+    cfw_tls_ctx_destroy(sctx);
+    cfw_tls_ctx_destroy(cctx);
+    return rc;
+}
+
+static int tls_ctx_client_alpn_raw(const char * const *protos,
+                                   cfw_status_t *out)
+{
+    cfw_tls_ctx_options_t o;
+    cfw_tls_ctx_t *ctx = NULL;
+    cfw_status_t st;
+
+    memset(&o, 0, sizeof(o));
+    o.role = CFW_TLS_CLIENT;
+    o.alpn_protos = protos;
+    st = cfw_tls_ctx_create(&o, &ctx);
+    if (st == CFW_OK) {
+        cfw_tls_ctx_destroy(ctx);
+    }
+    if (out != NULL) {
+        *out = st;
+    }
+    return st == CFW_OK ? 0 : 1;
+}
+
+static int test_tls_alpn_invalid_args(void)
+{
+    static const char * const empty[] = {"", NULL};
+    static const char * const null_only[] = {NULL};
+    char long_proto[257];
+    const char * const long_list[] = {long_proto, NULL};
+    cfw_status_t st;
+
+    memset(long_proto, 'a', sizeof(long_proto) - 1);
+    long_proto[sizeof(long_proto) - 1] = '\0';
+
+    /* Empty identifier, overlong identifier, and >64KiB total are
+     * rejected; a NULL-terminated-but-empty list is just "disabled". */
+    CFW_TEST_ASSERT(tls_ctx_client_alpn_raw(empty, &st) == 1);
+    CFW_TEST_ASSERT(st == CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT(tls_ctx_client_alpn_raw(long_list, &st) == 1);
+    CFW_TEST_ASSERT(st == CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT(tls_ctx_client_alpn_raw(null_only, &st) == 0);
+    CFW_TEST_ASSERT(st == CFW_OK);
+    return 0;
+}
+
 #endif /* CFW_HAVE_TLS */
 
 const cfw_test_case cfw_test_tls_cases[] = {
@@ -596,6 +762,10 @@ const cfw_test_case cfw_test_tls_cases[] = {
      test_tls_server_requires_client_cert},
     {"tls_client_cert_accepted", test_tls_client_cert_accepted},
     {"tls_shutdown_and_eof", test_tls_shutdown_and_eof},
+    {"tls_alpn_negotiated", test_tls_alpn_negotiated},
+    {"tls_alpn_no_match", test_tls_alpn_no_match},
+    {"tls_alpn_server_only", test_tls_alpn_server_only},
+    {"tls_alpn_invalid_args", test_tls_alpn_invalid_args},
 #endif
     {NULL, NULL},
 };
