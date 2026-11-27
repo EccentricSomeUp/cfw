@@ -6,6 +6,7 @@
 
     #include <openssl/err.h>
     #include <openssl/ssl.h>
+    #include <openssl/tls1.h>
 
     #include <stdint.h>
     #include <stdlib.h>
@@ -625,6 +626,25 @@ cfw_status_t cfw_tls_conn_set_server_name(cfw_tls_conn_t *conn,
     return CFW_OK;
 }
 
+cfw_status_t cfw_tls_conn_get_server_name(const cfw_tls_conn_t *conn,
+                                          cfw_strview_t *name)
+{
+    const char *sni;
+
+    if (conn == NULL || conn->ssl == NULL || name == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    sni = SSL_get_servername(conn->ssl, TLSEXT_NAMETYPE_host_name);
+    if (sni == NULL) {
+        name->data = NULL;
+        name->size = 0;
+        return CFW_OK;
+    }
+    name->data = sni;
+    name->size = strlen(sni);
+    return CFW_OK;
+}
+
 #else /* !CFW_HAVE_TLS — stubs (ADR 0057) */
 
 cfw_status_t cfw_tls_ctx_create(const cfw_tls_ctx_options_t *options,
@@ -782,6 +802,17 @@ cfw_status_t cfw_tls_conn_set_server_name(cfw_tls_conn_t *conn,
 {
     (void)conn;
     (void)name;
+    return CFW_ERROR_UNAVAILABLE;
+}
+
+cfw_status_t cfw_tls_conn_get_server_name(const cfw_tls_conn_t *conn,
+                                          cfw_strview_t *name)
+{
+    (void)conn;
+    if (name != NULL) {
+        name->data = NULL;
+        name->size = 0;
+    }
     return CFW_ERROR_UNAVAILABLE;
 }
 

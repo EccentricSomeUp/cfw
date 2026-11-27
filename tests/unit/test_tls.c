@@ -1137,6 +1137,61 @@ static int test_tls_server_name_invalid_args(void)
     return rc;
 }
 
+static int test_tls_server_name_get(void)
+{
+    cfw_tls_ctx_t *sctx = NULL;
+    cfw_tls_ctx_t *cctx = NULL;
+    cfw_tls_conn_t *server = NULL;
+    cfw_tls_conn_t *client = NULL;
+    cfw_strview_t name;
+    int rc = 1;
+
+    CFW_TEST_ASSERT(tls_ctx_server(&sctx) == 0);
+    CFW_TEST_ASSERT(tls_ctx_client_alpn(NULL, &cctx) == 0);
+    CFW_TEST_ASSERT(tls_pair(sctx, cctx, &server, &client) == 0);
+    CFW_TEST_ASSERT(cfw_tls_conn_set_server_name(client, "vhost.example")
+                    == CFW_OK);
+    CFW_TEST_ASSERT(tls_drive(server, client) == 0);
+
+    /* The server sees the client's offered SNI; the client sees the
+     * name it installed. */
+    CFW_TEST_ASSERT(cfw_tls_conn_get_server_name(server, &name) == CFW_OK);
+    CFW_TEST_ASSERT(name.size == 13 &&
+                    memcmp(name.data, "vhost.example", 13) == 0);
+    CFW_TEST_ASSERT(cfw_tls_conn_get_server_name(client, &name) == CFW_OK);
+    CFW_TEST_ASSERT(name.size == 13 &&
+                    memcmp(name.data, "vhost.example", 13) == 0);
+    rc = 0;
+    tls_teardown(server, client);
+    cfw_tls_ctx_destroy(sctx);
+    cfw_tls_ctx_destroy(cctx);
+    return rc;
+}
+
+static int test_tls_server_name_get_absent(void)
+{
+    cfw_tls_ctx_t *sctx = NULL;
+    cfw_tls_ctx_t *cctx = NULL;
+    cfw_tls_conn_t *server = NULL;
+    cfw_tls_conn_t *client = NULL;
+    cfw_strview_t name;
+    int rc = 1;
+
+    CFW_TEST_ASSERT(tls_ctx_server(&sctx) == 0);
+    CFW_TEST_ASSERT(tls_ctx_client_alpn(NULL, &cctx) == 0);
+    CFW_TEST_ASSERT(tls_pair(sctx, cctx, &server, &client) == 0);
+    CFW_TEST_ASSERT(tls_drive(server, client) == 0);
+
+    /* No SNI was offered: empty view, not an error. */
+    CFW_TEST_ASSERT(cfw_tls_conn_get_server_name(server, &name) == CFW_OK);
+    CFW_TEST_ASSERT(name.data == NULL && name.size == 0);
+    rc = 0;
+    tls_teardown(server, client);
+    cfw_tls_ctx_destroy(sctx);
+    cfw_tls_ctx_destroy(cctx);
+    return rc;
+}
+
 #endif /* CFW_HAVE_TLS */
 
 const cfw_test_case cfw_test_tls_cases[] = {
@@ -1160,6 +1215,8 @@ const cfw_test_case cfw_test_tls_cases[] = {
     {"tls_server_name_accepted", test_tls_server_name_accepted},
     {"tls_server_name_rejected", test_tls_server_name_rejected},
     {"tls_server_name_invalid_args", test_tls_server_name_invalid_args},
+    {"tls_server_name_get", test_tls_server_name_get},
+    {"tls_server_name_get_absent", test_tls_server_name_get_absent},
 #endif
     {NULL, NULL},
 };

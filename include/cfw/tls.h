@@ -239,6 +239,19 @@ CFW_API int cfw_tls_conn_session_reused(const cfw_tls_conn_t *conn);
 CFW_API cfw_status_t cfw_tls_conn_set_server_name(cfw_tls_conn_t *conn,
                                                   const char *name);
 
+/* Returns the TLS SNI hostname associated with the session, when
+ * present: on a server connection this is the server_name extension
+ * the client offered in its ClientHello (usable for virtual-host
+ * routing or certificate selection); on a client connection it is
+ * the name previously installed via cfw_tls_conn_set_server_name.
+ * The returned view borrows TLS-session memory and is valid until
+ * cfw_tls_conn_destroy — do not free it. An empty view
+ * (data == NULL, size == 0) means no SNI name is available. Returns
+ * CFW_ERROR_INVALID_ARGUMENT for NULL arguments and
+ * CFW_ERROR_UNAVAILABLE without TLS support. */
+CFW_API cfw_status_t cfw_tls_conn_get_server_name(const cfw_tls_conn_t *conn,
+                                                  cfw_strview_t *name);
+
 #ifdef __cplusplus
 }
 #endif

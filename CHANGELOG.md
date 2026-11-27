@@ -14,6 +14,9 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 - `examples/static_files.c`: static file server example mounting
   `cfw_static_serve` (conditional requests, Range, ETag) alongside a
   dynamic route.
+- TLS SNI query (ADR 0066): `cfw_tls_conn_get_server_name` returns
+  the SNI hostname — the client's offered name on server connections
+  (virtual-host routing) or the installed name on client connections.
 
 ### Fixed
 
