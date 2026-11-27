@@ -376,13 +376,11 @@ static int test_fs_file_open_confined(void)
     CFW_TEST_ASSERT_EQ(off, sizeof(payload) - 1);
     CFW_TEST_ASSERT_EQ(cfw_file_close(&fh), CFW_OK);
 
-#if CFW_PLATFORM_POSIX
     /* A directory is not a regular file. */
     cfw_file_init(&fh);
     CFW_TEST_ASSERT_EQ(cfw_file_open_confined(&fh, ".", "."),
                        CFW_ERROR_INVALID_ARGUMENT);
     CFW_TEST_ASSERT_FALSE(cfw_file_valid(&fh));
-#endif
 
     CFW_TEST_ASSERT_EQ(remove(path), 0);
     return 0;

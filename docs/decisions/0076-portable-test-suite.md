@@ -45,12 +45,13 @@ Port the suite to run on every platform with a socket backend:
   `cfw_test_close_raw`.
 - **Deliberately still gated**: `static_symlink_confinement` (POSIX
   `O_NOFOLLOW`/`openat` semantics; Windows confinement is documented
-  best-effort), the directory-is-not-a-file `fs` check, and
-  `SO_REUSEPORT` cluster tests (Windows has no equivalent; the
+  best-effort) and `SO_REUSEPORT` cluster tests (Windows has no equivalent; the
   `!CFW_HAVE_SO_REUSEPORT` fallback already asserts `UNAVAILABLE`).
   (The fuzz-corpus replay was subsequently made portable: the file
   list is generated at configure time, so no `dirent` dependency
-  remains.)
+  remains. The directory-is-not-a-file `fs` check was also ungated
+  after `cfw_file_open_confined` gained a pre-open stat on Windows so
+  directories return `CFW_ERROR_INVALID_ARGUMENT` like POSIX.)
 
 ## Consequences
 

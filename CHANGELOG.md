@@ -32,7 +32,9 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   TCP-loopback socketpair helper (`tests/unit/test_loopback.h`),
   replacing `socketpair`/`pipe`/raw `send`/`recv`/`fcntl`/`usleep`/
   `errno`/`memmem`/`sigaction`/`dirent` usage (the fuzz corpus file list
-  is generated at configure time). `test_tls.c` drives TLS over
+  is generated at configure time). `cfw_file_open_confined`
+  on Windows now stats the resolved path before opening so
+  directories surface `CFW_ERROR_INVALID_ARGUMENT`, matching POSIX. `test_tls.c` drives TLS over
   loopback TCP, and `test_server_run_and_drain` uses a `cfw_thread`
   stopper instead of `SIGALRM`. Windows CI now runs the full `ctest`
   suite in both `debug` and `debug-tls` presets.

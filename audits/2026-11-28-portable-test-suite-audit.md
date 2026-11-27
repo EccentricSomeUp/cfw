@@ -85,3 +85,7 @@ ctest --preset debug-tls --output-on-failure             # 6/6 passed
 - `CreateSymbolicLink` confinement coverage on Windows remains a
   possible follow-up; current coverage documents best-effort
   confinement (ADR 0037).
+- Done: the `fs` directory check is ungated — the Windows branch of
+  `cfw_file_open_confined` now stats the resolved path before
+  `_open`, returning `CFW_ERROR_INVALID_ARGUMENT` for non-regular
+  files to match the POSIX `openat`/`fstat` contract.

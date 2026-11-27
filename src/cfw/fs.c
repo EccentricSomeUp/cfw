@@ -219,6 +219,18 @@ cfw_status_t cfw_file_open_confined(cfw_file_t *file, const char *root,
         }
         memcpy(full + o, norm, norm_len + 1u);
 
+        /* Match the POSIX branch's contract: a resolved path that is not
+         * a regular file is INVALID_ARGUMENT. _open cannot open
+         * directories at all, so without this pre-check they surface as
+         * CFW_ERROR_IO instead. Confinement on Windows is documented
+         * best-effort (ADR 0037), so the extra stat is acceptable. */
+        {
+            CFW_STAT_STRUCT pre;
+            if (CFW_STAT_FUNC(full, &pre) == 0 && !S_ISREG(pre.st_mode)) {
+                return CFW_ERROR_INVALID_ARGUMENT;
+            }
+        }
+
         handle = (intptr_t)CFW_FILE_OPEN_FUNC(full, CFW_FILE_OPEN_FLAGS);
         if (handle < 0) {
             return CFW_ERROR_IO;
