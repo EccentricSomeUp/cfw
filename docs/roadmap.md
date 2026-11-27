@@ -99,8 +99,12 @@ audit (audits/2026-11-26-http-server-dos-audit.md) with three fixes.
 
 Exit criteria: scope decision recorded (ADR 0030), dependency
 approved (ADR 0057), transport module implemented and tested;
-server integration and cryptographic/transport audit of the
-integration path remain open.
+server integration met (ADR 0058) and the cryptographic/transport
+audit of the integration path is met
+(audits/2026-11-27-openssl-tls-audit.md,
+audits/2026-11-28-transport-seam-tls-server-audit.md,
+audits/2026-11-28-mixed-tls-listener-audit.md,
+audits/2026-11-27-tls-error-queue-isolation-audit.md).
 
 ## Phase 7: Hardening and 1.0 readiness
 
