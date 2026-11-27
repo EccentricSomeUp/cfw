@@ -27,6 +27,10 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   keep-alive measurement over TLS. Requires a `CFW_ENABLE_TLS` build
   and `CFW_BENCH_TLS_CERT`/`CFW_BENCH_TLS_KEY` (default
   `server.crt`/`server.key`).
+- TLS client server name (ADR 0064):
+  `cfw_tls_conn_set_server_name` sends SNI in the ClientHello and,
+  with `verify_peer`, pins hostname verification against the server
+  certificate — previously `verify_peer` checked only the chain.
 
 ### Fixed
 

@@ -26,6 +26,8 @@ struct cfw_tls_conn {
     intptr_t fd;
     int want_read;
     int want_write;
+    int server_side;
+    int handshake_started;
 };
 
 static void cfw_tls_clear_want(cfw_tls_conn_t *conn)
@@ -303,6 +305,7 @@ cfw_status_t cfw_tls_conn_create(cfw_tls_ctx_t *ctx, intptr_t fd,
     }
     created->fd = fd;
     created->ssl = ssl;
+    created->server_side = ctx->role == CFW_TLS_SERVER;
     SSL_set_fd(ssl, (int)created->fd);
     if (ctx->role == CFW_TLS_SERVER) {
         SSL_set_accept_state(ssl);
@@ -349,6 +352,7 @@ cfw_status_t cfw_tls_handshake(cfw_tls_conn_t *conn)
         cfw_tls_clear_want(conn);
         return CFW_OK;
     }
+    conn->handshake_started = 1;
     /* OpenSSL's error queue is per-thread, not per-SSL: stale errors
      * left by earlier operations (including other connections on this
      * thread) make SSL_get_error report SSL_ERROR_SSL for unrelated
@@ -597,6 +601,30 @@ int cfw_tls_conn_session_reused(const cfw_tls_conn_t *conn)
     return SSL_session_reused(conn->ssl);
 }
 
+cfw_status_t cfw_tls_conn_set_server_name(cfw_tls_conn_t *conn,
+                                          const char *name)
+{
+    size_t len;
+
+    if (conn == NULL || conn->ssl == NULL || name == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    len = strlen(name);
+    if (len == 0u || len > 255u || conn->server_side ||
+        conn->handshake_started) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    /* SNI tells the server which name the client is connecting to;
+     * SSL_set1_host additionally pins hostname verification into the
+     * certificate check when the ctx has verify_peer enabled (RFC
+     * 6125 dNSName with CN fallback via OpenSSL's X509_check_host). */
+    if (SSL_set_tlsext_host_name(conn->ssl, name) != 1 ||
+        SSL_set1_host(conn->ssl, name) != 1) {
+        return CFW_ERROR_IO;
+    }
+    return CFW_OK;
+}
+
 #else /* !CFW_HAVE_TLS — stubs (ADR 0057) */
 
 cfw_status_t cfw_tls_ctx_create(const cfw_tls_ctx_options_t *options,
@@ -747,6 +775,14 @@ int cfw_tls_conn_session_reused(const cfw_tls_conn_t *conn)
 {
     (void)conn;
     return 0;
+}
+
+cfw_status_t cfw_tls_conn_set_server_name(cfw_tls_conn_t *conn,
+                                          const char *name)
+{
+    (void)conn;
+    (void)name;
+    return CFW_ERROR_UNAVAILABLE;
 }
 
 #endif /* CFW_HAVE_TLS */

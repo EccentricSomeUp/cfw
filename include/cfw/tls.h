@@ -224,6 +224,21 @@ CFW_API cfw_status_t cfw_tls_conn_set_session(cfw_tls_conn_t *conn,
  * TLS support. */
 CFW_API int cfw_tls_conn_session_reused(const cfw_tls_conn_t *conn);
 
+/* Sets the expected peer hostname on a CLIENT connection: the name
+ * is sent as the TLS SNI extension in the ClientHello and, when the
+ * ctx has verify_peer enabled, is checked against the server
+ * certificate during verification (RFC 6125 dNSName SAN with CN
+ * fallback via OpenSSL's X509_check_host). Must be called before
+ * cfw_tls_handshake; returns CFW_ERROR_INVALID_ARGUMENT for NULL or
+ * empty names, names over 255 bytes, server-side connections, or
+ * calls after the handshake has started, and CFW_ERROR_IO if the
+ * underlying SSL object rejects the name. Without this call,
+ * verify_peer alone checks only the certificate chain — hostname
+ * verification does not happen. Returns CFW_ERROR_UNAVAILABLE
+ * without TLS support. */
+CFW_API cfw_status_t cfw_tls_conn_set_server_name(cfw_tls_conn_t *conn,
+                                                  const char *name);
+
 #ifdef __cplusplus
 }
 #endif

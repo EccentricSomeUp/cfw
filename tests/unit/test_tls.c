@@ -1016,6 +1016,127 @@ static int test_tls_error_queue_isolation(void)
     return rc;
 }
 
+/* Client ctx trusting the test CA and requiring peer verification —
+ * the shape needed for hostname-check tests. */
+static int tls_ctx_client_verify(cfw_tls_ctx_t **ctx)
+{
+    cfw_tls_ctx_options_t o;
+    char ca[512];
+
+    tls_path(ca, sizeof(ca), "ca.crt");
+    memset(&o, 0, sizeof(o));
+    o.role = CFW_TLS_CLIENT;
+    o.ca_file = ca;
+    o.verify_peer = 1;
+    return cfw_tls_ctx_create(&o, ctx) == CFW_OK ? 0 : 1;
+}
+
+/* The test server certificate has CN=localhost and no SANs; OpenSSL's
+ * X509_check_host falls back to CN, so "localhost" verifies and any
+ * other name must fail the handshake. */
+static int test_tls_server_name_accepted(void)
+{
+    cfw_tls_ctx_t *sctx = NULL;
+    cfw_tls_ctx_t *cctx = NULL;
+    cfw_tls_conn_t *server = NULL;
+    cfw_tls_conn_t *client = NULL;
+    int rc = 1;
+
+    CFW_TEST_ASSERT(tls_ctx_server(&sctx) == 0);
+    CFW_TEST_ASSERT(tls_ctx_client_verify(&cctx) == 0);
+    CFW_TEST_ASSERT(tls_pair(sctx, cctx, &server, &client) == 0);
+    CFW_TEST_ASSERT(cfw_tls_conn_set_server_name(client, "localhost")
+                    == CFW_OK);
+    CFW_TEST_ASSERT(tls_drive(server, client) == 0);
+    rc = 0;
+    tls_teardown(server, client);
+    cfw_tls_ctx_destroy(sctx);
+    cfw_tls_ctx_destroy(cctx);
+    return rc;
+}
+
+static int test_tls_server_name_rejected(void)
+{
+    cfw_tls_ctx_t *sctx = NULL;
+    cfw_tls_ctx_t *cctx = NULL;
+    cfw_tls_conn_t *server = NULL;
+    cfw_tls_conn_t *client = NULL;
+    int client_failed = 0;
+    int i;
+    int rc = 1;
+
+    CFW_TEST_ASSERT(tls_ctx_server(&sctx) == 0);
+    CFW_TEST_ASSERT(tls_ctx_client_verify(&cctx) == 0);
+    CFW_TEST_ASSERT(tls_pair(sctx, cctx, &server, &client) == 0);
+    CFW_TEST_ASSERT(cfw_tls_conn_set_server_name(client,
+                                                  "wrong.example.com")
+                    == CFW_OK);
+    for (i = 0; i < 100000; i++) {
+        cfw_status_t st = cfw_tls_handshake(client);
+        if (st == CFW_ERROR_IO) {
+            client_failed = 1;
+            break;
+        }
+        if (st != CFW_OK && st != CFW_ERROR_WOULDBLOCK) {
+            break;
+        }
+        (void)cfw_tls_handshake(server);
+    }
+    CFW_TEST_ASSERT(client_failed);
+    rc = 0;
+    tls_teardown(server, client);
+    cfw_tls_ctx_destroy(sctx);
+    cfw_tls_ctx_destroy(cctx);
+    return rc;
+}
+
+static int test_tls_server_name_invalid_args(void)
+{
+    cfw_tls_ctx_t *sctx = NULL;
+    cfw_tls_ctx_t *cctx = NULL;
+    cfw_tls_conn_t *server = NULL;
+    cfw_tls_conn_t *client = NULL;
+    char long_name[300];
+    cfw_status_t st;
+    int rc = 1;
+
+    memset(long_name, 'a', sizeof(long_name) - 1);
+    long_name[sizeof(long_name) - 1] = '\0';
+
+    CFW_TEST_ASSERT(tls_ctx_server(&sctx) == 0);
+    CFW_TEST_ASSERT(tls_ctx_client_alpn(NULL, &cctx) == 0);
+
+    st = cfw_tls_conn_set_server_name(NULL, "localhost");
+    CFW_TEST_ASSERT(st == CFW_ERROR_INVALID_ARGUMENT);
+    st = cfw_tls_conn_set_server_name(NULL, NULL);
+    CFW_TEST_ASSERT(st == CFW_ERROR_INVALID_ARGUMENT);
+
+    CFW_TEST_ASSERT(tls_pair(sctx, cctx, &server, &client) == 0);
+
+    /* Server-side connections reject the call. */
+    st = cfw_tls_conn_set_server_name(server, "localhost");
+    CFW_TEST_ASSERT(st == CFW_ERROR_INVALID_ARGUMENT);
+    /* Malformed names. */
+    st = cfw_tls_conn_set_server_name(client, "");
+    CFW_TEST_ASSERT(st == CFW_ERROR_INVALID_ARGUMENT);
+    st = cfw_tls_conn_set_server_name(client, long_name);
+    CFW_TEST_ASSERT(st == CFW_ERROR_INVALID_ARGUMENT);
+    st = cfw_tls_conn_set_server_name(client, NULL);
+    CFW_TEST_ASSERT(st == CFW_ERROR_INVALID_ARGUMENT);
+
+    /* Once the handshake has started the name is fixed — a single
+     * WOULDBLOCK handshake call is enough to start it. */
+    (void)cfw_tls_handshake(client);
+    st = cfw_tls_conn_set_server_name(client, "localhost");
+    CFW_TEST_ASSERT(st == CFW_ERROR_INVALID_ARGUMENT);
+
+    rc = 0;
+    tls_teardown(server, client);
+    cfw_tls_ctx_destroy(sctx);
+    cfw_tls_ctx_destroy(cctx);
+    return rc;
+}
+
 #endif /* CFW_HAVE_TLS */
 
 const cfw_test_case cfw_test_tls_cases[] = {
@@ -1036,6 +1157,9 @@ const cfw_test_case cfw_test_tls_cases[] = {
     {"tls_alpn_invalid_args", test_tls_alpn_invalid_args},
     {"tls_session_resumption", test_tls_session_resumption},
     {"tls_error_queue_isolation", test_tls_error_queue_isolation},
+    {"tls_server_name_accepted", test_tls_server_name_accepted},
+    {"tls_server_name_rejected", test_tls_server_name_rejected},
+    {"tls_server_name_invalid_args", test_tls_server_name_invalid_args},
 #endif
     {NULL, NULL},
 };
