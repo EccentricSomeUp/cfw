@@ -14,7 +14,7 @@ not yet implemented; "planned" means no contract exists yet.
 | Linux (glibc/musl) | Primary | `clock_gettime`, `getrandom`, `epoll`; the primary CI/dev-verified target |
 | macOS | POSIX-compatible | `clock_gettime`, `arc4random_buf`, `kqueue` backend (ADR 0052); verified on macOS CI |
 | FreeBSD/OpenBSD/NetBSD | POSIX-compatible | `clock_gettime`, `arc4random_buf`, `kqueue` backend (ADR 0052); FreeBSD verified on CI (debug preset via `vmactions/freebsd-vm`); OpenBSD/NetBSD not yet verified on a BSD host |
-| Windows (MSVC/MinGW) | Partial | core primitives, Winsock sockets, WSAPoll pollset, fd close, and the HTTP/WebSocket clients implemented (ADR 0072); `cfw_server_t`/`cfw_http1_conn_t` and TLS remain stubs returning `CFW_STATUS_UNAVAILABLE`; compile-checked on Windows CI (MSVC `/W4 /WX`, configure+build only, no test run) |
+| Windows (MSVC/MinGW) | Partial | core primitives, Winsock sockets, WSAPoll pollset, fd close, `cfw_http1_conn`, and the HTTP/WebSocket clients implemented (ADRs 0072/0073); `cfw_server_t` and TLS remain stubs returning `CFW_STATUS_UNAVAILABLE`; compile-checked on Windows CI (MSVC `/W4 /WX`, configure+build only, no test run) |
 
 ## Compiler and language requirements
 
@@ -35,7 +35,7 @@ not yet implemented; "planned" means no contract exists yet.
 | Descriptor close | `close` | `close` | `close` | `closesocket` | `cfw_fd_close` (implemented on all targets) |
 | Polling/event loop | `epoll` | `kqueue` | `kqueue` | `WSAPoll` | `cfw_pollset_*` public API (implemented; ADRs 0014/0052/0069/0072) |
 | Sockets | `socket`/`accept4` | `socket`/`accept` | `socket`/`accept` | Winsock2 `socket`/`accept` | `cfw_net_*`/`cfw_addr_*` public API (implemented on POSIX and Windows; numeric IPs plus blocking getaddrinfo for name resolution; ADRs 0067/0072) |
-| HTTP/1.1 + server | yes | yes (POSIX) | yes (POSIX) | stub: `UNAVAILABLE` | `cfw_http1*`, `cfw_server` (implemented on POSIX; Windows server port pending) |
+| HTTP/1.1 + server | yes | yes (POSIX) | yes (POSIX) | conn: yes / server: stub | `cfw_http1_conn` implemented on all targets via `cfw_net_*`; `cfw_server` remains POSIX-only pending the wake-channel port |
 | HTTP/1.1 client | yes | yes (POSIX) | yes (POSIX) | yes (cleartext) | `cfw_http_client_*` one-shot client (implemented, ADR 0068; TLS via client-role `cfw_tls_ctx_t` — TLS paths unavailable on Windows) |
 | TLS transport | OpenSSL 3.x | OpenSSL 3.x | OpenSSL 3.x | stub: `UNAVAILABLE` | `cfw_tls` (optional module, `CFW_ENABLE_TLS`; ADRs 0057/0058 — LibreSSL lacks required OpenSSL 3 APIs) |
 | Threads/mutexes | `pthread` | `pthread` | `pthread` | `CreateThread`+`SRWLOCK`/`CONDITION_VARIABLE` | `cfw_thread_*`, `cfw_mutex_*`/`cfw_cond_*` (implemented, ADRs 0050/0051) |

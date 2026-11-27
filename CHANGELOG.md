@@ -15,9 +15,11 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   `closesocket` fd close (ADR 0072): `cfw_net_*`, `cfw_addr_*`,
   `cfw_pollset_*`, and `cfw_fd_close` are now functional on Windows via
   Winsock2, unblocking cleartext `cfw_http_client_request` and
-  `cfw_ws_client_connect`. `cfw_server_t`, `cfw_http1_conn_t`, and all
-  TLS paths remain `CFW_ERROR_UNAVAILABLE` stubs pending the server
-  port and a Windows TLS decision.
+  `cfw_ws_client_connect`.
+- `cfw_http1_conn_t` now performs socket I/O through `cfw_net_*`
+  (ADR 0073) and compiles on Windows; `cfw_server_t` and all TLS paths
+  remain `CFW_ERROR_UNAVAILABLE` stubs pending the server port and a
+  Windows TLS decision.
 
 ### Fixed
 
