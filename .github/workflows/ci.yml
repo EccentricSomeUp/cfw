@@ -15,7 +15,13 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        preset: [debug, release, sanitizers, shared]
+        preset: [debug, release, sanitizers, shared, debug-tls]
+        # macOS ships LibreSSL, which lacks OpenSSL 3 APIs used by
+        # cfw_tls (e.g. SSL_get1_peer_certificate); TLS CI is
+        # OpenSSL-only for now.
+        exclude:
+          - os: macos-latest
+            preset: debug-tls
     steps:
       - uses: actions/checkout@v7
 

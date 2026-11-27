@@ -134,7 +134,7 @@ cfw-release dry run — planned actions for $TAG:
 
   1. Rename CHANGELOG.md '## [Unreleased]' content under '## [$VERSION] - $TODAY'
   2. Set project(VERSION) in CMakeLists.txt: $CURRENT -> $VERSION
-  3. Configure, build, and test presets: debug, release, sanitizers, shared
+  3. Configure, build, and test presets: debug, release, sanitizers, shared, debug-tls
   4. Commit: release: $TAG
   5. Create annotated tag: $TAG
 EOF
@@ -171,7 +171,7 @@ grep -q "    VERSION $VERSION" CMakeLists.txt \
 
 # --- Verify ------------------------------------------------------------------
 
-for preset in debug release sanitizers shared; do
+for preset in debug release sanitizers shared debug-tls; do
     echo "==> Preset '$preset': configure"
     cmake --preset "$preset"
     echo "==> Preset '$preset': build"
