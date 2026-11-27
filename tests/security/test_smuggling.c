@@ -171,7 +171,7 @@ static ssize_t cfw_sec_roundtrip(cfw_sec_server *ss, cfw_fd_t *client,
         if (cfw_server_step(&ss->server, &deadline) != CFW_OK) {
             return -1;
         }
-        n = recv((int)cfw_fd_get(client), out, out_cap - 1, MSG_DONTWAIT);
+        n = recv((int)cfw_fd_get(client), out, out_cap - 1, CFW_TEST_MSG_DONTWAIT);
         if (n > 0) {
             out[n] = '\0';
             *out_len = (size_t)n;

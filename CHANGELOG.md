@@ -11,6 +11,11 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ### Fixed
 
+- Fixed a FreeBSD build failure in the mixed-listener protocol sniff:
+  the TLS-detection `recv` used `MSG_DONTWAIT` unconditionally, but the
+  flag does not exist on FreeBSD. It is now applied only when
+  `CFW_HAVE_MSG_DONTWAIT` is set (the socket is already nonblocking);
+  test client sockets use an equivalent portability shim.
 - `cfw_ws_client_connect` now validates the request target and caller
   header grammar before emitting the Upgrade request: paths containing
   SP/CTL bytes and header names/values violating the HTTP field

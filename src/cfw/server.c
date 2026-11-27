@@ -1308,8 +1308,12 @@ static void cfw_server_service_conn(cfw_server_t *server,
     if (conn->tls_detect) {
         if (events & (CFW_POLL_IN | CFW_POLL_ERR | CFW_POLL_HUP)) {
             unsigned char b = 0;
+            int peek_flags = MSG_PEEK;
+#if CFW_HAVE_MSG_DONTWAIT
+            peek_flags |= MSG_DONTWAIT;
+#endif
             ssize_t n = recv((int)conn->http.fd.handle, &b, 1,
-                             MSG_PEEK | MSG_DONTWAIT);
+                             peek_flags);
             if (n == 1) {
                 if (b == 0x16u &&
                     cfw_server_conn_attach_tls(server, conn) != CFW_OK) {

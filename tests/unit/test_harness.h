@@ -8,6 +8,14 @@
 #include <stdio.h>
 #include <string.h>
 
+/* MSG_DONTWAIT is absent on some POSIX platforms (e.g. FreeBSD);
+ * test client sockets are already nonblocking, so 0 is equivalent. */
+#if CFW_HAVE_MSG_DONTWAIT
+    #define CFW_TEST_MSG_DONTWAIT MSG_DONTWAIT
+#else
+    #define CFW_TEST_MSG_DONTWAIT 0
+#endif
+
 typedef int (*cfw_test_fn)(void);
 
 typedef struct cfw_test_case {

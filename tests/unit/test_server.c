@@ -255,7 +255,7 @@ static ssize_t cfw_test_serve_recv(cfw_server_t *server, cfw_fd_t *client,
         }
         {
             ssize_t n = recv((int)cfw_fd_get(client), buffer, capacity,
-                             MSG_DONTWAIT);
+                             CFW_TEST_MSG_DONTWAIT);
             if (n > 0) {
                 return n;
             }
@@ -1001,7 +1001,7 @@ static ssize_t cfw_test_recv_until(cfw_server_t *server, cfw_fd_t *client,
             return -1;
         }
         n = recv((int)cfw_fd_get(client), buffer + *used,
-                 capacity - *used - 1, MSG_DONTWAIT);
+                 capacity - *used - 1, CFW_TEST_MSG_DONTWAIT);
         if (n > 0) {
             *used += (size_t)n;
             buffer[*used] = '\0';
@@ -1136,7 +1136,7 @@ static int test_server_streaming_http10(void)
         CFW_TEST_ASSERT_EQ(cfw_server_step(&ts.server, &deadline),
                            CFW_OK);
         r = recv((int)cfw_fd_get(&client), response + used,
-                 sizeof(response) - used - 1, MSG_DONTWAIT);
+                 sizeof(response) - used - 1, CFW_TEST_MSG_DONTWAIT);
         if (r > 0) {
             used += (size_t)r;
         } else if (r == 0) {
@@ -1228,7 +1228,7 @@ static int test_server_stream_known_length(void)
         CFW_TEST_ASSERT_EQ(cfw_server_step(&ts.server, &deadline),
                            CFW_OK);
         r = recv((int)cfw_fd_get(&client), response + used,
-                 sizeof(response) - used - 1, MSG_DONTWAIT);
+                 sizeof(response) - used - 1, CFW_TEST_MSG_DONTWAIT);
         if (r > 0) {
             used += (size_t)r;
             response[used] = '\0';
@@ -1285,7 +1285,7 @@ static int test_server_stream_known_length(void)
             CFW_TEST_ASSERT_EQ(cfw_server_step(&ts.server, &deadline),
                                CFW_OK);
             r = recv((int)cfw_fd_get(&client), response + used,
-                     sizeof(response) - used - 1, MSG_DONTWAIT);
+                     sizeof(response) - used - 1, CFW_TEST_MSG_DONTWAIT);
             if (r > 0) {
                 used += (size_t)r;
             } else if (r == 0) {
@@ -1815,7 +1815,7 @@ static size_t cfw_test_drain_client(cfw_fd_t *client, char *buffer,
     size_t used = 0;
     for (;;) {
         ssize_t n = recv((int)cfw_fd_get(client), buffer + used,
-                         capacity - used - 1, MSG_DONTWAIT);
+                         capacity - used - 1, CFW_TEST_MSG_DONTWAIT);
         if (n <= 0 || used + 1 >= capacity) {
             break;
         }
@@ -2411,7 +2411,7 @@ static int test_server_run_and_drain(void)
     for (attempts = 0; attempts < 200 && used + 1 < sizeof(response);
          attempts++) {
         ssize_t n = recv((int)cfw_fd_get(&client), response + used,
-                         sizeof(response) - used - 1, MSG_DONTWAIT);
+                         sizeof(response) - used - 1, CFW_TEST_MSG_DONTWAIT);
         if (n > 0) {
             used += (size_t)n;
             if (cfw_test_contains(response, used, "200 OK")) {
@@ -3311,7 +3311,7 @@ static int cfw_test_rp_recv(cfw_test_rp_server *a, cfw_test_rp_server *b,
         CFW_TEST_ASSERT_EQ(cfw_server_step(&b->server, &deadline),
                            CFW_OK);
         n = recv((int)cfw_fd_get(client), buffer + used,
-                 capacity - used - 1, MSG_DONTWAIT);
+                 capacity - used - 1, CFW_TEST_MSG_DONTWAIT);
         if (n > 0) {
             used += (size_t)n;
             buffer[used] = '\0';

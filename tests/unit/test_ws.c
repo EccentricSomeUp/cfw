@@ -424,7 +424,7 @@ static ssize_t cfw_test_ws_recv_until(cfw_server_t *server,
             return -1;
         }
         n = recv((int)cfw_fd_get(client), buffer + *used,
-                 capacity - *used - 1, MSG_DONTWAIT);
+                 capacity - *used - 1, CFW_TEST_MSG_DONTWAIT);
         if (n > 0) {
             *used += (size_t)n;
             buffer[*used] = '\0';
@@ -1421,7 +1421,7 @@ static int test_ws_large_frame_across_recvs(void)
                 break;
             }
             n = recv((int)cfw_fd_get(&client), response + used,
-                     sizeof(response) - used - 1, MSG_DONTWAIT);
+                     sizeof(response) - used - 1, CFW_TEST_MSG_DONTWAIT);
             if (n > 0) {
                 used += (size_t)n;
                 if (used >= want) {
@@ -1524,7 +1524,7 @@ static int cfw_test_ws_fuzz_send(cfw_server_t *server, cfw_fd_t *client,
 
     while (sent < len && guard++ < 4096) {
         ssize_t n = send((int)cfw_fd_get(client), p + sent, len - sent,
-                         MSG_DONTWAIT);
+                         CFW_TEST_MSG_DONTWAIT);
         if (n > 0) {
             sent += (size_t)n;
             continue;
