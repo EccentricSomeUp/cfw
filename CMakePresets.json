@@ -1,121 +1,136 @@
 {
-    "version": 6,
-    "cmakeMinimumRequired": {
-        "major": 3,
-        "minor": 25,
-        "patch": 0
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "debug",
+      "displayName": "Debug",
+      "binaryDir": "${sourceDir}/build/debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CFW_ENABLE_WERROR": "ON",
+        "CFW_ENABLE_SANITIZERS": "OFF"
+      }
     },
-    "configurePresets": [
-        {
-            "name": "debug",
-            "displayName": "Debug",
-            "binaryDir": "${sourceDir}/build/debug",
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug",
-                "CFW_ENABLE_WERROR": "ON",
-                "CFW_ENABLE_SANITIZERS": "OFF"
-            }
-        },
-        {
-            "name": "release",
-            "displayName": "Release",
-            "binaryDir": "${sourceDir}/build/release",
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Release",
-                "CFW_ENABLE_WERROR": "ON",
-                "CFW_ENABLE_SANITIZERS": "OFF"
-            }
-        },
-        {
-            "name": "sanitizers",
-            "displayName": "ASan + UBSan",
-            "binaryDir": "${sourceDir}/build/sanitizers",
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug",
-                "CFW_ENABLE_WERROR": "ON",
-                "CFW_ENABLE_SANITIZERS": "ON"
-            }
-        },
-        {
-            "name": "shared",
-            "displayName": "Shared library",
-            "binaryDir": "${sourceDir}/build/shared",
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug",
-                "CFW_BUILD_SHARED": "ON",
-                "CFW_ENABLE_WERROR": "ON",
-                "CFW_ENABLE_SANITIZERS": "OFF"
-            }
-        },
-        {
-            "name": "debug-tls",
-            "displayName": "Debug + OpenSSL TLS module",
-            "binaryDir": "${sourceDir}/build/debug-tls",
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug",
-                "CFW_ENABLE_WERROR": "ON",
-                "CFW_ENABLE_SANITIZERS": "OFF",
-                "CFW_ENABLE_TLS": "ON"
-            }
-        }
-    ],
-    "buildPresets": [
-        {
-            "name": "debug",
-            "configurePreset": "debug"
-        },
-        {
-            "name": "release",
-            "configurePreset": "release"
-        },
-        {
-            "name": "sanitizers",
-            "configurePreset": "sanitizers"
-        },
-        {
-            "name": "shared",
-            "configurePreset": "shared"
-        },
-        {
-            "name": "debug-tls",
-            "configurePreset": "debug-tls"
-        }
-    ],
-    "testPresets": [
-        {
-            "name": "debug",
-            "configurePreset": "debug",
-            "output": {
-                "outputOnFailure": true
-            }
-        },
-        {
-            "name": "release",
-            "configurePreset": "release",
-            "output": {
-                "outputOnFailure": true
-            }
-        },
-        {
-            "name": "sanitizers",
-            "configurePreset": "sanitizers",
-            "output": {
-                "outputOnFailure": true
-            }
-        },
-        {
-            "name": "shared",
-            "configurePreset": "shared",
-            "output": {
-                "outputOnFailure": true
-            }
-        },
-        {
-            "name": "debug-tls",
-            "configurePreset": "debug-tls",
-            "output": {
-                "outputOnFailure": true
-            }
-        }
-    ]
+    {
+      "name": "release",
+      "displayName": "Release",
+      "binaryDir": "${sourceDir}/build/release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CFW_ENABLE_WERROR": "ON",
+        "CFW_ENABLE_SANITIZERS": "OFF"
+      }
+    },
+    {
+      "name": "sanitizers",
+      "displayName": "ASan + UBSan",
+      "binaryDir": "${sourceDir}/build/sanitizers",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CFW_ENABLE_WERROR": "ON",
+        "CFW_ENABLE_SANITIZERS": "ON"
+      }
+    },
+    {
+      "name": "shared",
+      "displayName": "Shared library",
+      "binaryDir": "${sourceDir}/build/shared",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CFW_BUILD_SHARED": "ON",
+        "CFW_ENABLE_WERROR": "ON",
+        "CFW_ENABLE_SANITIZERS": "OFF"
+      }
+    },
+    {
+      "name": "debug-tls",
+      "displayName": "Debug + OpenSSL TLS module",
+      "binaryDir": "${sourceDir}/build/debug-tls",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CFW_ENABLE_WERROR": "ON",
+        "CFW_ENABLE_SANITIZERS": "OFF",
+        "CFW_ENABLE_TLS": "ON"
+      }
+    },
+    {
+      "name": "fuzz",
+      "displayName": "Fuzz targets (libFuzzer on Clang, driver otherwise)",
+      "binaryDir": "${sourceDir}/build/fuzz",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CFW_ENABLE_WERROR": "ON",
+        "CFW_ENABLE_SANITIZERS": "OFF",
+        "CFW_ENABLE_FUZZING": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "debug",
+      "configurePreset": "debug"
+    },
+    {
+      "name": "release",
+      "configurePreset": "release"
+    },
+    {
+      "name": "sanitizers",
+      "configurePreset": "sanitizers"
+    },
+    {
+      "name": "shared",
+      "configurePreset": "shared"
+    },
+    {
+      "name": "debug-tls",
+      "configurePreset": "debug-tls"
+    },
+    {
+      "name": "fuzz",
+      "configurePreset": "fuzz"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "debug",
+      "configurePreset": "debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "release",
+      "configurePreset": "release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "sanitizers",
+      "configurePreset": "sanitizers",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "shared",
+      "configurePreset": "shared",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "debug-tls",
+      "configurePreset": "debug-tls",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
 }

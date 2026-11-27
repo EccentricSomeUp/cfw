@@ -103,3 +103,33 @@ jobs:
 
       - name: Test debug + TLS
         run: ctest --preset debug-tls --output-on-failure
+
+  # Coverage-guided fuzzing (ADR 0077): builds the libFuzzer targets with
+  # clang and runs each for a bounded time against the seed corpus. Any
+  # crash is written to build/fuzz/artifacts and fails the job.
+  fuzz:
+    name: fuzz smoke (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [http, uri, query, multipart]
+    env:
+      CC: clang
+      CXX: clang++
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure fuzz preset
+        run: cmake --preset fuzz
+
+      - name: Build fuzz targets
+        run: cmake --build --preset fuzz --target cfw_fuzz_${{ matrix.target }}
+
+      - name: Fuzz ${{ matrix.target }}
+        run: >
+          mkdir -p build/fuzz/artifacts &&
+          ./build/fuzz/tests/cfw_fuzz_${{ matrix.target }}
+          -max_total_time=120 -max_len=4096 -rss_limit_mb=2048
+          -artifact_prefix=build/fuzz/artifacts/
+          tests/fuzz/corpus

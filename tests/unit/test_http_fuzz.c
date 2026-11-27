@@ -4,6 +4,8 @@
 
 #include "test_harness.h"
 
+#include "fuzz_support.h"
+
 #include <stdint.h>
 #include <string.h>
 
@@ -113,153 +115,6 @@ static size_t cfw_test_mutate(char *buf, size_t len, size_t capacity)
     return len;
 }
 
-/*
- * Dispatch fuzz context: a router with a literal route and a parameterized
- * route feeding cfw_dispatch_request, so successfully parsed fuzz inputs
- * also exercise routing, header/param scratch handling, middleware chain
- * setup, and error mapping — not just the parsers.
- */
-typedef struct cfw_fuzz_dispatch {
-    cfw_arena_t *arena;
-    cfw_router_t router;
-    cfw_dispatch_t dispatch;
-} cfw_fuzz_dispatch_t;
-
-static cfw_status_t cfw_fuzz_handler(cfw_request_t *req, cfw_response_t *res,
-                                     void *user)
-{
-    (void)req;
-    (void)user;
-    res->status = CFW_HTTP_STATUS_OK;
-    return CFW_OK;
-}
-
-static cfw_status_t cfw_fuzz_dispatch_init(cfw_fuzz_dispatch_t *ctx)
-{
-    cfw_dispatch_options_t dopt = {0};
-    cfw_strview_t pattern;
-
-    memset(ctx, 0, sizeof(*ctx));
-    ctx->arena = cfw_arena_create(64u * 1024u);
-    if (ctx->arena == NULL) {
-        return CFW_ERROR_NOMEM;
-    }
-    if (cfw_router_init(&ctx->router, ctx->arena) != CFW_OK) {
-        goto fail;
-    }
-    memset(&dopt, 0, sizeof(dopt));
-    dopt.router = &ctx->router;
-    dopt.handler = cfw_fuzz_handler;
-    dopt.max_middleware = 1;
-    if (cfw_dispatch_init(&ctx->dispatch, ctx->arena, &dopt) != CFW_OK) {
-        goto fail;
-    }
-    if (cfw_strview_from_cstr(&pattern, "/") != CFW_OK ||
-        cfw_dispatch_add_route(&ctx->dispatch, CFW_HTTP_METHOD_GET, &pattern,
-                               cfw_fuzz_handler, NULL) != CFW_OK) {
-        goto fail;
-    }
-    if (cfw_strview_from_cstr(&pattern, "/users/:id") != CFW_OK ||
-        cfw_dispatch_add_route(&ctx->dispatch, CFW_HTTP_METHOD_GET, &pattern,
-                               cfw_fuzz_handler, NULL) != CFW_OK) {
-        goto fail;
-    }
-    return CFW_OK;
-
-fail:
-    cfw_arena_destroy(ctx->arena);
-    ctx->arena = NULL;
-    return CFW_ERROR_INTERNAL;
-}
-
-static void cfw_fuzz_dispatch_free(cfw_fuzz_dispatch_t *ctx)
-{
-    if (ctx->arena != NULL) {
-        cfw_arena_destroy(ctx->arena);
-        ctx->arena = NULL;
-    }
-}
-
-static void cfw_test_fuzz_one(const char *data, size_t len,
-                              const cfw_fuzz_dispatch_t *dispatch_ctx)
-{
-    cfw_strview_t view;
-    cfw_http_request_head_t head;
-    cfw_http_message_framing_t framing;
-    cfw_http_chunked_decoder_t decoder;
-    cfw_span_t span;
-    cfw_span_t output;
-    cfw_http1_server_options_t options;
-    cfw_http1_server_t server;
-    cfw_http1_event_t event;
-    size_t consumed;
-    cfw_status_t st;
-    int finished = 0;
-    int i;
-
-    view.data = data;
-    view.size = len;
-
-    /* Head parser must never crash; any status is acceptable. */
-    st = cfw_http_request_head_parse(&view, &head);
-
-    if (st == CFW_OK) {
-        /* Framing on a successfully parsed head. */
-        (void)cfw_http_request_framing(&head, &framing);
-
-        /* Dispatch pipeline on a successfully parsed head. */
-        if (dispatch_ctx != NULL) {
-            cfw_http_header_t res_headers[8];
-            cfw_route_param_t params[4];
-            cfw_response_t res;
-            cfw_span_t empty_body;
-
-            memset(&res, 0, sizeof(res));
-            res.headers = res_headers;
-            res.header_capacity = 8;
-            memset(&empty_body, 0, sizeof(empty_body));
-            (void)cfw_dispatch_request(&dispatch_ctx->dispatch, &head,
-                                       &empty_body, res_headers, 8,
-                                       params, 4, &res);
-        }
-    }
-
-    /* Chunked decoder over the raw bytes in one shot. */
-    cfw_http_chunked_decoder_init(&decoder);
-    cfw_span_init(&span, data, len);
-    for (i = 0; i < 64 && !finished; i++) {
-        st = cfw_http_chunked_decode(&decoder, &span, &output,
-                                     &consumed, &finished);
-        if (st != CFW_OK) {
-            break;
-        }
-        if (consumed == 0 && output.size == 0) {
-            break;
-        }
-        span.data += consumed;
-        span.size -= consumed;
-        if (span.size == 0) {
-            break;
-        }
-    }
-
-    /* Full server pipeline: feed everything, drain events. */
-    options.max_head_size = 8192;
-    options.max_body_size = 0;
-    options.max_pending_size = 1u << 20;
-    if (cfw_http1_server_init(&server, &options) == CFW_OK) {
-        cfw_span_init(&span, data, len);
-        (void)cfw_http1_server_feed(&server, &span);
-        for (i = 0; i < 256; i++) {
-            st = cfw_http1_server_next_event(&server, &event);
-            if (st != CFW_OK) {
-                break;
-            }
-        }
-        cfw_http1_server_free(&server);
-    }
-}
-
 static int test_http_fuzz_mutation(void)
 {
     enum { ITERS = 100000, CAP = 512 };
@@ -278,7 +133,7 @@ static int test_http_fuzz_mutation(void)
         }
         memcpy(buf, seed, len);
         len = cfw_test_mutate(buf, len, CAP);
-        cfw_test_fuzz_one(buf, len, &dispatch_ctx);
+        cfw_fuzz_http_one(buf, len, &dispatch_ctx);
     }
 
     cfw_fuzz_dispatch_free(&dispatch_ctx);
@@ -326,7 +181,7 @@ static int test_http_fuzz_corpus(void)
         if (got == 0) {
             continue;
         }
-        cfw_test_fuzz_one(buf, got, &dispatch_ctx);
+        cfw_fuzz_http_one(buf, got, &dispatch_ctx);
         files++;
     }
     closedir(dir);

@@ -35,6 +35,14 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   loopback TCP, and `test_server_run_and_drain` uses a `cfw_thread`
   stopper instead of `SIGALRM`. Windows CI now runs the full `ctest`
   suite in both `debug` and `debug-tls` presets.
+- Coverage-guided fuzzing (ADR 0077): new opt-in `CFW_ENABLE_FUZZING`
+  build option and `fuzz` CMake preset produce libFuzzer targets for
+  the HTTP pipeline, URI/query decoding, query pairs, and multipart
+  parsing (`tests/fuzz/fuzz_*.c`). The fuzz pipeline is shared with
+  the deterministic mutation fuzzer via `tests/fuzz/fuzz_support.[ch]`
+  so both exercise identical code; non-Clang toolchains build a
+  standalone corpus-replay driver instead. CI gains a `fuzz` job that
+  runs each target for 120 s against `tests/fuzz/corpus`.
 - TLS on Windows via OpenSSL 3 (ADR 0075): `CFW_ENABLE_TLS` is no
   longer refused on `WIN32`; `cfw_tls_*`, TLS listeners, TLS clients,
   and `wss://` work on Windows through the same OpenSSL backend as

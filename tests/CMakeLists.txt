@@ -55,6 +55,7 @@ add_executable(cfw_unit_tests
     unit/test_http1.c
     unit/test_http1_conn.c
     unit/test_http_fuzz.c
+    fuzz/fuzz_support.c
     unit/test_log.c
     unit/test_main.c
     unit/test_multipart.c
@@ -81,6 +82,7 @@ add_executable(cfw_unit_tests
 
 target_include_directories(cfw_unit_tests PRIVATE
     unit
+    fuzz
     ${CMAKE_SOURCE_DIR}/src/cfw
 )
 target_link_libraries(cfw_unit_tests PRIVATE cfw)
@@ -294,4 +296,50 @@ if(NOT CFW_ENABLE_SANITIZERS)
             -DPREFIX=${CMAKE_BINARY_DIR}/install-smoke
             -P ${CMAKE_CURRENT_SOURCE_DIR}/install_smoke.cmake
     )
+endif()
+
+# Coverage-guided fuzz targets (ADR 0077). Off by default: requires a
+# fuzzing-capable toolchain for the interesting mode. With Clang the
+# targets link libFuzzer (-fsanitize=fuzzer); other compilers build the
+# standalone corpus driver (fuzz_driver.c) so the same LLVMFuzzerTestOneInput
+# entry points still run under ASan/UBSan for corpus replay and manual
+# fuzzing.
+if(CFW_ENABLE_FUZZING)
+    set(_cfw_fuzz_targets http uri query multipart)
+    set(_cfw_fuzz_libfuzzer FALSE)
+    if(CMAKE_C_COMPILER_ID MATCHES "Clang")
+        set(_cfw_fuzz_libfuzzer TRUE)
+    endif()
+
+    foreach(_cfw_fuzz_t IN LISTS _cfw_fuzz_targets)
+        set(_cfw_fuzz_srcs fuzz/fuzz_${_cfw_fuzz_t}.c)
+        if(_cfw_fuzz_t STREQUAL "http")
+            list(APPEND _cfw_fuzz_srcs fuzz/fuzz_support.c)
+        endif()
+        if(NOT _cfw_fuzz_libfuzzer)
+            list(APPEND _cfw_fuzz_srcs fuzz/fuzz_driver.c)
+        endif()
+
+        add_executable(cfw_fuzz_${_cfw_fuzz_t} ${_cfw_fuzz_srcs})
+        target_include_directories(cfw_fuzz_${_cfw_fuzz_t} PRIVATE
+            fuzz
+            ${CMAKE_SOURCE_DIR}/src/cfw
+        )
+        target_link_libraries(cfw_fuzz_${_cfw_fuzz_t} PRIVATE cfw)
+
+        if(_cfw_fuzz_libfuzzer)
+            target_compile_options(cfw_fuzz_${_cfw_fuzz_t} PRIVATE
+                -fsanitize=fuzzer-no-link,address,undefined)
+            target_link_options(cfw_fuzz_${_cfw_fuzz_t} PRIVATE
+                -fsanitize=fuzzer,address,undefined)
+        elseif(MSVC)
+            target_compile_options(cfw_fuzz_${_cfw_fuzz_t} PRIVATE
+                /fsanitize=address)
+        else()
+            target_compile_options(cfw_fuzz_${_cfw_fuzz_t} PRIVATE
+                -fsanitize=address,undefined)
+            target_link_options(cfw_fuzz_${_cfw_fuzz_t} PRIVATE
+                -fsanitize=address,undefined)
+        endif()
+    endforeach()
 endif()

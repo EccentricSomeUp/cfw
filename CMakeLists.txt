@@ -25,6 +25,7 @@ option(CFW_ENABLE_WERROR "Treat compiler warnings as errors" ON)
 option(CFW_ENABLE_SANITIZERS "Enable address and undefined behavior sanitizers" OFF)
 option(CFW_ENABLE_HARDENING "Enable available platform hardening flags" ON)
 option(CFW_ENABLE_TLS "Build the optional OpenSSL-backed TLS module (ADR 0057)" OFF)
+option(CFW_ENABLE_FUZZING "Build coverage-guided fuzz targets (ADR 0077)" OFF)
 
 set(CFW_HAVE_TLS 0)
 if(CFW_ENABLE_TLS)

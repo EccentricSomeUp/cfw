@@ -12,6 +12,11 @@ The corpus complements — it does not replace — the deterministic mutation
 fuzzer (`http_fuzz_mutation`), which mutates embedded seeds with a
 fixed-seed PRNG.
 
+The same directory is also the seed corpus for the coverage-guided
+libFuzzer targets (`fuzz_http`, `fuzz_uri`, `fuzz_query`,
+`fuzz_multipart`; ADR 0077, built with `CFW_ENABLE_FUZZING=ON`).
+Crashes found by the fuzzer should be added here as regression seeds.
+
 When adding entries:
 
 - Use descriptive `NN-name.http` filenames so ordering and intent are clear.
