@@ -368,10 +368,15 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         }
     }
 
-    /* Drain briefly so close-handshake frames reach the client. */
+    /* Drain briefly so close-handshake frames reach the client. The
+     * server keeps the connection open waiting for the client's close
+     * frame (which never arrives), so bound the wait by idle time:
+     * 100 consecutive would-block polls (~40ms) is ample on loopback
+     * and keeps corpus replay fast. */
     {
         unsigned char drain[2048];
         int tries;
+        int idle = 0;
         for (tries = 0; tries < 5000; tries++) {
             size_t got = 0;
             cfw_status_t st =
@@ -381,6 +386,13 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
             }
             if (st == CFW_ERROR_IO) {
                 break;
+            }
+            if (st == CFW_ERROR_WOULDBLOCK) {
+                if (++idle >= 100) {
+                    break;
+                }
+            } else {
+                idle = 0;
             }
             cfw_test_sleep_us(400);
         }

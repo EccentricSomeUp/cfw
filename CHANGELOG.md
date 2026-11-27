@@ -27,6 +27,11 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   corpus replay no longer splats hundreds of paths onto the command
   line — the Windows replay job failed once the corpus outgrew the
   command-line length limit.
+- `cfw_fuzz_ws_server` bounds its post-input drain by idle polls
+  (~40ms) instead of a fixed 2s window: the server intentionally keeps
+  the connection open awaiting a client close frame, so corpus replay
+  spent ~186s per target run waiting. Replay time dropped ~21x with no
+  coverage loss.
 
 ## [0.13.1] - 2026-11-27
 
