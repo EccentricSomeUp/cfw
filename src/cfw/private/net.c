@@ -54,6 +54,9 @@ cfw_status_t cfw_net_local_addr(cfw_fd_t *f, cfw_sockaddr_t *a)
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#if CFW_HAVE_TCP_NODELAY
+#include <netinet/tcp.h>
+#endif
 #include <stdio.h>
 #include <sys/socket.h>
 #include <stdlib.h>
@@ -417,6 +420,16 @@ cfw_status_t cfw_net_accept(cfw_fd_t *fd, cfw_sockaddr_t *peer,
     }
 
     cfw_net_set_nosigpipe(raw);
+#if CFW_HAVE_TCP_NODELAY
+    /* Disable Nagle on TCP connections: HTTP request/response
+     * exchanges are small and latency-sensitive, and delayed-ACK
+     * interaction otherwise stalls every other segment. */
+    if (ss.ss_family == AF_INET || ss.ss_family == AF_INET6) {
+        int one = 1;
+        (void)setsockopt(raw, IPPROTO_TCP, TCP_NODELAY, &one,
+                         sizeof(one));
+    }
+#endif
     out->handle = raw;
     return CFW_OK;
 }

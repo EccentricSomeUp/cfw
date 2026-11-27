@@ -38,6 +38,10 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   drain the queue (`ERR_clear_error`) before each `SSL_*` call.
   Found via the new TLS benchmark mode; see
   `audits/2026-11-27-tls-error-queue-isolation-audit.md`.
+- Accepted TCP connections now set `TCP_NODELAY` (feature-probed via
+  `CFW_HAVE_TCP_NODELAY`), disabling Nagle's algorithm so small
+  request/response exchanges are not delayed by delayed-ACK
+  interaction.
 
 ## [0.7.0] - 2026-11-27
 

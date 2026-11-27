@@ -64,6 +64,7 @@ macro(cfw_detect_platform)
             MSG_DONTWAIT
             SO_NOSIGPIPE
             SO_REUSEPORT
+            TCP_NODELAY
             O_NOFOLLOW
             O_CLOEXEC
             OPENAT
@@ -199,6 +200,16 @@ int main(void)
         check_symbol_exists(openat "fcntl.h" CFW_CHECK_HAVE_OPENAT)
         check_symbol_exists(getaddrinfo "netdb.h"
                             CFW_CHECK_HAVE_GETADDRINFO)
+        check_c_source_compiles([==[
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+int main(void)
+{
+    int one = 1;
+    return setsockopt(0, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+}
+]==] CFW_CHECK_HAVE_TCP_NODELAY)
 
         check_c_source_compiles([==[
 #include <time.h>
@@ -254,6 +265,7 @@ int main(void)
             MSG_DONTWAIT
             SO_NOSIGPIPE
             SO_REUSEPORT
+            TCP_NODELAY
             O_NOFOLLOW
             O_CLOEXEC
             OPENAT
