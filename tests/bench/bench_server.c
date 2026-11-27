@@ -14,11 +14,16 @@
  * This is a manual measurement tool, not a pass/fail test; numbers are
  * only meaningful when comparing builds on the same machine.
  *
- * Usage: cfw_bench [requests] [warmup] [workers]
+ * Usage: cfw_bench [requests] [warmup] [workers] [tls]
  *   requests  measured exchanges per client (default 20000)
  *   warmup    unmeasured exchanges per client first (default 1000)
  *   workers   server threads / client threads (default 1; >1 requires
  *             SO_REUSEPORT)
+ *   tls       "tls" runs the same measurement over HTTPS; requires a
+ *             CFW_ENABLE_TLS build and CFW_BENCH_TLS_CERT /
+ *             CFW_BENCH_TLS_KEY (default server.crt/server.key).
+ *             Handshakes happen once per client before warmup, so the
+ *             numbers reflect steady-state TLS throughput.
  *
  * POSIX only (uses the private socket layer like the unit tests).
  */
@@ -66,6 +71,11 @@ typedef struct {
 } cfw_bench_client;
 
 static char cfw_bench_body[CFW_BENCH_BODY_SIZE];
+#if CFW_HAVE_TLS
+static int cfw_bench_use_tls = 0;
+static const char *cfw_bench_tls_cert = "server.crt";
+static const char *cfw_bench_tls_key = "server.key";
+#endif
 
 static cfw_status_t cfw_bench_handler(cfw_request_t *req,
                                       cfw_response_t *res, void *user)
@@ -85,9 +95,36 @@ static int cfw_bench_server_main(void *arg)
     return 0;
 }
 
+#if CFW_HAVE_TLS
+/* Sends the bench request through the TLS conn (the socket is
+ * blocking, so writes complete without polling). */
+static int cfw_bench_tls_send(cfw_tls_conn_t *conn)
+{
+    const char *p = CFW_BENCH_REQUEST;
+    size_t left = sizeof(CFW_BENCH_REQUEST) - 1;
+
+    while (left > 0) {
+        size_t done = 0;
+        cfw_status_t st = cfw_tls_write(conn, p, left, &done);
+        if (st == CFW_OK) {
+            if (done == 0) {
+                return -1;
+            }
+            p += done;
+            left -= done;
+        } else if (st != CFW_ERROR_WOULDBLOCK) {
+            return -1;
+        }
+    }
+    return 0;
+}
+#endif
+
 /* Sends one request and reads exactly one full response (head +
- * declared body). Returns response bytes on success, -1 on error. */
-static long cfw_bench_exchange(cfw_fd_t *client, size_t *response_bytes)
+ * declared body). `tls` is NULL for cleartext. Returns response
+ * bytes on success, -1 on error. */
+static long cfw_bench_exchange(cfw_fd_t *client, cfw_tls_conn_t *tls,
+                               size_t *response_bytes)
 {
     char buffer[8192];
     size_t used = 0;
@@ -96,6 +133,9 @@ static long cfw_bench_exchange(cfw_fd_t *client, size_t *response_bytes)
     int have_cl = 0;
     struct timeval tv;
 
+#if !CFW_HAVE_TLS
+    (void)tls;
+#endif
     tv.tv_sec = 10;
     tv.tv_usec = 0;
     (void)setsockopt((int)cfw_fd_get(client), SOL_SOCKET, SO_RCVTIMEO,
@@ -108,10 +148,30 @@ static long cfw_bench_exchange(cfw_fd_t *client, size_t *response_bytes)
         if (used + 1 >= sizeof(buffer)) {
             return -1;
         }
-        n = recv((int)cfw_fd_get(client), buffer + used,
-                 sizeof(buffer) - used - 1, 0);
-        if (n <= 0) {
-            return -1;
+#if CFW_HAVE_TLS
+        if (tls != NULL) {
+            size_t done = 0;
+            cfw_status_t st = cfw_tls_read(tls, buffer + used,
+                                           sizeof(buffer) - used - 1,
+                                           &done);
+            if (st == CFW_OK) {
+                if (done == 0) {
+                    return -1;
+                }
+                n = (ssize_t)done;
+            } else if (st == CFW_ERROR_WOULDBLOCK) {
+                continue;
+            } else {
+                return -1;
+            }
+        } else
+#endif
+        {
+            n = recv((int)cfw_fd_get(client), buffer + used,
+                     sizeof(buffer) - used - 1, 0);
+            if (n <= 0) {
+                return -1;
+            }
         }
         used += (size_t)n;
         buffer[used] = '\0';
@@ -162,18 +222,58 @@ static int cfw_bench_client_main(void *arg)
     cfw_timepoint_t end;
     cfw_duration_t elapsed;
     int abort = 0;
+#if CFW_HAVE_TLS
+    cfw_tls_ctx_t *tls_ctx = NULL;
+    cfw_tls_conn_t *tls = NULL;
+#endif
 
     cfw_fd_init(&client);
     if (cfw_bench_client_connect(c, &client) != 0) {
         c->failed = 1;
         goto out;
     }
+#if CFW_HAVE_TLS
+    if (cfw_bench_use_tls) {
+        cfw_tls_ctx_options_t topt;
+        memset(&topt, 0, sizeof(topt));
+        topt.role = CFW_TLS_CLIENT;
+        if (cfw_tls_ctx_create(&topt, &tls_ctx) != CFW_OK ||
+            cfw_tls_conn_create(tls_ctx, cfw_fd_get(&client),
+                                &tls) != CFW_OK) {
+            c->failed = 1;
+            goto out_close;
+        }
+        for (i = 0; i < 100000; i++) {
+            cfw_status_t st = cfw_tls_handshake(tls);
+            if (st == CFW_OK) {
+                break;
+            }
+            if (st != CFW_ERROR_WOULDBLOCK) {
+                c->failed = 1;
+                goto out_close;
+            }
+        }
+        if (i >= 100000 || !cfw_tls_handshake_done(tls)) {
+            c->failed = 1;
+            goto out_close;
+        }
+    }
+#endif
     for (i = 0; i < c->warmup; i++) {
         size_t rb = 0;
+#if CFW_HAVE_TLS
+        if (cfw_bench_use_tls && tls != NULL) {
+            if (cfw_bench_tls_send(tls) != 0 ||
+                cfw_bench_exchange(&client, tls, &rb) < 0) {
+                c->failed = 1;
+                goto out_close;
+            }
+        } else
+#endif
         if (send((int)cfw_fd_get(&client), CFW_BENCH_REQUEST,
                  sizeof(CFW_BENCH_REQUEST) - 1, 0) !=
                 (ssize_t)(sizeof(CFW_BENCH_REQUEST) - 1) ||
-            cfw_bench_exchange(&client, &rb) < 0) {
+            cfw_bench_exchange(&client, NULL, &rb) < 0) {
             c->failed = 1;
             goto out_close;
         }
@@ -199,10 +299,19 @@ static int cfw_bench_client_main(void *arg)
     }
     for (i = 0; i < c->requests; i++) {
         size_t rb = 0;
+#if CFW_HAVE_TLS
+        if (cfw_bench_use_tls && tls != NULL) {
+            if (cfw_bench_tls_send(tls) != 0 ||
+                cfw_bench_exchange(&client, tls, &rb) < 0) {
+                c->failed = 1;
+                break;
+            }
+        } else
+#endif
         if (send((int)cfw_fd_get(&client), CFW_BENCH_REQUEST,
                  sizeof(CFW_BENCH_REQUEST) - 1, 0) !=
                 (ssize_t)(sizeof(CFW_BENCH_REQUEST) - 1) ||
-            cfw_bench_exchange(&client, &rb) < 0) {
+            cfw_bench_exchange(&client, NULL, &rb) < 0) {
             c->failed = 1;
             break;
         }
@@ -215,6 +324,14 @@ static int cfw_bench_client_main(void *arg)
     }
 
 out_close:
+#if CFW_HAVE_TLS
+    if (tls != NULL) {
+        cfw_tls_conn_destroy(tls);
+    }
+    if (tls_ctx != NULL) {
+        cfw_tls_ctx_destroy(tls_ctx);
+    }
+#endif
     if (cfw_fd_valid(&client)) {
         cfw_fd_close(&client);
     }
@@ -234,6 +351,9 @@ int main(int argc, char **argv)
     long requests = argc > 1 ? atol(argv[1]) : 20000;
     long warmup = argc > 2 ? atol(argv[2]) : 1000;
     int workers = argc > 3 ? atoi(argv[3]) : 1;
+#if CFW_HAVE_TLS
+    cfw_tls_ctx_t *tls_ctx = NULL;
+#endif
     cfw_arena_t *arena;
     cfw_router_t router;
     cfw_dispatch_t dispatch;
@@ -256,11 +376,41 @@ int main(int argc, char **argv)
     int servers_inited = 0;
 
     if (requests <= 0 || workers < 1 || workers > CFW_BENCH_MAX_WORKERS) {
-        fprintf(stderr, "usage: cfw_bench [requests] [warmup] [workers]\n"
+        fprintf(stderr, "usage: cfw_bench [requests] [warmup] [workers] "
+                        "[tls]\n"
                         "  requests > 0, workers in 1..%d\n",
                 CFW_BENCH_MAX_WORKERS);
         return 1;
     }
+#if CFW_HAVE_TLS
+    if (argc > 4 && strcmp(argv[4], "tls") == 0) {
+        cfw_tls_ctx_options_t topt;
+        const char *cert = getenv("CFW_BENCH_TLS_CERT");
+        const char *key = getenv("CFW_BENCH_TLS_KEY");
+        cfw_bench_use_tls = 1;
+        cfw_bench_tls_cert = cert != NULL ? cert : "server.crt";
+        cfw_bench_tls_key = key != NULL ? key : "server.key";
+        memset(&topt, 0, sizeof(topt));
+        topt.role = CFW_TLS_SERVER;
+        topt.cert_file = cfw_bench_tls_cert;
+        topt.key_file = cfw_bench_tls_key;
+        if (cfw_tls_ctx_create(&topt, &tls_ctx) != CFW_OK) {
+            fprintf(stderr, "cfw_bench: cannot load TLS cert/key "
+                            "(%s, %s); set CFW_BENCH_TLS_CERT/KEY\n",
+                    cfw_bench_tls_cert, cfw_bench_tls_key);
+            return 1;
+        }
+    } else if (argc > 4) {
+        fprintf(stderr, "cfw_bench: unknown mode '%s'\n", argv[4]);
+        return 1;
+    }
+#else
+    if (argc > 4) {
+        fprintf(stderr, "cfw_bench: TLS mode requires a "
+                        "CFW_ENABLE_TLS build\n");
+        return 1;
+    }
+#endif
     memset(cfw_bench_body, 'x', sizeof(cfw_bench_body));
     memset(&gate, 0, sizeof(gate));
     if (cfw_mutex_init(&gate.mutex) != CFW_OK ||
@@ -301,6 +451,9 @@ int main(int argc, char **argv)
         sopt.max_headers = 32;
         sopt.max_params = 16;
         sopt.reuse_port = workers > 1 ? 1 : 0;
+#if CFW_HAVE_TLS
+        sopt.tls_ctx = tls_ctx;
+#endif
         if (cfw_server_init(&servers[i], &sopt) != CFW_OK) {
             fprintf(stderr, "server %d init failed\n", i);
             goto fail_servers;
@@ -372,6 +525,9 @@ int main(int argc, char **argv)
     }
 
     printf("workers:       %d\n", workers);
+#if CFW_HAVE_TLS
+    printf("tls:           %s\n", cfw_bench_use_tls ? "on" : "off");
+#endif
     printf("requests:      %ld (total %ld)\n", requests, total_reqs);
     printf("seconds:       %.3f\n", (double)wall_ns / 1e9);
     printf("req/s:         %.0f\n",
@@ -393,6 +549,11 @@ int main(int argc, char **argv)
     cfw_mutex_destroy(&gate.mutex);
     cfw_cond_destroy(&gate.cond);
     cfw_arena_destroy(arena);
+#if CFW_HAVE_TLS
+    if (tls_ctx != NULL) {
+        cfw_tls_ctx_destroy(tls_ctx);
+    }
+#endif
     return 0;
 
 fail_clients:
@@ -421,5 +582,10 @@ fail_arena:
 fail_gate:
     cfw_cond_destroy(&gate.cond);
     cfw_mutex_destroy(&gate.mutex);
+#if CFW_HAVE_TLS
+    if (tls_ctx != NULL) {
+        cfw_tls_ctx_destroy(tls_ctx);
+    }
+#endif
     return 1;
 }

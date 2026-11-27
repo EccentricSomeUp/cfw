@@ -898,6 +898,124 @@ static int test_tls_session_resumption(void)
     return rc;
 }
 
+/* OpenSSL's error queue is per-thread: errors left by one connection
+ * (e.g. an abrupt peer close) must not be inherited by the next
+ * connection serviced on the same thread — a stale queue entry makes
+ * SSL_get_error report SSL_ERROR_SSL for unrelated transient results
+ * and kills healthy connections. Regression test for the
+ * ERR_clear_error hygiene in tls.c. */
+/* Variant of tls_pair that reports the borrowed fds so several
+ * pairs can coexist in one test. */
+static int tls_pair_tracked(cfw_tls_ctx_t *sctx, cfw_tls_ctx_t *cctx,
+                            cfw_tls_conn_t **server_out,
+                            cfw_tls_conn_t **client_out,
+                            int fds_out[2])
+{
+    int fds[2];
+    cfw_tls_conn_t *server;
+    cfw_tls_conn_t *client;
+    int flags;
+    cfw_status_t st;
+
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0) {
+        return 1;
+    }
+    flags = fcntl(fds[0], F_GETFL, 0);
+    (void)fcntl(fds[0], F_SETFL, flags | O_NONBLOCK);
+    flags = fcntl(fds[1], F_GETFL, 0);
+    (void)fcntl(fds[1], F_SETFL, flags | O_NONBLOCK);
+
+    st = cfw_tls_conn_create(sctx, fds[0], &server);
+    if (st != CFW_OK) {
+        close(fds[0]);
+        close(fds[1]);
+        return 1;
+    }
+    st = cfw_tls_conn_create(cctx, fds[1], &client);
+    if (st != CFW_OK) {
+        cfw_tls_conn_destroy(server);
+        close(fds[0]);
+        close(fds[1]);
+        return 1;
+    }
+
+    fds_out[0] = fds[0];
+    fds_out[1] = fds[1];
+    *server_out = server;
+    *client_out = client;
+    return 0;
+}
+
+static void tls_pair_tracked_teardown(cfw_tls_conn_t *server,
+                                      cfw_tls_conn_t *client,
+                                      const int fds[2])
+{
+    cfw_tls_conn_destroy(server);
+    cfw_tls_conn_destroy(client);
+    if (fds[0] >= 0) {
+        close(fds[0]);
+    }
+    if (fds[1] >= 0) {
+        close(fds[1]);
+    }
+}
+
+static int test_tls_error_queue_isolation(void)
+{
+    cfw_tls_ctx_t *sctx = NULL;
+    cfw_tls_ctx_t *cctx = NULL;
+    cfw_tls_conn_t *server = NULL;
+    cfw_tls_conn_t *client = NULL;
+    cfw_tls_conn_t *server2 = NULL;
+    cfw_tls_conn_t *client2 = NULL;
+    int fds1[2] = {-1, -1};
+    int fds2[2] = {-1, -1};
+    unsigned char buf[8];
+    size_t done = 0;
+    cfw_status_t st;
+    int rc = 1;
+
+    CFW_TEST_ASSERT(tls_ctx_server(&sctx) == 0);
+    CFW_TEST_ASSERT(tls_ctx_client_alpn(NULL, &cctx) == 0);
+
+    /* Two connections on the same thread, both handshaked while the
+     * error queue is clean. */
+    CFW_TEST_ASSERT(tls_pair_tracked(sctx, cctx, &server, &client,
+                                     fds1) == 0);
+    CFW_TEST_ASSERT(tls_drive(server, client) == 0);
+    CFW_TEST_ASSERT(tls_pair_tracked(sctx, cctx, &server2, &client2,
+                                     fds2) == 0);
+    CFW_TEST_ASSERT(tls_drive(server2, client2) == 0);
+
+    /* Connection 1's client vanishes without close_notify; the
+     * server's SSL_read records a genuine TLS error (unexpected eof)
+     * in this thread's error queue. */
+    cfw_tls_conn_destroy(client);
+    client = NULL;
+    close(fds1[1]);
+    fds1[1] = -1;
+    st = cfw_tls_read(server, buf, sizeof(buf), &done);
+    CFW_TEST_ASSERT(st == CFW_ERROR_IO);
+    cfw_tls_conn_destroy(server);
+    server = NULL;
+    close(fds1[0]);
+    fds1[0] = -1;
+
+    /* Connection 2's client read must not inherit the stale queued
+     * error. TLS 1.3 session tickets arrive post-handshake; the
+     * client's SSL_read consumes them and then reports
+     * WOULDBLOCK for app data — not IO from the stale queue. */
+    done = 1;
+    st = cfw_tls_read(client2, buf, sizeof(buf), &done);
+    CFW_TEST_ASSERT(st == CFW_ERROR_WOULDBLOCK);
+    rc = 0;
+
+    tls_pair_tracked_teardown(server2, client2, fds2);
+    cfw_tls_ctx_destroy(sctx);
+    cfw_tls_ctx_destroy(cctx);
+    return rc;
+}
+
 #endif /* CFW_HAVE_TLS */
 
 const cfw_test_case cfw_test_tls_cases[] = {
@@ -917,6 +1035,7 @@ const cfw_test_case cfw_test_tls_cases[] = {
     {"tls_alpn_server_only", test_tls_alpn_server_only},
     {"tls_alpn_invalid_args", test_tls_alpn_invalid_args},
     {"tls_session_resumption", test_tls_session_resumption},
+    {"tls_error_queue_isolation", test_tls_error_queue_isolation},
 #endif
     {NULL, NULL},
 };

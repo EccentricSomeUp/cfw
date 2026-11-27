@@ -22,6 +22,22 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   ALPN-aware routing via `cfw_tls_conn_alpn`, and session-reuse
   telemetry. Supplied through
   `cfw_dispatch_request_info_t.tls_conn`.
+- HTTPS benchmarking: `cfw_bench` accepts a `tls` mode
+  (`cfw_bench [requests] [warmup] [workers] tls`) that runs the same
+  keep-alive measurement over TLS. Requires a `CFW_ENABLE_TLS` build
+  and `CFW_BENCH_TLS_CERT`/`CFW_BENCH_TLS_KEY` (default
+  `server.crt`/`server.key`).
+
+### Fixed
+
+- TLS connections no longer die spuriously under multi-threaded
+  serving: OpenSSL's error queue is per-thread, so errors left by one
+  connection's teardown could make `SSL_get_error` report
+  `SSL_ERROR_SSL` for unrelated transient results on the next
+  connection serviced by the same thread. `cfw_tls_*` operations now
+  drain the queue (`ERR_clear_error`) before each `SSL_*` call.
+  Found via the new TLS benchmark mode; see
+  `audits/2026-11-27-tls-error-queue-isolation-audit.md`.
 
 ## [0.7.0] - 2026-11-27
 

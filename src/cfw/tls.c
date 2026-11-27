@@ -349,6 +349,12 @@ cfw_status_t cfw_tls_handshake(cfw_tls_conn_t *conn)
         cfw_tls_clear_want(conn);
         return CFW_OK;
     }
+    /* OpenSSL's error queue is per-thread, not per-SSL: stale errors
+     * left by earlier operations (including other connections on this
+     * thread) make SSL_get_error report SSL_ERROR_SSL for unrelated
+     * transient results. Drain it so each call classifies only its
+     * own outcome. */
+    ERR_clear_error();
     ret = SSL_do_handshake(conn->ssl);
     if (ret == 1) {
         cfw_tls_clear_want(conn);
@@ -373,6 +379,7 @@ cfw_status_t cfw_tls_read(cfw_tls_conn_t *conn, void *buf, size_t size,
         return CFW_ERROR_INVALID_ARGUMENT;
     }
 
+    ERR_clear_error();
     ret = SSL_read(conn->ssl, buf, (int)size);
     if (ret > 0) {
         *done = (size_t)ret;
@@ -406,6 +413,7 @@ cfw_status_t cfw_tls_write(cfw_tls_conn_t *conn, const void *data,
         return CFW_ERROR_INVALID_ARGUMENT;
     }
 
+    ERR_clear_error();
     ret = SSL_write(conn->ssl, data, (int)size);
     if (ret > 0) {
         *done = (size_t)ret;
@@ -427,6 +435,7 @@ cfw_status_t cfw_tls_shutdown(cfw_tls_conn_t *conn)
         conn->fd < 0) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
+    ERR_clear_error();
     ret = SSL_shutdown(conn->ssl);
     if (ret == 1) {
         cfw_tls_clear_want(conn);
