@@ -405,6 +405,36 @@ static int test_ws_client_bad_options(void)
     opts.header_count = 1;
     CFW_TEST_ASSERT_EQ(cfw_ws_client_connect(&opts, &ws),
                        CFW_ERROR_INVALID_ARGUMENT);
+    opts.header_count = 0;
+
+    /* Request targets with SP/CTL bytes are rejected (they would
+     * inject into the request line). */
+    opts.path = "/ws room";
+    CFW_TEST_ASSERT_EQ(cfw_ws_client_connect(&opts, &ws),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    opts.path = "/ws\r\nX-Injected: yes";
+    CFW_TEST_ASSERT_EQ(cfw_ws_client_connect(&opts, &ws),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    opts.path = "/ws?room=1&x=%20";
+
+    /* Caller headers must satisfy the HTTP field grammar: token
+     * names and CTL-free values. */
+    cfw_strview_from_cstr(&hn, "Bad Header");
+    cfw_strview_from_cstr(&hv, "v");
+    hdr.name = hn;
+    hdr.value = hv;
+    opts.headers = &hdr;
+    opts.header_count = 1;
+    CFW_TEST_ASSERT_EQ(cfw_ws_client_connect(&opts, &ws),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    cfw_strview_from_cstr(&hn, "X-Ok");
+    hdr.name = hn;
+    cfw_strview_from_cstr(&hv, "a\r\nb: c");
+    hdr.value = hv;
+    CFW_TEST_ASSERT_EQ(cfw_ws_client_connect(&opts, &ws),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    opts.headers = NULL;
+    opts.header_count = 0;
     return 0;
 }
 

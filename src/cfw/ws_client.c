@@ -2,6 +2,7 @@
 
 #include <cfw/ws_client.h>
 
+#include "private/http_fields.h"
 #include "private/platform_detect.h"
 #include "private/ws_proto.h"
 
@@ -986,7 +987,7 @@ static cfw_status_t cfw_wsc_handshake_request(
     for (i = 0; i < options->header_count; i++) {
         const cfw_http_header_t *h = &options->headers[i];
         if (h->name.data == NULL || h->name.size == 0 ||
-            h->value.data == NULL) {
+            (h->value.size != 0 && h->value.data == NULL)) {
             return CFW_ERROR_INVALID_ARGUMENT;
         }
         st = cfw_buffer_append(out, h->name.data, h->name.size);
@@ -1047,8 +1048,24 @@ cfw_status_t cfw_ws_client_connect(
     }
     {
         size_t i;
+        const unsigned char *p;
+        /* The request target is emitted verbatim into the request
+         * line; apply the same grammar cfw_http_request_head_format
+         * enforces so path cannot inject SP/CTL bytes. */
+        for (p = (const unsigned char *)options->path; *p != '\0';
+             p++) {
+            if (*p <= 0x20 || *p == 0x7F) {
+                return CFW_ERROR_INVALID_ARGUMENT;
+            }
+        }
         for (i = 0; i < options->header_count; i++) {
-            if (cfw_wsc_name_forbidden(&options->headers[i].name)) {
+            const cfw_http_header_t *h = &options->headers[i];
+            if (cfw_wsc_name_forbidden(&h->name) ||
+                h->name.data == NULL ||
+                !cfw_http_field_name_valid(&h->name) ||
+                (h->value.size != 0 && h->value.data == NULL) ||
+                !cfw_http_field_value_valid(h->value.data,
+                                            h->value.size)) {
                 return CFW_ERROR_INVALID_ARGUMENT;
             }
         }
@@ -1389,6 +1406,11 @@ cfw_status_t cfw_ws_client_send_close(cfw_ws_client_t *ws,
 
     if (ws == NULL || ws->closed || reason == NULL) {
         return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    /* Fresh per-call deadline, matching cfw_ws_client_send. */
+    st = cfw_wsc_set_deadline(ws, &ws->io_timeout);
+    if (st != CFW_OK) {
+        return st;
     }
     if (status != 0) {
         if (!cfw_ws_close_status_ok(status) ||

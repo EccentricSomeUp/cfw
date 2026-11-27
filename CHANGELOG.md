@@ -9,6 +9,17 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ## [Unreleased]
 
+### Fixed
+
+- `cfw_ws_client_connect` now validates the request target and caller
+  header grammar before emitting the Upgrade request: paths containing
+  SP/CTL bytes and header names/values violating the HTTP field
+  grammar are rejected with `CFW_ERROR_INVALID_ARGUMENT` instead of
+  producing a malformed (or injectable) request line.
+- `cfw_ws_client_send_close` now arms the per-call I/O deadline like
+  every other send entry point; previously it inherited a stale or
+  infinite pump deadline.
+
 ## [0.11.0] - 2026-11-27
 
 ### Added

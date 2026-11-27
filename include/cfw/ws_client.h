@@ -60,11 +60,13 @@ typedef struct {
     const char *host;
     /* Server port. Required, nonzero. */
     uint16_t port;
-    /* Request target: must start with '/' (e.g. "/ws?room=1").
-     * Required. */
+    /* Request target: must start with '/' and satisfy the HTTP
+     * request-target grammar (no SP/CTL bytes), e.g.
+     * "/ws?room=1". Required. */
     const char *path;
     /* Additional request headers (e.g. Cookie or Authorization).
-     * Framework-managed names are rejected: host, connection,
+     * Names must be HTTP tokens and values must satisfy the field
+     * grammar; framework-managed names are rejected: host, connection,
      * upgrade, transfer-encoding, keep-alive, te, trailer,
      * proxy-*, and every sec-websocket-* header. May be NULL. */
     const cfw_http_header_t *headers;
@@ -103,7 +105,7 @@ CFW_API int cfw_ws_client_is_closed(const cfw_ws_client_t *ws);
 /* Sends one data or control message. Data opcodes (TEXT/BINARY) may
  * exceed the frame size and are fragmented automatically; PING/PONG
  * payloads are limited to 125 bytes. CLOSE sends a close frame —
- * optionally carrying a status via cfw_ws_client_send_close_status —
+ * optionally carrying a status via cfw_ws_client_send_close —
  * and begins the closing handshake. Returns
  * CFW_ERROR_INVALID_ARGUMENT for a bad opcode/oversized control
  * payload/NULL arguments/closed connection, CFW_ERROR_TIMEOUT or

@@ -47,6 +47,8 @@
 | WC-002 | low | src/cfw/ws_client.c `cfw_ws_client_send` | Public send path did not arm a fresh deadline, inheriting a stale/expired pump deadline for its bounded write. | fixed before commit (`cfw_wsc_set_deadline` per call) |
 | WC-003 | info | src/cfw/ws_client.c `cfw_wsc_handshake_request` | Request target and Host header are length-capped (~640 bytes) and rejected rather than truncated when exceeded. | accepted (documented bound) |
 | WC-004 | info | include/cfw/ws_client.h | Blocking `getaddrinfo` is not covered by `timeout`, matching the `cfw_http_client` contract. | accepted (documented) |
+| WC-005 | medium | src/cfw/ws_client.c `cfw_wsc_handshake_request` | Request target and caller header name/value were emitted verbatim; SP/CTL bytes in `path` or CR/LF in header fields could inject into the Upgrade request. | fixed post-release (`cfw_http_request_head_format` grammar applied via shared `private/http_fields.h` helpers; rejected with `CFW_ERROR_INVALID_ARGUMENT`) |
+| WC-006 | low | src/cfw/ws_client.c `cfw_ws_client_send_close` | Unlike `cfw_ws_client_send`, it did not arm a fresh per-call deadline, inheriting a stale or infinite pump deadline for its bounded write. | fixed post-release (`cfw_wsc_set_deadline` per call) |
 
 No memory-safety, UTF-8, fragmentation, or close-handshake defects
 found; sanitizer presets are clean including the new suite.

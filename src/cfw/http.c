@@ -3,6 +3,8 @@
 #include <cfw/http.h>
 #include <cfw/time.h>
 
+#include "private/http_fields.h"
+
 #include <stdio.h>
 #include <string.h>
 
@@ -275,7 +277,7 @@ cfw_status_t cfw_http_status_parse(uint32_t code, cfw_http_status_t *status)
 /* Header block parsing                                                */
 /* ------------------------------------------------------------------ */
 
-static int cfw_http_is_tchar(unsigned char c)
+int cfw_http_is_tchar(unsigned char c)
 {
     if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
         (c >= '0' && c <= '9')) {
@@ -289,7 +291,7 @@ static int cfw_http_is_ows(unsigned char c)
     return c == ' ' || c == '\t';
 }
 
-static int cfw_http_field_value_valid(const char *data, size_t size)
+int cfw_http_field_value_valid(const char *data, size_t size)
 {
     size_t i;
     for (i = 0; i < size; i++) {
@@ -1249,7 +1251,7 @@ cfw_status_t cfw_http_status_line_format(const cfw_http_version_t *version,
     return CFW_OK;
 }
 
-static int cfw_http_field_name_valid(const cfw_strview_t *name)
+int cfw_http_field_name_valid(const cfw_strview_t *name)
 {
     size_t i;
     if (name->size == 0) {
