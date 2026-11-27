@@ -16,6 +16,10 @@ include(cmake/cfw_platform_detection.cmake)
 
 cfw_detect_platform()
 
+# Stable ABI lineage, exposed via CFW_ABI_VERSION / cfw_get_abi_version().
+# 1 denotes the ABI frozen at the 1.0.0 release; bump only when a
+# breaking ABI change ships (always a MAJOR release). See
+# docs/api-stability.md.
 set(CFW_ABI_VERSION 1 CACHE STRING "Stable public ABI version")
 
 option(CFW_BUILD_TESTING "Build the cfw test suite" ON)

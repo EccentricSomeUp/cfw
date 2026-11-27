@@ -26,6 +26,9 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 - `docs/security/process.md` requires audit records touching
   standard-covered areas to name the standard version and selected
   requirement subset.
+- `docs/api-stability.md` now defines the `CFW_ABI_VERSION` semantics:
+  value 1 is the ABI frozen at 1.0.0, incremented only on breaking ABI
+  changes (always MAJOR releases), never decremented or reused.
 
 ### Changed
 

@@ -14,6 +14,25 @@ in tagged `0.x.y` releases. The freeze applies only when `1.0.0` is tagged:
 semantic versioning then governs, and breaking changes require a major
 version and a migration note in `CHANGELOG.md`.
 
+## ABI versioning
+
+`CFW_ABI_VERSION` (exposed as the `CFW_ABI_VERSION` macro in
+`cfw_config.h` and `cfw_get_abi_version()`) identifies the stable ABI
+lineage independently of the project version. Its value is **1** for the
+ABI frozen at `1.0.0` — the first stable ABI. Rules:
+
+- It increments only when a release ships a breaking ABI change
+  (struct layout, calling convention, or symbol removal). Such releases
+  are always MAJOR per SemVer, so the ABI version tracks the project
+  major version in practice, but the counters are independent: a
+  hypothetical ABI break shipped as `2.0.0` yields ABI version 2.
+- It is never decremented or reused. Consumers may gate code on
+  `CFW_ABI_VERSION` at compile time or `cfw_get_abi_version()` at
+  runtime.
+- Shared-library `SOVERSION` follows `PROJECT_VERSION_MAJOR`, which
+  coincides with the ABI version because both move only on MAJOR
+  releases.
+
 ## Review findings (Phase 7)
 
 - Public structs (`cfw_router_t`, `cfw_dispatch_t`, `cfw_server_t`,
