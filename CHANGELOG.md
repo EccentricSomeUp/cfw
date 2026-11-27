@@ -38,6 +38,11 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 - `debug-tls` CMake preset exercising the TLS module; TLS unit tests
   generate their CA/server/client certificates into the build tree at
   configure time (no key material committed).
+- Base64url codec variant (ADR 0059): `cfw_base64url_encode`/
+  `cfw_base64url_decode`/`cfw_base64url_encode_bound` implement RFC
+  4648 section 5 for URL-safe tokens — unpadded canonical encoding,
+  decoding that accepts unpadded or canonically padded input with
+  the same strictness as the standard base64 decoder.
 - `cfw_example_tls_server` example demonstrating `tls_ctx` HTTPS
   serving; compiles in all builds and reports a clear message when
   TLS support is not enabled.

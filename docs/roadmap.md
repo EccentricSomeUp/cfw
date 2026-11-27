@@ -27,8 +27,8 @@ tests.
 ## Phase 2: Platform abstraction
 
 - [x] Platform capability detection
-- [x] Socket, poll/epoll/kqueue/IOCP abstraction design (epoll + poll
-  implemented internally; kqueue/IOCP designed, pending backends)
+- [x] Socket, poll/epoll/kqueue/IOCP abstraction design (epoll, kqueue,
+  and poll implemented internally — ADR 0052; IOCP designed, pending)
 - [x] File descriptor/handle ownership rules
 - [x] Threading, mutex, and condition-variable primitives — met
   (`cfw/sync.h` mutex/condvar, ADR 0050; `cfw/thread.h` spawn/join/

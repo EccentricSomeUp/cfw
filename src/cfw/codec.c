@@ -11,7 +11,10 @@
 static const char cfw_b64_alphabet[] =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-/* Returns the sextet value of c, or -1 when c is not in the alphabet. */
+static const char cfw_b64url_alphabet[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+/* Returns the sextet value of c under the standard alphabet, or -1. */
 static int cfw_b64_value(unsigned char c)
 {
     if (c >= 'A' && c <= 'Z') {
@@ -32,18 +35,59 @@ static int cfw_b64_value(unsigned char c)
     return -1;
 }
 
-size_t cfw_base64_encode_bound(size_t data_size)
+/* Same as cfw_b64_value but for the RFC 4648 section 5 alphabet. */
+static int cfw_b64url_value(unsigned char c)
 {
-    /* 4*ceil(n/3) encoded chars + NUL. The conservative bound keeps
-     * both the +2 grouping and the *4 scaling far from SIZE_MAX. */
+    if (c >= 'A' && c <= 'Z') {
+        return c - 'A';
+    }
+    if (c >= 'a' && c <= 'z') {
+        return c - 'a' + 26;
+    }
+    if (c >= '0' && c <= '9') {
+        return c - '0' + 52;
+    }
+    if (c == '-') {
+        return 62;
+    }
+    if (c == '_') {
+        return 63;
+    }
+    return -1;
+}
+
+/* Required `cap` (encoded chars + NUL) for `data_size` bytes.
+ * padding=0 emits the unpadded RFC 4648 section 5 form. */
+static size_t cfw_b64_bound(size_t data_size, int padding)
+{
+    size_t rem;
     if (data_size > ((SIZE_MAX - 1u) / 4u) * 3u) {
         return SIZE_MAX;
     }
-    return ((data_size + 2u) / 3u) * 4u + 1u;
+    if (padding) {
+        return ((data_size + 2u) / 3u) * 4u + 1u;
+    }
+    rem = data_size % 3u;
+    return (data_size / 3u) * 4u + (rem == 0u ? 0u : rem + 1u) + 1u;
 }
 
-cfw_status_t cfw_base64_encode(const void *data, size_t data_size,
-                               char *out, size_t cap, size_t *written)
+size_t cfw_base64_encode_bound(size_t data_size)
+{
+    return cfw_b64_bound(data_size, 1);
+}
+
+size_t cfw_base64url_encode_bound(size_t data_size)
+{
+    return cfw_b64_bound(data_size, 0);
+}
+
+/* Shared encoder: `alphabet` selects the sextet mapping and `padding`
+ * controls whether the final partial group is '='-padded. */
+static cfw_status_t cfw_b64_encode_impl(const void *data,
+                                        size_t data_size, char *out,
+                                        size_t cap, size_t *written,
+                                        const char *alphabet,
+                                        int padding)
 {
     const unsigned char *p = (const unsigned char *)data;
     size_t need;
@@ -53,17 +97,17 @@ cfw_status_t cfw_base64_encode(const void *data, size_t data_size,
     if (out == NULL || (data_size != 0 && data == NULL)) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
-    need = cfw_base64_encode_bound(data_size);
+    need = cfw_b64_bound(data_size, padding);
     if (need == SIZE_MAX || cap < need) {
         return CFW_ERROR_OVERFLOW;
     }
     while (i + 3u <= data_size) {
         uint32_t t = ((uint32_t)p[i] << 16) | ((uint32_t)p[i + 1] << 8) |
                      (uint32_t)p[i + 2];
-        out[o++] = cfw_b64_alphabet[(t >> 18) & 63u];
-        out[o++] = cfw_b64_alphabet[(t >> 12) & 63u];
-        out[o++] = cfw_b64_alphabet[(t >> 6) & 63u];
-        out[o++] = cfw_b64_alphabet[t & 63u];
+        out[o++] = alphabet[(t >> 18) & 63u];
+        out[o++] = alphabet[(t >> 12) & 63u];
+        out[o++] = alphabet[(t >> 6) & 63u];
+        out[o++] = alphabet[t & 63u];
         i += 3u;
     }
     if (i < data_size) {
@@ -72,16 +116,38 @@ cfw_status_t cfw_base64_encode(const void *data, size_t data_size,
         if (rem == 2u) {
             t |= (uint32_t)p[i + 1] << 8;
         }
-        out[o++] = cfw_b64_alphabet[(t >> 18) & 63u];
-        out[o++] = cfw_b64_alphabet[(t >> 12) & 63u];
-        out[o++] = rem == 2u ? cfw_b64_alphabet[(t >> 6) & 63u] : '=';
-        out[o++] = '=';
+        out[o++] = alphabet[(t >> 18) & 63u];
+        out[o++] = alphabet[(t >> 12) & 63u];
+        if (rem == 2u) {
+            out[o++] = alphabet[(t >> 6) & 63u];
+            if (padding) {
+                out[o++] = '=';
+            }
+        } else if (padding) {
+            out[o++] = '=';
+            out[o++] = '=';
+        }
     }
     out[o] = '\0';
     if (written != NULL) {
         *written = o;
     }
     return CFW_OK;
+}
+
+cfw_status_t cfw_base64_encode(const void *data, size_t data_size,
+                               char *out, size_t cap, size_t *written)
+{
+    return cfw_b64_encode_impl(data, data_size, out, cap, written,
+                               cfw_b64_alphabet, 1);
+}
+
+cfw_status_t cfw_base64url_encode(const void *data, size_t data_size,
+                                  char *out, size_t cap,
+                                  size_t *written)
+{
+    return cfw_b64_encode_impl(data, data_size, out, cap, written,
+                               cfw_b64url_alphabet, 0);
 }
 
 cfw_status_t cfw_base64_decode(const cfw_strview_t *in,
@@ -153,6 +219,87 @@ cfw_status_t cfw_base64_decode(const cfw_strview_t *in,
         if (group_bytes > 2u) {
             out[o++] = (unsigned char)triple;
         }
+    }
+    if (written != NULL) {
+        *written = o;
+    }
+    return CFW_OK;
+}
+
+cfw_status_t cfw_base64url_decode(const cfw_strview_t *in,
+                                  unsigned char *out, size_t cap,
+                                  size_t *written)
+{
+    size_t n;
+    size_t pads = 0;
+    size_t body;
+    size_t rem;
+    size_t decoded;
+    size_t i = 0;
+    size_t o = 0;
+
+    if (in == NULL || (in->size != 0 && in->data == NULL) ||
+        (out == NULL && in->size != 0)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    n = in->size;
+    /* Optional canonical '=' padding: at most two, trailing only. */
+    while (pads < n && (unsigned char)in->data[n - 1u - pads] == '=') {
+        pads++;
+    }
+    if (pads > 2u || (pads != 0u && n % 4u != 0u)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    body = n - pads;
+    rem = body % 4u;
+    /* A final group of one sextet is never valid base64url. Padding
+     * must also be canonical: "xxx=" pads a 3-sextet tail, "xx==" a
+     * 2-sextet tail, and unpadded input carries none. */
+    if (rem == 1u || (pads == 1u && rem != 3u) ||
+        (pads == 2u && rem != 2u) || (pads == 0u && rem == 1u)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    decoded = (body / 4u) * 3u + (rem == 0u ? 0u : rem - 1u);
+    if (decoded > cap) {
+        return CFW_ERROR_OVERFLOW;
+    }
+
+    while (i + 4u <= body) {
+        int v[4];
+        uint32_t triple;
+        size_t j;
+        for (j = 0; j < 4u; j++) {
+            v[j] = cfw_b64url_value((unsigned char)in->data[i + j]);
+            if (v[j] < 0) {
+                return CFW_ERROR_INVALID_ARGUMENT;
+            }
+        }
+        triple = ((uint32_t)v[0] << 18) | ((uint32_t)v[1] << 12) |
+                 ((uint32_t)v[2] << 6) | (uint32_t)v[3];
+        out[o++] = (unsigned char)(triple >> 16);
+        out[o++] = (unsigned char)(triple >> 8);
+        out[o++] = (unsigned char)triple;
+        i += 4u;
+    }
+    if (rem == 2u) {
+        int v0 = cfw_b64url_value((unsigned char)in->data[i]);
+        int v1 = cfw_b64url_value((unsigned char)in->data[i + 1u]);
+        if (v0 < 0 || v1 < 0 || (v1 & 0x0f) != 0) {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+        out[o++] = (unsigned char)(((uint32_t)v0 << 2) |
+                                   ((uint32_t)v1 >> 4));
+    } else if (rem == 3u) {
+        int v0 = cfw_b64url_value((unsigned char)in->data[i]);
+        int v1 = cfw_b64url_value((unsigned char)in->data[i + 1u]);
+        int v2 = cfw_b64url_value((unsigned char)in->data[i + 2u]);
+        if (v0 < 0 || v1 < 0 || v2 < 0 || (v2 & 0x03) != 0) {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+        out[o++] = (unsigned char)(((uint32_t)v0 << 2) |
+                                   ((uint32_t)v1 >> 4));
+        out[o++] = (unsigned char)(((uint32_t)v1 << 4) |
+                                   ((uint32_t)v2 >> 2));
     }
     if (written != NULL) {
         *written = o;

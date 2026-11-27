@@ -57,6 +57,32 @@ CFW_API cfw_status_t cfw_base64_decode(const cfw_strview_t *in,
                                        unsigned char *out, size_t cap,
                                        size_t *written);
 
+/* Base64url (RFC 4648 section 5, ADR 0059): the URL-safe alphabet
+ * ('-' and '_' instead of '+' and '/') for tokens that travel in URLs,
+ * query strings, or headers where '+'/'/'/'=' are awkward. The
+ * canonical encoder emits NO padding; the decoder accepts unpadded
+ * input and, for interoperability, '='-padded input whose total
+ * length is a multiple of 4. Same strictness rules as base64 decode:
+ * canonical pad bits must be zero and malformed input fails with
+ * CFW_ERROR_INVALID_ARGUMENT. */
+
+/* Required `cap` for cfw_base64url_encode of `data_size` bytes
+ * (unpadded base64url length + NUL), or SIZE_MAX on overflow. */
+CFW_API size_t cfw_base64url_encode_bound(size_t data_size);
+
+/* Encodes data[0..data_size) as unpadded base64url into
+ * NUL-terminated `out`. Same error contract as cfw_base64_encode. */
+CFW_API cfw_status_t cfw_base64url_encode(const void *data,
+                                          size_t data_size, char *out,
+                                          size_t cap, size_t *written);
+
+/* Decodes base64url `in` (unpadded, or '='-padded to a multiple of
+ * 4) into `out` (at most `cap` bytes; `out` may be NULL only when the
+ * decoded size is 0). Same error contract as cfw_base64_decode. */
+CFW_API cfw_status_t cfw_base64url_decode(const cfw_strview_t *in,
+                                          unsigned char *out, size_t cap,
+                                          size_t *written);
+
 /* Required `cap` for cfw_hex_encode of `data_size` bytes
  * (2*data_size chars + NUL), or SIZE_MAX on overflow. */
 CFW_API size_t cfw_hex_encode_bound(size_t data_size);
