@@ -22,6 +22,11 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 - `cfw_http1_pending_span` no longer performs pointer arithmetic on a
   NULL `pending.data` when the buffer is empty (UBSan
   `type_mismatch` found by the extended libFuzzer campaign).
+- The standalone fuzz driver (`fuzz_driver.c`, used by GCC/MSVC fuzz
+  builds) now accepts corpus directories in addition to files, so CI
+  corpus replay no longer splats hundreds of paths onto the command
+  line — the Windows replay job failed once the corpus outgrew the
+  command-line length limit.
 
 ## [0.13.1] - 2026-11-27
 

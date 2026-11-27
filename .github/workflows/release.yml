@@ -203,11 +203,9 @@ jobs:
       - name: Replay corpus
         shell: pwsh
         run: |
-          $files = Get-ChildItem tests/fuzz/corpus -File |
-            ForEach-Object { $_.FullName }
           foreach ($t in 'http','uri','query','multipart','head_reader','ws_proto','crypto','http1_conn','ws_client','ws_server','http_client','static') {
             Write-Host "== cfw_fuzz_$t"
-            & "build/fuzz/tests/cfw_fuzz_$t.exe" @files
+            & "build/fuzz/tests/cfw_fuzz_$t.exe" tests/fuzz/corpus
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
