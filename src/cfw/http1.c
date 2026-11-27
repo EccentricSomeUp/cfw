@@ -7,7 +7,9 @@
 static cfw_strview_t cfw_http1_pending_span(const cfw_http1_server_t *server)
 {
     cfw_strview_t view;
-    view.data = (const char *)server->pending.data + server->pending_pos;
+    view.data = server->pending.data != NULL
+                    ? (const char *)server->pending.data + server->pending_pos
+                    : NULL;
     view.size = server->pending.size - server->pending_pos;
     return view;
 }

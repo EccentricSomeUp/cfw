@@ -19,6 +19,9 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   14 CI).
 - Every CTest-registered test now carries a 900s `TIMEOUT`, so a hung
   fixture fails the job instead of blocking a CI runner indefinitely.
+- `cfw_http1_pending_span` no longer performs pointer arithmetic on a
+  NULL `pending.data` when the buffer is empty (UBSan
+  `type_mismatch` found by the extended libFuzzer campaign).
 
 ## [0.13.1] - 2026-11-27
 
