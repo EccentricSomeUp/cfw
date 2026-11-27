@@ -43,7 +43,12 @@ releaser's responsibility.
 - [x] Migration and deprecation policy is documented
       (`docs/api-stability.md` + `docs/process/versioning.md`; no
       migration needed pre-1.0)
-- [ ] Security reporting process has been tested — channel documented
+- [x] Security reporting process has been tested — channel documented
       in `docs/security/process.md` and GitHub Private Vulnerability
-      Reporting enabled on the repository; a test report submission
-      is still outstanding (reporter-side step, no API)
+      Reporting enabled on the repository. Maintainer-side flow verified
+      end-to-end via API: draft advisory `GHSA-4wpj-qx2j-6598` created
+      and closed as a channel test (2026-11-27). Reporter-side PVR
+      submission cannot be exercised by a repo admin (GitHub rejects it
+      by design; admins are directed to draft advisories instead), so
+      the reporter path remains untested until an external report
+      arrives — the channel itself is confirmed live.
