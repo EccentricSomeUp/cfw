@@ -133,3 +133,34 @@ jobs:
           -max_total_time=120 -max_len=4096 -rss_limit_mb=2048
           -artifact_prefix=build/fuzz/artifacts/
           tests/fuzz/corpus
+
+  # Windows corpus replay (ADR 0077): no libFuzzer on MSVC, so the fuzz
+  # preset builds the standalone driver binaries; this job replays the
+  # seed corpus through every target under ASan.
+  windows-fuzz:
+    name: windows fuzz corpus replay
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure fuzz driver build
+        run: >
+          cmake -B build/fuzz -G Ninja
+          -DCMAKE_BUILD_TYPE=Release -DCFW_ENABLE_FUZZING=ON
+
+      - name: Build fuzz targets
+        run: >
+          cmake --build build/fuzz
+          --target cfw_fuzz_http cfw_fuzz_uri cfw_fuzz_query
+          cfw_fuzz_multipart cfw_fuzz_head_reader cfw_fuzz_ws_proto
+
+      - name: Replay corpus
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem tests/fuzz/corpus -File |
+            ForEach-Object { $_.FullName }
+          foreach ($t in 'http','uri','query','multipart','head_reader','ws_proto') {
+            Write-Host "== cfw_fuzz_$t"
+            & "build/fuzz/tests/cfw_fuzz_$t.exe" @files
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
