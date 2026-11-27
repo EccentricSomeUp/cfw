@@ -31,8 +31,11 @@ application-owned concurrency (`cfw/sync.h`, `cfw/thread.h`, ADRs
 0050/0051), and a per-request completion audit hook delivering status,
 byte counts, duration, and peer address for every parsed request
 (ADR 0055). TLS is available as an optional OpenSSL-backed module with
-`cfw_server_t` HTTPS listener support (ADRs 0057/0058); the default
-build remains dependency-free and cleartext.
+`cfw_server_t` HTTPS listener support, ALPN, session resumption,
+peer-certificate access, and mixed cleartext/TLS ports (ADRs
+0057–0062); the default build remains dependency-free and cleartext.
+Multi-instance serving via `SO_REUSEPORT` scales a single listen
+address across worker threads (ADR 0056).
 
 ## Priorities
 
@@ -114,9 +117,19 @@ handshake before HTTP parsing and all bytes flow through
 (`cfw_http1_transport_t` in `cfw_http1_conn_options_t`) lets custom
 transports wrap any `cfw_http1_conn_t`. ALPN protocol negotiation is
 available via `cfw_tls_ctx_options_t.alpn_protos` and
-`cfw_tls_conn_alpn` (ADR 0060). Setting `tls_detect` alongside
-`tls_ctx` serves cleartext HTTP and HTTPS on the same port by
-sniffing each connection's first byte (ADR 0061).
+`cfw_tls_conn_alpn` (ADR 0060), peer-certificate DER access via
+`cfw_tls_conn_peer_cert_der` for mutual-TLS authorization, session
+resumption via `cfw_tls_conn_get_session`/`cfw_tls_conn_set_session`
+(ADR 0062), and mixed cleartext/TLS listeners via `tls_detect`,
+which sniffs each connection's first byte to serve HTTP and HTTPS on
+one port (ADR 0061).
+
+Horizontal scaling uses `cfw_server_options_t.reuse_port` (ADR 0056):
+multiple `cfw_server_t` instances share one listen address via
+`SO_REUSEPORT`, typically one per `cfw_thread_t` worker — see
+`examples/threaded_server.c`. A loopback benchmark harness lives in
+`tests/bench/bench_server.c` (`cfw_bench [requests] [warmup]
+[workers]`).
 
 ## Minimal server
 
@@ -178,10 +191,11 @@ int main(void)
 }
 ```
 
-The server is single-threaded; it serves cleartext by default and
-HTTPS when built with `CFW_ENABLE_TLS` and given a `tls_ctx`
-(ADR 0058). For production HTTPS on a cleartext build, terminate TLS
-in a reverse proxy.
+Each `cfw_server_t` instance is single-threaded; scale out with one
+instance per worker thread behind `reuse_port` (ADR 0056). The server
+serves cleartext by default and HTTPS when built with
+`CFW_ENABLE_TLS` and given a `tls_ctx` (ADR 0058). For production
+HTTPS on a cleartext build, terminate TLS in a reverse proxy.
 
 ## Project layout
 
