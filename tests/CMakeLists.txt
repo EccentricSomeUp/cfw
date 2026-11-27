@@ -395,3 +395,10 @@ if(CFW_ENABLE_FUZZING)
         endif()
     endforeach()
 endif()
+
+# Bound every registered test so a hung fixture fails the job instead of
+# blocking the runner indefinitely (observed on Windows CI).
+get_property(_cfw_all_tests DIRECTORY PROPERTY TESTS)
+foreach(_cfw_t IN LISTS _cfw_all_tests)
+    set_tests_properties(${_cfw_t} PROPERTIES TIMEOUT 900)
+endforeach()
