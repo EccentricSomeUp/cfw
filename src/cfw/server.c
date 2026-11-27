@@ -168,6 +168,11 @@ struct cfw_server_conn {
      * callback bundle handed to cfw_http1_conn at init. */
     cfw_tls_conn_t *tls;
     cfw_http1_transport_t transport;
+    /* Mixed-mode listener (ADR 0061): nonzero while the connection's
+     * protocol is undetected — the first POLL_IN peeks one byte and
+     * either attaches TLS (0x16 ClientHello) or falls through to
+     * cleartext HTTP. Only meaningful with tls_detect + tls_ctx. */
+    int tls_detect;
     /* Request audit state (ADR 0055): armed at each parsed head and
      * emitted exactly once — when the final response is queued, an
      * upgrade activates, a stream finishes, or the conn closes with a
@@ -355,6 +360,25 @@ static cfw_status_t cfw_server_tls_write(void *user, const void *data,
                                          size_t size, size_t *done)
 {
     return cfw_tls_write((cfw_tls_conn_t *)user, data, size, done);
+}
+
+/* Attaches a TLS session to an initialized connection (ADR 0058):
+ * the session borrows conn->http's fd, which remains the owner. The
+ * transport bundle lives inside conn so the pointer stored in
+ * conn->http.transport stays valid for the conn's life. */
+static cfw_status_t cfw_server_conn_attach_tls(cfw_server_t *server,
+                                               cfw_server_conn_t *conn)
+{
+    cfw_status_t st = cfw_tls_conn_create(
+        server->options.tls_ctx, cfw_fd_get(&conn->http.fd), &conn->tls);
+    if (st != CFW_OK) {
+        return st;
+    }
+    conn->transport.user = conn->tls;
+    conn->transport.read = cfw_server_tls_read;
+    conn->transport.write = cfw_server_tls_write;
+    conn->http.transport = &conn->transport;
+    return CFW_OK;
 }
 
 static void cfw_server_update_conn_interest(cfw_server_t *server,
@@ -1276,6 +1300,37 @@ static void cfw_server_service_conn(cfw_server_t *server,
         cfw_server_update_conn_interest(server, conn);
         return;
     }
+    /* Mixed-listener protocol sniff (ADR 0061): the first readable
+     * event peeks one byte — a TLS handshake record (content type
+     * 0x16) attaches TLS, anything else stays cleartext. MSG_PEEK
+     * consumes nothing, so the chosen protocol sees all bytes. */
+    if (conn->tls_detect) {
+        if (events & (CFW_POLL_IN | CFW_POLL_ERR | CFW_POLL_HUP)) {
+            unsigned char b = 0;
+            ssize_t n = recv((int)conn->http.fd.handle, &b, 1,
+                             MSG_PEEK | MSG_DONTWAIT);
+            if (n == 1) {
+                if (b == 0x16u &&
+                    cfw_server_conn_attach_tls(server, conn) != CFW_OK) {
+                    conn->dead = 1;
+                    return;
+                }
+                conn->tls_detect = 0;
+            } else if (n == 0) {
+                conn->dead = 1;
+                return;
+            } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                conn->dead = 1;
+                return;
+            }
+            /* EAGAIN: spurious wakeup — keep waiting for the first
+             * byte with POLL_IN still armed below. */
+        }
+        if (conn->tls_detect) {
+            cfw_server_update_conn_interest(server, conn);
+            return;
+        }
+    }
     /* TLS handshake gate (ADR 0058): no HTTP bytes are parsed until
      * the handshake completes. Retries happen on every event in
      * either direction; a fatal TLS error kills the connection. */
@@ -1383,31 +1438,28 @@ static void cfw_server_accept(cfw_server_t *server)
             cfw_fd_close(&fd);
             continue;
         }
-        /* TLS (ADR 0058): the session borrows the fd handle; the
-         * http1 connection created below remains the fd owner. The
-         * transport bundle lives inside conn so the pointer stored
-         * by cfw_http1_conn_init stays valid for the conn's life. */
+        /* The http1 connection is always initialized first and owns
+         * the fd; TLS (when configured) is attached afterwards and
+         * borrows the descriptor (ADR 0058). With tls_detect the
+         * protocol is sniffed on the first readable event instead
+         * (ADR 0061). */
         conn_options.transport = NULL;
+        st = cfw_http1_conn_init(&conn->http, &fd, &conn_options);
+        if (st != CFW_OK) {
+            /* init failed before taking fd ownership. */
+            cfw_fd_close(&fd);
+            free(conn);
+            continue;
+        }
         if (server->options.tls_ctx != NULL) {
-            st = cfw_tls_conn_create(server->options.tls_ctx,
-                                     cfw_fd_get(&fd), &conn->tls);
-            if (st != CFW_OK) {
-                cfw_fd_close(&fd);
+            if (server->options.tls_detect) {
+                conn->tls_detect = 1;
+            } else if (cfw_server_conn_attach_tls(server, conn) !=
+                       CFW_OK) {
+                cfw_http1_conn_free(&conn->http);
                 free(conn);
                 continue;
             }
-            conn->transport.user = conn->tls;
-            conn->transport.read = cfw_server_tls_read;
-            conn->transport.write = cfw_server_tls_write;
-            conn_options.transport = &conn->transport;
-        }
-        st = cfw_http1_conn_init(&conn->http, &fd, &conn_options);
-        if (st != CFW_OK) {
-            if (conn->tls != NULL) {
-                cfw_tls_conn_destroy(conn->tls);
-            }
-            free(conn);
-            continue;
         }
         conn->headers = malloc(server->options.max_headers *
                                sizeof(cfw_http_header_t));
@@ -1599,6 +1651,9 @@ cfw_status_t cfw_server_init(cfw_server_t *server,
     }
     if (options->tls_ctx != NULL && !CFW_HAVE_TLS) {
         return CFW_ERROR_UNAVAILABLE;
+    }
+    if (options->tls_detect && options->tls_ctx == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
     }
 
     memset(server, 0, sizeof(*server));

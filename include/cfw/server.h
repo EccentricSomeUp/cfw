@@ -246,6 +246,15 @@ typedef struct cfw_server_options {
      * CFW_ERROR_UNAVAILABLE when TLS support is not compiled in.
      * The context is NOT owned — it must outlive the server. */
     cfw_tls_ctx_t *tls_ctx;
+    /* Mixed cleartext/TLS listener (ADR 0061); requires tls_ctx.
+     * When nonzero, each accepted connection sniffs its first byte:
+     * a TLS handshake record (0x16) gets a TLS session, anything
+     * else is served as cleartext HTTP/1.1 on the same port. The
+     * peek consumes nothing, so both protocols see their bytes
+     * intact. cfw_server_init fails with
+     * CFW_ERROR_INVALID_ARGUMENT when tls_detect is set without
+     * tls_ctx. */
+    int tls_detect;
 } cfw_server_options_t;
 
 typedef struct cfw_server {

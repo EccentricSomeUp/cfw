@@ -114,7 +114,9 @@ handshake before HTTP parsing and all bytes flow through
 (`cfw_http1_transport_t` in `cfw_http1_conn_options_t`) lets custom
 transports wrap any `cfw_http1_conn_t`. ALPN protocol negotiation is
 available via `cfw_tls_ctx_options_t.alpn_protos` and
-`cfw_tls_conn_alpn` (ADR 0060).
+`cfw_tls_conn_alpn` (ADR 0060). Setting `tls_detect` alongside
+`tls_ctx` serves cleartext HTTP and HTTPS on the same port by
+sniffing each connection's first byte (ADR 0061).
 
 ## Minimal server
 

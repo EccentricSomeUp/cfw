@@ -9,6 +9,14 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ## [Unreleased]
 
+### Added
+
+- Mixed cleartext/TLS listeners (ADR 0061):
+  `cfw_server_options_t.tls_detect` sniffs the first byte of each
+  accepted connection — a TLS handshake record gets TLS, anything
+  else is served as cleartext HTTP on the same port. Requires
+  `tls_ctx`; `cfw_server_init` rejects `tls_detect` without it.
+
 ## [0.6.0] - 2026-11-27
 
 ### Added

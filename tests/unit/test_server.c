@@ -3522,6 +3522,53 @@ static int test_server_ipv6(void)
     return 0;
 }
 
+/* tls_detect without a tls_ctx is a configuration error in every
+ * build (ADR 0061). */
+static int test_server_tls_detect_requires_ctx(void)
+{
+    cfw_arena_t *arena;
+    cfw_router_t router;
+    cfw_dispatch_t dispatch;
+    cfw_dispatch_options_t doptions;
+    cfw_server_options_t options;
+    cfw_server_t server;
+    cfw_strview_t pattern;
+
+    arena = cfw_arena_create(32768);
+    CFW_TEST_ASSERT_TRUE(arena != NULL);
+    CFW_TEST_ASSERT_EQ(cfw_router_init(&router, arena), CFW_OK);
+    memset(&doptions, 0, sizeof(doptions));
+    doptions.router = &router;
+    doptions.handler = cfw_test_ok_handler;
+    doptions.max_middleware = 4;
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_init(&dispatch, arena, &doptions),
+                       CFW_OK);
+    cfw_strview_from_cstr(&pattern, "/hello");
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(&dispatch,
+                                              CFW_HTTP_METHOD_GET,
+                                              &pattern, cfw_test_ok_handler,
+                                              NULL),
+                       CFW_OK);
+
+    memset(&options, 0, sizeof(options));
+    options.host = "127.0.0.1";
+    options.port = 0;
+    options.dispatch = &dispatch;
+    options.http.max_head_size = 8192;
+    options.http.max_pending_size = 65536;
+    options.max_out_size = 65536;
+    options.max_connections = 8;
+    options.max_headers = 32;
+    options.max_params = 16;
+    options.tls_detect = 1;
+    options.tls_ctx = NULL;
+    CFW_TEST_ASSERT_EQ(cfw_server_init(&server, &options),
+                       CFW_ERROR_INVALID_ARGUMENT);
+
+    cfw_arena_destroy(arena);
+    return 0;
+}
+
 #if CFW_HAVE_TLS
 
 /* Steps the server with a short deadline; returns nonzero while the
@@ -3840,6 +3887,130 @@ static int test_server_tls_upgrade_echo(void)
     return rc;
 }
 
+/* Mixed cleartext/TLS listener (ADR 0061): one port serves both —
+ * the first byte decides. A cleartext GET and a full TLS session
+ * must both succeed on the same server. */
+static int test_server_tls_detect_mixed(void)
+{
+    cfw_test_server ts;
+    cfw_server_options_t options;
+    cfw_dispatch_options_t doptions;
+    cfw_tls_ctx_options_t sopt;
+    cfw_tls_ctx_options_t copt;
+    cfw_tls_ctx_t *sctx = NULL;
+    cfw_tls_ctx_t *cctx = NULL;
+    cfw_tls_conn_t *tls_client = NULL;
+    cfw_fd_t plain;
+    cfw_fd_t raw;
+    char cert[512];
+    char key[512];
+    char response[8192];
+    ssize_t n;
+    size_t used = 0;
+    uint16_t port;
+    int rc = 1;
+
+    memset(&sopt, 0, sizeof(sopt));
+    sopt.role = CFW_TLS_SERVER;
+    snprintf(cert, sizeof(cert), "%s/server.crt", CFW_TEST_TLS_DIR);
+    snprintf(key, sizeof(key), "%s/server.key", CFW_TEST_TLS_DIR);
+    sopt.cert_file = cert;
+    sopt.key_file = key;
+    CFW_TEST_ASSERT_EQ(cfw_tls_ctx_create(&sopt, &sctx), CFW_OK);
+
+    memset(&copt, 0, sizeof(copt));
+    copt.role = CFW_TLS_CLIENT;
+    CFW_TEST_ASSERT_EQ(cfw_tls_ctx_create(&copt, &cctx), CFW_OK);
+
+    memset(&ts, 0, sizeof(ts));
+    ts.arena = cfw_arena_create(32768);
+    CFW_TEST_ASSERT_TRUE(ts.arena != NULL);
+    CFW_TEST_ASSERT_EQ(cfw_router_init(&ts.router, ts.arena), CFW_OK);
+    memset(&doptions, 0, sizeof(doptions));
+    doptions.router = &ts.router;
+    doptions.handler = cfw_test_ok_handler;
+    doptions.max_middleware = 4;
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_init(&ts.dispatch, ts.arena,
+                                         &doptions),
+                       CFW_OK);
+    {
+        cfw_strview_t pattern;
+        cfw_strview_from_cstr(&pattern, "/hello");
+        CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(
+                               &ts.dispatch, CFW_HTTP_METHOD_GET,
+                               &pattern, cfw_test_ok_handler, NULL),
+                           CFW_OK);
+    }
+    memset(&options, 0, sizeof(options));
+    options.host = "127.0.0.1";
+    options.port = 0;
+    options.backlog = 16;
+    options.dispatch = &ts.dispatch;
+    options.http.max_head_size = 8192;
+    options.http.max_body_size = 65536;
+    options.http.max_pending_size = 65536;
+    options.max_out_size = 65536;
+    options.max_connections = 8;
+    options.max_headers = 32;
+    options.max_params = 16;
+    options.tls_ctx = sctx;
+    options.tls_detect = 1;
+    CFW_TEST_ASSERT_EQ(cfw_server_init(&ts.server, &options), CFW_OK);
+    port = cfw_server_port(&ts.server);
+    CFW_TEST_ASSERT_TRUE(port != 0);
+
+    /* Cleartext client first: 'G' is not a TLS record, so the
+     * connection must be served as plain HTTP. */
+    cfw_fd_init(&plain);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&plain, port), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_send(&plain,
+                                     "GET /hello HTTP/1.1\r\n"
+                                     "Host: t\r\n\r\n"),
+                       0);
+    memset(response, 0, sizeof(response));
+    n = cfw_test_recv_until(&ts.server, &plain, response,
+                            sizeof(response), "srv-ok", &used);
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    response[n] = '\0';
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                           "HTTP/1.1 200 OK"));
+
+    /* TLS client on the same port: ClientHello starts with 0x16. */
+    cfw_fd_init(&raw);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&raw, port), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_tls_conn_create(cctx, cfw_fd_get(&raw),
+                                           &tls_client),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_tls_handshake(&ts.server, tls_client),
+                       0);
+    CFW_TEST_ASSERT_EQ(cfw_test_tls_write_all(
+                           &ts.server, tls_client,
+                           "GET /hello HTTP/1.1\r\n"
+                           "Host: t\r\n\r\n"),
+                       0);
+    memset(response, 0, sizeof(response));
+    n = cfw_test_tls_read_until(&ts.server, tls_client, response,
+                                sizeof(response), "srv-ok");
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    response[n] = '\0';
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                           "HTTP/1.1 200 OK"));
+    CFW_TEST_ASSERT_EQ(cfw_server_requests_total(&ts.server), 2);
+    rc = 0;
+
+    if (tls_client != NULL) {
+        cfw_tls_conn_destroy(tls_client);
+    }
+    cfw_fd_close(&plain);
+    cfw_fd_close(&raw);
+    cfw_tls_ctx_destroy(sctx);
+    cfw_tls_ctx_destroy(cctx);
+    if (ts.arena != NULL) {
+        cfw_test_server_teardown(&ts);
+    }
+    return rc;
+}
+
 #endif /* CFW_HAVE_TLS */
 
 const cfw_test_case cfw_test_server_cases[] = {
@@ -3888,9 +4059,12 @@ const cfw_test_case cfw_test_server_cases[] = {
     {"server_reuse_port", test_server_reuse_port},
     {"server_reuse_port_cluster", test_server_reuse_port_cluster},
     {"server_ipv6", test_server_ipv6},
+    {"server_tls_detect_requires_ctx",
+     test_server_tls_detect_requires_ctx},
 #if CFW_HAVE_TLS
     {"server_tls_request_response", test_server_tls_request_response},
     {"server_tls_upgrade_echo", test_server_tls_upgrade_echo},
+    {"server_tls_detect_mixed", test_server_tls_detect_mixed},
 #endif
     {NULL, NULL},
 };
