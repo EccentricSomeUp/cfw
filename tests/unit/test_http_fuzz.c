@@ -6,12 +6,10 @@
 
 #include "fuzz_support.h"
 
+#include "cfw_test_corpus_files.h"
+
 #include <stdint.h>
 #include <string.h>
-
-#if CFW_PLATFORM_POSIX
-#include <dirent.h>
-#endif
 
 /*
  * Deterministic mutation fuzzing for the HTTP parser surface. Not
@@ -142,34 +140,28 @@ static int test_http_fuzz_mutation(void)
 
 /*
  * Replays every file in tests/fuzz/corpus through the same parser,
- * decoder, and server-pipeline surface as the mutation fuzzer. The corpus
- * directory is passed via the CFW_FUZZ_CORPUS_DIR compile definition.
+ * decoder, and server-pipeline surface as the mutation fuzzer. The file
+ * list is generated at configure time (cfw_test_corpus_files.h) so this
+ * test needs no platform directory-iteration API.
  */
 static int test_http_fuzz_corpus(void)
 {
-#if defined(CFW_FUZZ_CORPUS_DIR) && CFW_PLATFORM_POSIX
+#if defined(CFW_FUZZ_CORPUS_DIR)
     enum { MAX_CORPUS_INPUT = 8192 };
-    DIR *dir;
-    struct dirent *entry;
     cfw_fuzz_dispatch_t dispatch_ctx;
     size_t files = 0;
+    size_t i;
 
     CFW_TEST_ASSERT_EQ(cfw_fuzz_dispatch_init(&dispatch_ctx), CFW_OK);
 
-    dir = opendir(CFW_FUZZ_CORPUS_DIR);
-    CFW_TEST_ASSERT(dir != NULL);
-
-    while ((entry = readdir(dir)) != NULL) {
+    for (i = 0; i < cfw_test_corpus_file_count; i++) {
         char path[4096];
         FILE *file;
         char buf[MAX_CORPUS_INPUT];
         size_t got;
 
-        if (entry->d_name[0] == '.') {
-            continue;
-        }
         if (snprintf(path, sizeof(path), "%s/%s", CFW_FUZZ_CORPUS_DIR,
-                     entry->d_name) >= (int)sizeof(path)) {
+                     cfw_test_corpus_files[i]) >= (int)sizeof(path)) {
             continue;
         }
         file = fopen(path, "rb");
@@ -184,7 +176,6 @@ static int test_http_fuzz_corpus(void)
         cfw_fuzz_http_one(buf, got, &dispatch_ctx);
         files++;
     }
-    closedir(dir);
     cfw_fuzz_dispatch_free(&dispatch_ctx);
 
     CFW_TEST_ASSERT(files > 0);

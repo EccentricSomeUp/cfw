@@ -14,7 +14,7 @@ not yet implemented; "planned" means no contract exists yet.
 | Linux (glibc/musl) | Primary | `clock_gettime`, `getrandom`, `epoll`; the primary CI/dev-verified target |
 | macOS | POSIX-compatible | `clock_gettime`, `arc4random_buf`, `kqueue` backend (ADR 0052); verified on macOS CI |
 | FreeBSD/OpenBSD/NetBSD | POSIX-compatible | `clock_gettime`, `arc4random_buf`, `kqueue` backend (ADR 0052); FreeBSD verified on CI (debug preset via `vmactions/freebsd-vm`); OpenBSD/NetBSD not yet verified on a BSD host |
-| Windows (MSVC/MinGW) | Partial | core primitives, Winsock sockets, WSAPoll pollset, fd close, `cfw_http1_conn`, `cfw_server`, the HTTP/WebSocket clients, and TLS via OpenSSL 3 all implemented (ADRs 0072–0075); the full unit/integration/security test suite runs on Windows via the portable loopback helpers (ADR 0076), with `static_symlink_confinement`, fuzz-corpus replay, and `SO_REUSEPORT` clusters remaining POSIX-gated |
+| Windows (MSVC/MinGW) | Partial | core primitives, Winsock sockets, WSAPoll pollset, fd close, `cfw_http1_conn`, `cfw_server`, the HTTP/WebSocket clients, and TLS via OpenSSL 3 all implemented (ADRs 0072–0075); the full unit/integration/security test suite runs on Windows via the portable loopback helpers (ADR 0076), with `static_symlink_confinement` and `SO_REUSEPORT` clusters remaining POSIX-gated (fuzz-corpus replay is now portable via a configure-time file list) |
 
 ## Compiler and language requirements
 

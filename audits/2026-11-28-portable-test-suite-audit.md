@@ -43,8 +43,10 @@
     bounded attempt loops (20 000 × 0.5 ms ≈ 10 s, matching the
     original timeout).
   - Test integrity: no assertion was weakened; `static_symlink_
-    confinement`, corpus replay, and `SO_REUSEPORT` clusters remain
-    gated with documented reasons rather than silently passing.
+    confinement` and `SO_REUSEPORT` clusters remain gated with
+    documented reasons rather than silently passing. (Corpus replay
+    was later made portable via a configure-time file list; see the
+    follow-up note below.)
 - `cmake --preset debug && cmake --build --preset debug` and
   `ctest --preset debug` on Linux: 6/6 pass, including the fully
   ported server/WS/TLS/integration/security suites.
@@ -76,5 +78,10 @@ ctest --preset debug-tls --output-on-failure             # 6/6 passed
 
 - Triage any Windows-only test failures from the first CI run
   (P-001); each gets a fix or a documented gate.
-- Consider `_findfirst`-based corpus replay and `CreateSymbolicLink`
-  confinement coverage on Windows as separate follow-ups.
+- ~~Consider `_findfirst`-based corpus replay~~ — done differently:
+  the corpus file list is generated at CMake configure time
+  (`cfw_test_corpus_files.h`), so replay needs no directory API at
+  all and runs on every platform.
+- `CreateSymbolicLink` confinement coverage on Windows remains a
+  possible follow-up; current coverage documents best-effort
+  confinement (ADR 0037).
