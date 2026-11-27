@@ -42,7 +42,13 @@ option `CFW_ENABLE_FUZZING` (default OFF):
   in-memory `fuzz_http` pipeline cannot — and `fuzz_ws_client`,
   which runs `cfw_ws_client_connect` against a fake server on a
   `cfw_thread` and streams the input as server-to-client WebSocket
-  frames, covering the RFC 6455 client-side frame parser.
+  frames, covering the RFC 6455
+  client-side frame parser — and `fuzz_ws_server`, the mirror
+  image: a real `cfw_server_t` + ws upgrade hook on a `cfw_thread`
+  while a fake client streams structured frame records (raw
+  FIN/RSV/opcode byte, length forms, payload) re-framed with proper
+  client masking, covering server-side parsing including invalid
+  opcodes, RSV bits, fragmentation, and truncated payloads.
   All operate on in-memory buffers through the public API — no
   sockets, threads, or filesystem — except `fuzz_http1_conn` and
   `fuzz_ws_client`, which use real loopback TCP
@@ -55,7 +61,7 @@ option `CFW_ENABLE_FUZZING` (default OFF):
   corpus replay and manual mutation fuzzing everywhere, and real
   coverage-guided fuzzing wherever clang is available.
 - New `fuzz` CMake preset (`build/fuzz`, RelWithDebInfo +
-  `CFW_ENABLE_FUZZING=ON`) and a CI `fuzz` job: matrix over the nine
+  `CFW_ENABLE_FUZZING=ON`) and a CI `fuzz` job: matrix over the ten
   targets on `ubuntu-latest` with `CC=clang`, each running
   `-max_total_time=120 -max_len=4096` against `tests/fuzz/corpus` as
   the seed corpus, artifacts to `build/fuzz/artifacts/`.
