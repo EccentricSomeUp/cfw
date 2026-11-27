@@ -33,8 +33,9 @@ application-owned concurrency (`cfw/sync.h`, `cfw/thread.h`, ADRs
 byte counts, duration, and peer address for every parsed request
 (ADR 0055). A public socket/address API (`cfw/net.h`, ADR 0067) and a
 minimal one-shot HTTP/1.1 client (`cfw/http_client.h`, ADR 0068 —
-optional TLS via a client-role `cfw_tls_ctx_t`) cover outbound
-connections. TLS is available as an optional OpenSSL-backed module with
+optional TLS via a client-role `cfw_tls_ctx_t`) and a public
+level-triggered pollset (`cfw/pollset.h`, ADR 0069) cover outbound
+and custom-protocol connections. TLS is available as an optional OpenSSL-backed module with
 `cfw_server_t` HTTPS listener support, ALPN, session resumption,
 peer-certificate access, and mixed cleartext/TLS ports (ADRs
 0057–0062); the default build remains dependency-free and cleartext.

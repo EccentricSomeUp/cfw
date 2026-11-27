@@ -41,7 +41,7 @@ if(CFW_HAVE_TLS)
 endif()
 
 add_executable(cfw_unit_tests
-    ../src/cfw/private/pollset.c
+    ../src/cfw/pollset.c
     unit/test_arena.c
     unit/test_buffer.c
     unit/test_checked_arithmetic.c
@@ -100,7 +100,7 @@ cfw_apply_sanitizer_flags(cfw_unit_tests)
 add_test(NAME cfw_unit COMMAND cfw_unit_tests)
 
 add_executable(cfw_integration_tests
-    ../src/cfw/private/pollset.c
+    ../src/cfw/pollset.c
     integration/main.c
     integration/test_http_client.c
     integration/test_http_pipeline.c
@@ -124,7 +124,7 @@ cfw_apply_sanitizer_flags(cfw_integration_tests)
 add_test(NAME cfw_integration COMMAND cfw_integration_tests)
 
 add_executable(cfw_security_tests
-    ../src/cfw/private/pollset.c
+    ../src/cfw/pollset.c
     security/main.c
     security/test_smuggling.c
 )
@@ -146,7 +146,7 @@ add_test(NAME cfw_security COMMAND cfw_security_tests)
 # verified on every POSIX CI host.
 if(NOT WIN32)
     add_executable(cfw_pollset_poll_tests
-        ../src/cfw/private/pollset.c
+        ../src/cfw/pollset.c
         unit/test_pollset.c
         unit/test_pollset_main.c
     )
@@ -173,7 +173,7 @@ endif()
 # hosts without <sys/event.h>; real kqueue coverage remains on macOS/BSD CI.
 if(CFW_HAVE_EPOLL)
     add_library(cfw_pollset_epoll_compile OBJECT
-        ../src/cfw/private/pollset.c
+        ../src/cfw/pollset.c
     )
     target_include_directories(cfw_pollset_epoll_compile PRIVATE
         ${CMAKE_SOURCE_DIR}/include
@@ -187,7 +187,7 @@ endif()
 
 if(NOT WIN32)
     add_library(cfw_pollset_poll_compile OBJECT
-        ../src/cfw/private/pollset.c
+        ../src/cfw/pollset.c
     )
     target_include_directories(cfw_pollset_poll_compile PRIVATE
         ${CMAKE_SOURCE_DIR}/include
@@ -201,7 +201,7 @@ endif()
 
 if(NOT WIN32 AND NOT CFW_HAVE_KQUEUE)
     add_library(cfw_pollset_kqueue_compile OBJECT
-        ../src/cfw/private/pollset.c
+        ../src/cfw/pollset.c
     )
     target_include_directories(cfw_pollset_kqueue_compile PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/stubs
@@ -215,7 +215,7 @@ if(NOT WIN32 AND NOT CFW_HAVE_KQUEUE)
 endif()
 
 add_library(cfw_pollset_none_compile OBJECT
-    ../src/cfw/private/pollset.c
+    ../src/cfw/pollset.c
 )
 target_include_directories(cfw_pollset_none_compile PRIVATE
     ${CMAKE_SOURCE_DIR}/include
@@ -230,7 +230,7 @@ cfw_apply_strict_flags(cfw_pollset_none_compile)
 # POSIX only — it uses the private socket layer like the unit tests.
 if(NOT WIN32)
     add_executable(cfw_bench
-        ../src/cfw/private/pollset.c
+        ../src/cfw/pollset.c
         bench/bench_server.c
     )
 

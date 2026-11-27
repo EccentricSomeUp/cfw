@@ -21,6 +21,7 @@
 #include <cfw/multipart.h>
 #include <cfw/net.h>
 #include <cfw/platform.h>
+#include <cfw/pollset.h>
 #include <cfw/query.h>
 #include <cfw/random.h>
 #include <cfw/route.h>

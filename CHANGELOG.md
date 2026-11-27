@@ -44,6 +44,14 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 - `examples/http_client.c`: CLI GET client demonstrating the minimal
   request/response path.
 
+- Public pollset API (`cfw/pollset.h`, ADR 0069): the internal
+  readiness event set is now public, completing the nonblocking I/O
+  toolkit alongside `cfw/net.h`. `cfw_pollset_create`/`destroy`/
+  `add`/`modify`/`remove`/`wait` provide level-triggered readiness
+  with per-registration tokens and deadline-bounded waits (epoll on
+  Linux, kqueue on macOS/BSD, poll fallback; `CFW_ERROR_UNAVAILABLE`
+  on Windows). No behavior changes — promotion only.
+
 ## [0.9.0] - 2026-11-27
 
 ### Added

@@ -5,7 +5,7 @@
 #include <cfw/http_client.h>
 
 #if !CFW_PLATFORM_WINDOWS
-    #include "private/pollset.h"
+    #include <cfw/pollset.h>
 
     #include <cfw/net.h>
     #include <cfw/span.h>

@@ -33,7 +33,7 @@ not yet implemented; "planned" means no contract exists yet.
 | File metadata | `stat`/`fstat`/`lseek` | `stat`/`fstat`/`lseek` | `stat`/`fstat`/`lseek` | `_stat64`/`_fstat64`/`_lseeki64` | `cfw_file_*` (implemented) |
 | Confined file open | `openat`/`O_NOFOLLOW` | `openat`/`O_NOFOLLOW` | `openat`/`O_NOFOLLOW` | lexical + `_fstat64` best-effort | `cfw_file_open_confined` internal (implemented, ADR 0037) |
 | Descriptor close | `close` | `close` | `close` | stub: `UNAVAILABLE` | `cfw_fd_close` (POSIX; Windows deferred with IOCP) |
-| Polling/event loop | `epoll` | `kqueue` | `kqueue` | stub | `cfw_pollset_*` internal (implemented; ADRs 0014/0052) |
+| Polling/event loop | `epoll` | `kqueue` | `kqueue` | stub | `cfw_pollset_*` public API (implemented; ADRs 0014/0052/0069) |
 | Sockets | `socket`/`accept4` | `socket`/`accept` | `socket`/`accept` | stub | `cfw_net_*`/`cfw_addr_*` public API (implemented on POSIX; numeric IPs plus blocking getaddrinfo for name resolution; ADR 0067) |
 | HTTP/1.1 + server | yes | yes (POSIX) | yes (POSIX) | stub: `UNAVAILABLE` | `cfw_http1*`, `cfw_server` (implemented; Windows pending IOCP) |
 | HTTP/1.1 client | yes | yes (POSIX) | yes (POSIX) | stub: `UNAVAILABLE` | `cfw_http_client_*` one-shot client (implemented, ADR 0068; TLS via client-role `cfw_tls_ctx_t`) |

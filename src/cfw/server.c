@@ -105,7 +105,7 @@ void cfw_upgraded_set_user(cfw_upgraded_conn_t *conn, void *user)
 #else /* POSIX */
 
 #include <cfw/net.h>
-#include "private/pollset.h"
+#include <cfw/pollset.h>
 
 #include <errno.h>
 #include <fcntl.h>

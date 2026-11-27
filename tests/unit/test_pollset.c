@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 */
 
-#include "private/pollset.h"
+#include <cfw/pollset.h>
 
 #include <cfw/cfw.h>
 

@@ -53,8 +53,9 @@ abstraction exists.
   file metadata (implemented; see `cfw/platform.h`, `cfw/fs.h`, `cfw/fd.h`)
 - `net`: sockets, address handling — public API (`cfw/net.h`,
   ADR 0067) over a POSIX implementation: `epoll` on Linux/Android,
-  `kqueue` on macOS/BSD, `poll` fallback elsewhere (ADRs 0014/0052);
-  pollset/event-loop primitives remain internal
+  `kqueue` on macOS/BSD, `poll` fallback elsewhere (ADRs 0014/0052)
+- `pollset`: level-triggered readiness events — public API
+  (`cfw/pollset.h`, ADR 0069) sharing the same backend selection
 - `http`: request/response parsing and serialization, including
   response-side head parsing/framing for clients
 - `http_client`: minimal one-shot HTTP/1.1 client over `net` + `tls`

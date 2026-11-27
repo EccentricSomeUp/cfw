@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 */
 
-#include "platform_detect.h"
+#include "private/platform_detect.h"
 
-#include "pollset.h"
+#include <cfw/pollset.h>
 
 #include <cfw/checked_arithmetic.h>
 #include <cfw/time.h>
