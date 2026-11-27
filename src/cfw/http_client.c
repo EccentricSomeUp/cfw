@@ -1197,22 +1197,21 @@ static cfw_status_t cfw_hc_exchange(
                     cfw_hc_find_header(&resp_head.headers, "location",
                                        &location);
                 {
-                    /* Redirect hops drain the body bounded but never
-                     * deliver it: temporarily detach sink/buffer on
-                     * the real body state so sink_started tracking
-                     * stays accurate for the retry guard. */
-                    cfw_buffer_t *save_buffer = body->buffer;
+                    /* Redirect hops never reach the caller's sink
+                     * (it cannot be unwound), but the body still
+                     * lands in the hop buffer: discarded when the
+                     * redirect is followed, preserved when the 3xx
+                     * turns out to be the final response (unresolvable
+                     * Location). */
                     cfw_status_t (*save_sink)(void *, const void *,
                                               size_t) = body->sink;
                     void *save_user = body->sink_user;
                     if (is_redirect) {
-                        body->buffer = NULL;
                         body->sink = NULL;
                         body->sink_user = NULL;
                     }
                     status = cfw_hc_read_body(st, clock, body,
                                               &framing);
-                    body->buffer = save_buffer;
                     body->sink = save_sink;
                     body->sink_user = save_user;
                 }
