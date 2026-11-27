@@ -181,7 +181,7 @@ static int test_ws_handshake_accept_extract(void)
 /* ------------------------------------------------------------------ */
 
 #if CFW_PLATFORM_POSIX
-    #include "private/net.h"
+    #include <cfw/net.h>
 
     #include <errno.h>
     #include <stdio.h>
@@ -384,7 +384,7 @@ static void cfw_test_ws_teardown(cfw_test_ws_state *st)
 
 static cfw_status_t cfw_test_ws_connect(cfw_fd_t *client, uint16_t port)
 {
-    cfw_sockaddr_t addr;
+    cfw_addr_t addr;
     cfw_status_t st;
 
     CFW_TEST_ASSERT_EQ(cfw_addr_from_str(&addr, "127.0.0.1", port), CFW_OK);

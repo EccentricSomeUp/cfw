@@ -9,7 +9,7 @@
 #include "test_harness.h"
 
 #if CFW_PLATFORM_POSIX
-    #include "private/net.h"
+    #include <cfw/net.h>
 
     #include <errno.h>
     #include <string.h>
@@ -21,10 +21,10 @@ static int cfw_itcp_pair(cfw_fd_t *server_out, cfw_fd_t *client_out)
     cfw_fd_t listener;
     cfw_fd_t client;
     cfw_fd_t server_side;
-    cfw_sockaddr_t bind_addr;
-    cfw_sockaddr_t connect_addr;
-    cfw_sockaddr_t local_addr;
-    cfw_sockaddr_t peer_addr;
+    cfw_addr_t bind_addr;
+    cfw_addr_t connect_addr;
+    cfw_addr_t local_addr;
+    cfw_addr_t peer_addr;
     uint16_t port;
     int attempts;
 

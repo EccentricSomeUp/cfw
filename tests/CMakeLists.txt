@@ -41,7 +41,6 @@ if(CFW_HAVE_TLS)
 endif()
 
 add_executable(cfw_unit_tests
-    ../src/cfw/private/net.c
     ../src/cfw/private/pollset.c
     unit/test_arena.c
     unit/test_buffer.c
@@ -101,7 +100,6 @@ cfw_apply_sanitizer_flags(cfw_unit_tests)
 add_test(NAME cfw_unit COMMAND cfw_unit_tests)
 
 add_executable(cfw_integration_tests
-    ../src/cfw/private/net.c
     ../src/cfw/private/pollset.c
     integration/main.c
     integration/test_http_pipeline.c
@@ -120,7 +118,6 @@ cfw_apply_sanitizer_flags(cfw_integration_tests)
 add_test(NAME cfw_integration COMMAND cfw_integration_tests)
 
 add_executable(cfw_security_tests
-    ../src/cfw/private/net.c
     ../src/cfw/private/pollset.c
     security/main.c
     security/test_smuggling.c
@@ -227,7 +224,6 @@ cfw_apply_strict_flags(cfw_pollset_none_compile)
 # POSIX only — it uses the private socket layer like the unit tests.
 if(NOT WIN32)
     add_executable(cfw_bench
-        ../src/cfw/private/net.c
         ../src/cfw/private/pollset.c
         bench/bench_server.c
     )

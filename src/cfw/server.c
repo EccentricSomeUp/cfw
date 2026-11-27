@@ -104,7 +104,7 @@ void cfw_upgraded_set_user(cfw_upgraded_conn_t *conn, void *user)
 
 #else /* POSIX */
 
-#include "private/net.h"
+#include <cfw/net.h>
 #include "private/pollset.h"
 
 #include <errno.h>
@@ -1377,7 +1377,7 @@ static void cfw_server_service_conn(cfw_server_t *server,
  * conn->remote_addr_buf and points conn->remote_addr at it. Failure
  * leaves remote_addr empty — non-fatal. */
 static void cfw_server_format_peer(cfw_server_conn_t *conn,
-                                   const cfw_sockaddr_t *peer)
+                                   const cfw_addr_t *peer)
 {
     char ip[48];
     uint16_t port = 0;
@@ -1414,7 +1414,7 @@ static void cfw_server_accept(cfw_server_t *server)
 
     for (;;) {
         cfw_fd_t fd;
-        cfw_sockaddr_t peer;
+        cfw_addr_t peer;
         cfw_server_conn_t *conn;
         cfw_status_t st;
 
@@ -1635,7 +1635,7 @@ cfw_status_t cfw_server_run(cfw_server_t *server)
 cfw_status_t cfw_server_init(cfw_server_t *server,
                              const cfw_server_options_t *options)
 {
-    cfw_sockaddr_t addr;
+    cfw_addr_t addr;
     cfw_status_t st;
     int sv[2];
 
@@ -1727,7 +1727,8 @@ cfw_status_t cfw_server_init(cfw_server_t *server,
     }
     if (options->host != NULL) {
         st = cfw_addr_resolve(&addr, options->host, options->port,
-                              options->ipv6 ? AF_INET6 : AF_INET);
+                              options->ipv6 ? CFW_ADDR_FAMILY_IPV6
+                                            : CFW_ADDR_FAMILY_IPV4);
     } else {
         st = cfw_addr_any(options->port, options->ipv6, &addr);
     }
@@ -1802,7 +1803,7 @@ size_t cfw_server_connection_count(const cfw_server_t *server)
 
 uint16_t cfw_server_port(const cfw_server_t *server)
 {
-    cfw_sockaddr_t addr;
+    cfw_addr_t addr;
     cfw_fd_t listener;
     uint16_t port = 0;
 

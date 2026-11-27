@@ -5,7 +5,7 @@
 #include "test_harness.h"
 
 #if CFW_PLATFORM_POSIX
-    #include "private/net.h"
+    #include <cfw/net.h>
 
     #include <errno.h>
     #include <signal.h>
@@ -17,7 +17,7 @@
 
 static cfw_status_t cfw_test_connect(cfw_fd_t *client, uint16_t port)
 {
-    cfw_sockaddr_t addr;
+    cfw_addr_t addr;
     cfw_status_t st;
 
     CFW_TEST_ASSERT_EQ(cfw_addr_from_str(&addr, "127.0.0.1", port), CFW_OK);
@@ -3518,7 +3518,7 @@ static int test_server_ipv6(void)
     cfw_server_t server;
     cfw_strview_t pattern;
     cfw_fd_t client;
-    cfw_sockaddr_t addr;
+    cfw_addr_t addr;
     char response[8192];
     ssize_t n;
 
@@ -3563,7 +3563,7 @@ static int test_server_ipv6(void)
     CFW_TEST_ASSERT_EQ(cfw_net_set_nonblocking(&client, 0), CFW_OK);
     CFW_TEST_ASSERT_EQ(connect((int)cfw_fd_get(&client),
                                (const struct sockaddr *)&addr.storage,
-                               addr.len),
+                               addr.length),
                        0);
     CFW_TEST_ASSERT_EQ(cfw_net_set_nonblocking(&client, 1), CFW_OK);
     CFW_TEST_ASSERT_EQ(cfw_test_send(&client,

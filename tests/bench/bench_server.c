@@ -28,7 +28,7 @@
  * POSIX only (uses the private socket layer like the unit tests).
  */
 
-#include "private/net.h"
+#include <cfw/net.h>
 
 #include <cfw/cfw.h>
 
@@ -201,13 +201,13 @@ static long cfw_bench_exchange(cfw_fd_t *client, cfw_tls_conn_t *tls,
 
 static int cfw_bench_client_connect(cfw_bench_client *c, cfw_fd_t *out)
 {
-    cfw_sockaddr_t addr;
+    cfw_addr_t addr;
     if (cfw_addr_from_str(&addr, "127.0.0.1", c->port) != CFW_OK ||
         cfw_net_socket(AF_INET, SOCK_STREAM, 0, out) != CFW_OK ||
         cfw_net_set_nonblocking(out, 0) != CFW_OK ||
         connect((int)cfw_fd_get(out),
                 (const struct sockaddr *)&addr.storage,
-                addr.len) != 0) {
+                addr.length) != 0) {
         return -1;
     }
     return 0;

@@ -18,6 +18,7 @@
 #include <cfw/log.h>
 #include <cfw/max_align.h>
 #include <cfw/multipart.h>
+#include <cfw/net.h>
 #include <cfw/platform.h>
 #include <cfw/query.h>
 #include <cfw/random.h>

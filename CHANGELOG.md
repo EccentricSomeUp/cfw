@@ -9,6 +9,20 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ## [Unreleased]
 
+### Added
+
+- Public socket and address API (`cfw/net.h`, ADR 0067): the internal
+  socket layer is now public. `cfw_addr_t` is a portable opaque
+  128-byte address value with `cfw_addr_from_str`/`cfw_addr_resolve`
+  (numeric literals and blocking getaddrinfo), `cfw_addr_to_str`,
+  `cfw_addr_port`, `cfw_addr_is_ipv4`/`cfw_addr_is_ipv6`, and
+  `cfw_addr_any`; `cfw_net_socket`/`bind`/`listen`/`accept`/
+  `connect`/`local_addr` manage nonblocking close-on-exec sockets
+  owned by `cfw_fd_t`; `cfw_net_send`/`cfw_net_recv` provide
+  nonblocking I/O; `cfw_net_peer_addr` and `cfw_net_so_error`
+  (SO_ERROR read-and-clear for connect completion) round out the
+  surface. All functions return `CFW_ERROR_UNAVAILABLE` on Windows.
+
 ## [0.9.0] - 2026-11-27
 
 ### Added

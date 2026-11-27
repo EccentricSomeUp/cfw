@@ -9,7 +9,7 @@
 #include "test_harness.h"
 
 #if CFW_PLATFORM_POSIX
-    #include "private/net.h"
+    #include <cfw/net.h>
 
     #include <errno.h>
     #include <string.h>
@@ -53,7 +53,7 @@ static cfw_status_t cfw_sec_framing_evil_handler(cfw_request_t *req,
 
 static int cfw_sec_connect(cfw_fd_t *client, uint16_t port)
 {
-    cfw_sockaddr_t addr;
+    cfw_addr_t addr;
     cfw_status_t st;
 
     CFW_TEST_ASSERT_EQ(cfw_addr_from_str(&addr, "127.0.0.1", port), CFW_OK);

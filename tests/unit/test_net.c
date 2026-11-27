@@ -5,7 +5,7 @@
 #include "test_harness.h"
 
 #if CFW_PLATFORM_POSIX
-    #include "private/net.h"
+    #include <cfw/net.h>
 
     #include <arpa/inet.h>
     #include <netinet/in.h>
@@ -14,7 +14,7 @@
 
 static int test_addr_from_str_and_back(void)
 {
-    cfw_sockaddr_t addr;
+    cfw_addr_t addr;
     char text[INET6_ADDRSTRLEN];
     uint16_t port;
 
@@ -46,7 +46,7 @@ static int test_addr_from_str_and_back(void)
 
 static int test_addr_any(void)
 {
-    cfw_sockaddr_t addr;
+    cfw_addr_t addr;
     uint16_t port;
 
     CFW_TEST_ASSERT_EQ(cfw_addr_any(0, 0, &addr), CFW_OK);
@@ -67,10 +67,10 @@ static int test_tcp_loopback_connect_accept(void)
     cfw_fd_t listener;
     cfw_fd_t client;
     cfw_fd_t server_side;
-    cfw_sockaddr_t bind_addr;
-    cfw_sockaddr_t local_addr;
-    cfw_sockaddr_t peer_addr;
-    cfw_sockaddr_t connect_addr;
+    cfw_addr_t bind_addr;
+    cfw_addr_t local_addr;
+    cfw_addr_t peer_addr;
+    cfw_addr_t connect_addr;
     uint16_t port;
     char byte = 'q';
     char received = 0;
@@ -134,6 +134,51 @@ static int test_tcp_loopback_connect_accept(void)
         CFW_TEST_ASSERT_EQ(received, 'q');
     }
 
+    {
+        /* Public send/recv wrappers deliver the same byte. */
+        size_t sent = 0;
+        size_t received2 = 0;
+        char byte2 = 'z';
+        char got2 = 0;
+        CFW_TEST_ASSERT_EQ(cfw_net_send(&client, &byte2, 1, &sent),
+                           CFW_OK);
+        CFW_TEST_ASSERT_EQ(sent, 1);
+        {
+            int tries;
+            cfw_status_t rst;
+            for (tries = 0; tries < 100 && received2 == 0; tries++) {
+                rst = cfw_net_recv(&server_side, &got2, 1, &received2);
+                CFW_TEST_ASSERT(rst == CFW_OK ||
+                                rst == CFW_ERROR_WOULDBLOCK);
+                if (received2 == 0) {
+                    usleep(1000);
+                }
+            }
+        }
+        CFW_TEST_ASSERT_EQ(received2, 1);
+        CFW_TEST_ASSERT_EQ(got2, 'z');
+    }
+
+    {
+        /* Peer address is visible on both ends. */
+        cfw_addr_t client_peer;
+        uint16_t peer_port = 0;
+        CFW_TEST_ASSERT_EQ(cfw_net_peer_addr(&server_side, &client_peer),
+                           CFW_OK);
+        CFW_TEST_ASSERT_EQ(cfw_addr_port(&client_peer, &peer_port),
+                           CFW_OK);
+        CFW_TEST_ASSERT(peer_port != 0);
+        CFW_TEST_ASSERT_TRUE(cfw_addr_is_ipv4(&client_peer));
+
+        /* SO_ERROR reports a healthy socket. */
+        {
+            int sock_err = -1;
+            CFW_TEST_ASSERT_EQ(cfw_net_so_error(&client, &sock_err),
+                               CFW_OK);
+            CFW_TEST_ASSERT_EQ(sock_err, 0);
+        }
+    }
+
     CFW_TEST_ASSERT_EQ(cfw_fd_close(&client), CFW_OK);
     CFW_TEST_ASSERT_EQ(cfw_fd_close(&server_side), CFW_OK);
     CFW_TEST_ASSERT_EQ(cfw_fd_close(&listener), CFW_OK);
@@ -143,7 +188,7 @@ static int test_tcp_loopback_connect_accept(void)
 static int test_net_argument_validation(void)
 {
     cfw_fd_t fd;
-    cfw_sockaddr_t addr;
+    cfw_addr_t addr;
 
     CFW_TEST_ASSERT_EQ(cfw_addr_any(0, 0, &addr), CFW_OK);
 
