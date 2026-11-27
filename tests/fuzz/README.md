@@ -15,7 +15,8 @@ fixed-seed PRNG.
 The same directory is also the seed corpus for the coverage-guided
 libFuzzer targets (`fuzz_http`, `fuzz_uri`, `fuzz_query`,
 `fuzz_multipart`, `fuzz_head_reader`,
-`fuzz_ws_proto`, `fuzz_crypto`; ADR 0077, built with `CFW_ENABLE_FUZZING=ON`).
+`fuzz_ws_proto`, `fuzz_crypto`,
+`fuzz_http1_conn`; ADR 0077, built with `CFW_ENABLE_FUZZING=ON`).
 Crashes found by the fuzzer should be added here as regression seeds.
 
 When adding entries:

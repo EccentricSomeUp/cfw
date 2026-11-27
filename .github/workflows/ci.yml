@@ -113,7 +113,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [http, uri, query, multipart, head_reader, ws_proto, crypto]
+        target: [http, uri, query, multipart, head_reader, ws_proto, crypto, http1_conn]
     env:
       CC: clang
       CXX: clang++
@@ -153,14 +153,14 @@ jobs:
           cmake --build build/fuzz
           --target cfw_fuzz_http cfw_fuzz_uri cfw_fuzz_query
           cfw_fuzz_multipart cfw_fuzz_head_reader cfw_fuzz_ws_proto
-          cfw_fuzz_crypto
+          cfw_fuzz_crypto cfw_fuzz_http1_conn
 
       - name: Replay corpus
         shell: pwsh
         run: |
           $files = Get-ChildItem tests/fuzz/corpus -File |
             ForEach-Object { $_.FullName }
-          foreach ($t in 'http','uri','query','multipart','head_reader','ws_proto','crypto') {
+          foreach ($t in 'http','uri','query','multipart','head_reader','ws_proto','crypto','http1_conn') {
             Write-Host "== cfw_fuzz_$t"
             & "build/fuzz/tests/cfw_fuzz_$t.exe" @files
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -39,7 +39,8 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   build option and `fuzz` CMake preset produce libFuzzer targets for
   the HTTP pipeline, URI/query decoding, query pairs, multipart
   parsing, the incremental head reader, WS protocol helpers, and the
-  crypto/codec/cookie/signed-token surface (`tests/fuzz/fuzz_*.c`). The fuzz pipeline is shared with
+  crypto/codec/cookie/signed-token surface, and the
+  socket-level `cfw_http1_conn` transport path (`tests/fuzz/fuzz_*.c`). The fuzz pipeline is shared with
   the deterministic mutation fuzzer via `tests/fuzz/fuzz_support.[ch]`
   so both exercise identical code; non-Clang toolchains build a
   standalone corpus-replay driver instead. CI gains a `fuzz` job that
