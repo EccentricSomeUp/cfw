@@ -34,7 +34,9 @@ option `CFW_ENABLE_FUZZING` (default OFF):
   `fuzz_head_reader` (incremental head accumulation fed in
   content-dependent chunk sizes), and `fuzz_ws_proto` (WS UTF-8
   validator, SHA-1 accept-key primitive, close-status allowlist —
-  links `ws_proto.c` directly like the pollset compile fixtures).
+  links `ws_proto.c` directly like the pollset compile fixtures), plus
+  `fuzz_crypto` (SHA-256/HMAC streaming, base64/base64url/hex codecs,
+  signed-token decode, Cookie header parse).
   All operate on in-memory buffers through the public API — no
   sockets, threads, or filesystem — so they are fully deterministic
   and platform-independent.
@@ -45,7 +47,7 @@ option `CFW_ENABLE_FUZZING` (default OFF):
   corpus replay and manual mutation fuzzing everywhere, and real
   coverage-guided fuzzing wherever clang is available.
 - New `fuzz` CMake preset (`build/fuzz`, RelWithDebInfo +
-  `CFW_ENABLE_FUZZING=ON`) and a CI `fuzz` job: matrix over the six
+  `CFW_ENABLE_FUZZING=ON`) and a CI `fuzz` job: matrix over the seven
   targets on `ubuntu-latest` with `CC=clang`, each running
   `-max_total_time=120 -max_len=4096` against `tests/fuzz/corpus` as
   the seed corpus, artifacts to `build/fuzz/artifacts/`.

@@ -305,7 +305,7 @@ endif()
 # entry points still run under ASan/UBSan for corpus replay and manual
 # fuzzing.
 if(CFW_ENABLE_FUZZING)
-    set(_cfw_fuzz_targets http uri query multipart head_reader ws_proto)
+    set(_cfw_fuzz_targets http uri query multipart head_reader ws_proto crypto)
     set(_cfw_fuzz_libfuzzer FALSE)
     if(CMAKE_C_COMPILER_ID MATCHES "Clang")
         set(_cfw_fuzz_libfuzzer TRUE)

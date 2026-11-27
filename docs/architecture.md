@@ -4,10 +4,10 @@
 
 ## Current state
 
-`cfw` is a working, pre-1.0 POSIX HTTP/1.1 server framework. The core
+`cfw` is a working, pre-1.0 HTTP/1.1 server framework. The core
 primitives (status, version, checked arithmetic, span/buffer, arena, time,
 random, logging, filesystem, fd ownership), the platform abstraction layer
-(page size, CSPRNG, file metadata, close), the internal POSIX socket/pollset/
+(page size, CSPRNG, file metadata, close), the portable socket/pollset/
 net layer, the HTTP/1.1 parser and connection binding, the router, the
 dispatch/middleware chain with streaming bodies, and the single-threaded
 server lifecycle are all implemented and covered by unit, integration,
@@ -54,8 +54,9 @@ abstraction exists.
 - `platform`: OS capability detection and abstraction — page size, CSPRNG,
   file metadata (implemented; see `cfw/platform.h`, `cfw/fs.h`, `cfw/fd.h`)
 - `net`: sockets, address handling — public API (`cfw/net.h`,
-  ADR 0067) over a POSIX implementation: `epoll` on Linux/Android,
-  `kqueue` on macOS/BSD, `poll` fallback elsewhere (ADRs 0014/0052)
+  ADR 0067) over platform backends: `epoll` on Linux/Android, `kqueue`
+  on macOS/BSD, `poll` fallback elsewhere, Winsock2 on Windows
+  (ADRs 0014/0052/0072)
 - `pollset`: level-triggered readiness events — public API
   (`cfw/pollset.h`, ADR 0069) sharing the same backend selection
 - `http`: request/response parsing and serialization, including
