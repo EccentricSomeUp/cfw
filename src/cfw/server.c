@@ -173,6 +173,9 @@ struct cfw_server_conn {
     uint64_t audit_request_bytes;
     uint64_t audit_response_bytes;
     cfw_timepoint_t audit_start;
+    /* Last interest mask registered with the pollset; lets
+     * cfw_server_update_conn_interest skip redundant epoll_ctl calls. */
+    uint32_t poll_events;
     intptr_t handle;
     cfw_server_conn_t *next;
 };
@@ -320,9 +323,9 @@ static void cfw_server_update_listener(cfw_server_t *server)
     } else if (!want && server->listener_registered) {
         cfw_pollset_remove(server->pollset, handle);
         server->listener_registered = 0;
-    } else if (want) {
-        cfw_pollset_modify(server->pollset, handle, CFW_POLL_IN, NULL);
     }
+    /* A registered listener always wants CFW_POLL_IN, so no modify is
+     * needed while `want` stays true. */
 }
 
 static void cfw_server_update_conn_interest(cfw_server_t *server,
@@ -350,7 +353,13 @@ static void cfw_server_update_conn_interest(cfw_server_t *server,
         conn->dead = 1;
         return;
     }
-    cfw_pollset_modify(server->pollset, conn->handle, events, conn);
+    if (events == conn->poll_events) {
+        return;
+    }
+    if (cfw_pollset_modify(server->pollset, conn->handle, events,
+                           conn) == CFW_OK) {
+        conn->poll_events = events;
+    }
 }
 
 static cfw_server_conn_t *cfw_server_find_conn(cfw_server_t *server,
@@ -1242,6 +1251,14 @@ static void cfw_server_service_conn(cfw_server_t *server,
     if (!conn->dead && conn->stream_fn != NULL) {
         cfw_server_stream_pump(server, conn);
     }
+    /* Opportunistic flush: most responses fit the socket buffer, so
+     * writing now avoids an extra epoll round-trip per request. A
+     * WOULDBLOCK result simply leaves POLLOUT armed below. */
+    if (!conn->dead &&
+        cfw_http1_conn_pending_out(&conn->http) > 0 &&
+        cfw_http1_conn_flush(&conn->http) == CFW_ERROR_IO) {
+        conn->dead = 1;
+    }
     cfw_server_update_conn_interest(server, conn);
 }
 
@@ -1345,6 +1362,7 @@ static void cfw_server_accept(cfw_server_t *server)
         }
         cfw_pollset_add(server->pollset, conn->handle, CFW_POLL_IN,
                         conn);
+        conn->poll_events = CFW_POLL_IN;
         cfw_server_conn_deadline(conn, server->options.request_timeout);
         cfw_server_update_listener(server);
     }

@@ -163,6 +163,8 @@ struct cfw_pollset {
     cfw_epoll_slot_t *slots;
     size_t count;
     size_t capacity;
+    struct epoll_event *ready;
+    size_t ready_cap;
 };
 
 static uint32_t cfw_epoll_to_cfw(uint32_t epoll_events)
@@ -272,6 +274,7 @@ void cfw_pollset_destroy(cfw_pollset_t *pollset)
         free(pollset->slots[i].record);
     }
     free(pollset->slots);
+    free(pollset->ready);
     close(pollset->epfd);
     free(pollset);
 }
@@ -336,24 +339,17 @@ cfw_status_t cfw_pollset_modify(cfw_pollset_t *pollset, intptr_t handle,
         return CFW_ERROR_INVALID_ARGUMENT;
     }
 
-    record = (cfw_epoll_record_t *)malloc(sizeof(*record));
-    if (record == NULL) {
-        return CFW_ERROR_NOMEM;
-    }
-    record->handle = handle;
-    record->token = token;
+    record = pollset->slots[index].record;
 
     memset(&ev, 0, sizeof(ev));
     ev.events = cfw_cfw_to_epoll(events);
     ev.data.ptr = record;
 
     if (epoll_ctl(pollset->epfd, EPOLL_CTL_MOD, (int)handle, &ev) != 0) {
-        free(record);
         return CFW_ERROR_IO;
     }
 
-    free(pollset->slots[index].record);
-    pollset->slots[index].record = record;
+    record->token = token;
     return CFW_OK;
 }
 
@@ -411,10 +407,17 @@ cfw_status_t cfw_pollset_wait(cfw_pollset_t *pollset,
         return status;
     }
 
-    ready = (struct epoll_event *)malloc(max_events * sizeof(*ready));
-    if (ready == NULL) {
-        return CFW_ERROR_NOMEM;
+    if (pollset->ready_cap < max_events) {
+        struct epoll_event *grown =
+            (struct epoll_event *)realloc(pollset->ready,
+                                          max_events * sizeof(*grown));
+        if (grown == NULL) {
+            return CFW_ERROR_NOMEM;
+        }
+        pollset->ready = grown;
+        pollset->ready_cap = max_events;
     }
+    ready = pollset->ready;
 
     for (;;) {
         result = epoll_wait(pollset->epfd, ready, (int)max_events,
@@ -425,17 +428,14 @@ cfw_status_t cfw_pollset_wait(cfw_pollset_t *pollset,
         if (errno == EINTR) {
             status = cfw_pollset_timeout_ms(deadline, &timeout_ms);
             if (status != CFW_OK) {
-                free(ready);
                 return status;
             }
             continue;
         }
-        free(ready);
         return CFW_ERROR_IO;
     }
 
     if (result == 0) {
-        free(ready);
         *count = 0;
         return CFW_ERROR_TIMEOUT;
     }
@@ -455,7 +455,6 @@ cfw_status_t cfw_pollset_wait(cfw_pollset_t *pollset,
         }
         *count = produced;
     }
-    free(ready);
     return CFW_OK;
 }
 
@@ -478,6 +477,8 @@ struct cfw_pollset {
     cfw_kqueue_record_t **records;
     size_t count;
     size_t capacity;
+    struct kevent *ready;
+    size_t ready_cap;
 };
 
 static void cfw_kqueue_evset(struct kevent *kev, intptr_t handle,
@@ -660,6 +661,7 @@ void cfw_pollset_destroy(cfw_pollset_t *pollset)
         free(pollset->records[i]);
     }
     free(pollset->records);
+    free(pollset->ready);
     close(pollset->kqfd);
     free(pollset);
 }
@@ -796,10 +798,17 @@ cfw_status_t cfw_pollset_wait(cfw_pollset_t *pollset,
         return CFW_ERROR_INVALID_ARGUMENT;
     }
 
-    ready = (struct kevent *)malloc(max_events * sizeof(*ready));
-    if (ready == NULL) {
-        return CFW_ERROR_NOMEM;
+    if (pollset->ready_cap < max_events) {
+        struct kevent *grown =
+            (struct kevent *)realloc(pollset->ready,
+                                     max_events * sizeof(*grown));
+        if (grown == NULL) {
+            return CFW_ERROR_NOMEM;
+        }
+        pollset->ready = grown;
+        pollset->ready_cap = max_events;
     }
+    ready = pollset->ready;
 
     /* kqueue timeouts are relative; recompute on EINTR like the other
      * backends. */
@@ -812,12 +821,10 @@ cfw_status_t cfw_pollset_wait(cfw_pollset_t *pollset,
 
         status = cfw_time_now(&now);
         if (status != CFW_OK) {
-            free(ready);
             return status;
         }
         status = cfw_timepoint_diff(deadline, &now, &remaining);
         if (status != CFW_OK) {
-            free(ready);
             return status;
         }
         rem_ns = remaining.nanoseconds;
@@ -843,12 +850,10 @@ cfw_status_t cfw_pollset_wait(cfw_pollset_t *pollset,
 
                 status = cfw_time_now(&now);
                 if (status != CFW_OK) {
-                    free(ready);
                     return status;
                 }
                 status = cfw_timepoint_diff(deadline, &now, &remaining);
                 if (status != CFW_OK) {
-                    free(ready);
                     return status;
                 }
                 rem_ns = remaining.nanoseconds;
@@ -860,7 +865,6 @@ cfw_status_t cfw_pollset_wait(cfw_pollset_t *pollset,
             }
             continue;
         }
-        free(ready);
         return CFW_ERROR_IO;
     }
 
@@ -876,7 +880,6 @@ cfw_status_t cfw_pollset_wait(cfw_pollset_t *pollset,
     }
 
     if (nready == 0) {
-        free(ready);
         *count = 0;
         return CFW_ERROR_TIMEOUT;
     }
@@ -893,7 +896,6 @@ cfw_status_t cfw_pollset_wait(cfw_pollset_t *pollset,
         record->ready = 0;
         produced++;
     }
-    free(ready);
     *count = produced;
     return CFW_OK;
 }

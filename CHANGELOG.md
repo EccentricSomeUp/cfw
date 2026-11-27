@@ -9,6 +9,17 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ## [Unreleased]
 
+### Changed
+
+- Reduced per-request event-loop overhead: connection interest changes
+  are only pushed to the pollset when the mask actually changes (the
+  listener is no longer re-`epoll_ctl`'d every step), queued responses
+  are flushed opportunistically instead of always waiting for a
+  `POLLOUT` wakeup, and the epoll/kqueue backends reuse their modify
+  records and wait buffers instead of allocating per call. Loopback
+  `cfw_bench` improved ~10% single-worker (~9.7k → ~10.8k req/s) and
+  ~25% at four workers (~46k → ~58k req/s).
+
 ## [0.5.0] - 2026-11-27
 
 ### Added
