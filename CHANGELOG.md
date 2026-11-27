@@ -11,6 +11,15 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ### Added
 
+- HTTP client hardening (ADR 0078): `cfw_http_client_session_t` for
+  keep-alive connection reuse keyed by authority (with TLS session
+  resumption and transparent stale-connection retry), redirect
+  following via `max_redirects` (301/302/303/307/308, method rewriting,
+  cross-origin `Authorization`/`Cookie` stripping, http/https boundary
+  enforcement), bounded `max_retries` for idempotent requests, and
+  streaming response bodies via `body_sink`. New status codes
+  `CFW_HTTP_STATUS_SEE_OTHER` (303), `TEMPORARY_REDIRECT` (307), and
+  `PERMANENT_REDIRECT` (308).
 - `tsan` CMake preset and `CFW_ENABLE_TSAN` option running the suite
   under ThreadSanitizer (Clang only; mutually exclusive with
   `CFW_ENABLE_SANITIZERS`). The install-smoke packaging test is skipped

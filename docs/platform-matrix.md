@@ -36,7 +36,7 @@ not yet implemented; "planned" means no contract exists yet.
 | Polling/event loop | `epoll` | `kqueue` | `kqueue` | `WSAPoll` | `cfw_pollset_*` public API (implemented; ADRs 0014/0052/0069/0072) |
 | Sockets | `socket`/`accept4` | `socket`/`accept` | `socket`/`accept` | Winsock2 `socket`/`accept` | `cfw_net_*`/`cfw_addr_*` public API (implemented on POSIX and Windows; numeric IPs plus blocking getaddrinfo for name resolution; ADRs 0067/0072) |
 | HTTP/1.1 + server | yes | yes (POSIX) | yes (POSIX) | yes | `cfw_http1*`/`cfw_server` implemented on all targets (ADRs 0074/0075); TLS listener paths require a `CFW_ENABLE_TLS` build |
-| HTTP/1.1 client | yes | yes (POSIX) | yes (POSIX) | yes | `cfw_http_client_*` one-shot client (implemented, ADR 0068; TLS via client-role `cfw_tls_ctx_t`, ADR 0075) |
+| HTTP/1.1 client | yes | yes (POSIX) | yes (POSIX) | yes | `cfw_http_client_*` one-shot + keep-alive sessions, redirects, retries, streaming bodies (implemented, ADRs 0068/0078; TLS via client-role `cfw_tls_ctx_t`, ADR 0075) |
 | TLS transport | OpenSSL 3.x | OpenSSL 3.x | OpenSSL 3.x | OpenSSL 3.x | `cfw_tls` (optional module, `CFW_ENABLE_TLS`; ADRs 0057/0058/0075 — LibreSSL lacks required OpenSSL 3 APIs; Windows uses the same OpenSSL backend, not Schannel) |
 | Threads/mutexes | `pthread` | `pthread` | `pthread` | `CreateThread`+`SRWLOCK`/`CONDITION_VARIABLE` | `cfw_thread_*`, `cfw_mutex_*`/`cfw_cond_*` (implemented, ADRs 0050/0051) |
 

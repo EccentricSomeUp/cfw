@@ -17,22 +17,25 @@ extern "C" {
 #endif
 
 /*
- * Minimal HTTP/1.1 client (ADR 0068). Performs one request per call:
- * resolve (blocking getaddrinfo for names), connect, optional TLS,
- * send request, read the full response. One connection per request —
- * keep-alive reuse, redirects, retries, and streaming bodies are
- * intentionally out of scope for this first version.
+ * HTTP/1.1 client (ADR 0068, extended by ADR 0078). The one-shot
+ * cfw_http_client_request performs a single request per call on a
+ * fresh connection; cfw_http_client_session_t reuses a keep-alive
+ * connection across perform() calls to the same authority.
+ *
+ * Both paths support redirect following (max_redirects), bounded
+ * retries of idempotent requests that fail before the request is
+ * written, and streaming response bodies through a sink callback.
  *
  * The call is synchronous and bounded by request->timeout (a single
- * monotonic deadline covering connect, TLS handshake, write, and
- * read). DNS resolution itself is blocking and NOT covered by the
- * timeout — resolve-critical applications should treat
- * cfw_addr_resolve as an init-time operation.
+ * monotonic deadline covering connect, TLS handshake, write, read,
+ * redirect hops, and retries). DNS resolution itself is blocking and
+ * NOT covered by the timeout — resolve-critical applications should
+ * treat cfw_addr_resolve as an init-time operation.
  *
- * Thread safety: cfw_http_client_request uses only stack state plus
+ * Thread safety: requests and sessions use only their own state plus
  * the caller's tls_ctx (which must already be safe for concurrent
- * use per cfw/tls.h rules). Concurrent requests on separate threads
- * are supported.
+ * use per cfw/tls.h rules). A session is single-threaded; concurrent
+ * sessions on separate threads are supported.
  *
  * Platform support: POSIX and Windows (Winsock2, ADR 0072).
  * TLS requires a CFW_ENABLE_TLS build
@@ -74,8 +77,41 @@ typedef struct {
     size_t max_head_size;
     /* Maximum accepted decoded response-body size in bytes; 0 selects
      * the 16 MiB default. UINT64_MAX disables the cap. Exceeding it
-     * fails with CFW_ERROR_OVERFLOW. */
+     * fails with CFW_ERROR_OVERFLOW. With body_sink set, the cap
+     * applies to the cumulative streamed total. */
     uint64_t max_body_size;
+    /* Maximum redirect hops followed for 301/302/303/307/308 responses
+     * with a resolvable Location header; 0 disables redirect
+     * following (the 3xx response is returned). Hard-capped at 16.
+     * Redirect semantics: 303 always becomes GET; 301/302 rewrite
+     * POST to GET; 307/308 preserve method and body. Redirects never
+     * cross the http/https boundary implied by tls_ctx, and
+     * Authorization/Cookie headers are not forwarded to a different
+     * authority. When the hop limit is exhausted the last 3xx
+     * response is returned normally. */
+    unsigned max_redirects;
+    /* Maximum retries of an exchange that fails with CFW_ERROR_IO
+     * (connect refused/reset, truncated stream, etc.); 0 disables
+     * retries. Hard-capped at 4. Retries apply only to idempotent
+     * methods (GET, HEAD, PUT, DELETE, OPTIONS, TRACE), never after a
+     * body_sink has received bytes (a partial stream cannot be
+     * unwound), and never for the caller's own timeout. They share
+     * the request deadline — there is no backoff sleep. A connection
+     * reused by a session additionally gets one free retry when it
+     * turns out to be stale. */
+    unsigned max_retries;
+    /* Optional streaming body sink (ADR 0078). When non-NULL, each
+     * decoded body chunk is passed to this callback instead of being
+     * buffered into response->body (which then stays empty). The
+     * callback runs on the caller's thread, must not block
+     * indefinitely, and must return CFW_OK to continue; any other
+     * status aborts the request with that status. max_body_size is
+     * still enforced on the cumulative total. Intermediate redirect
+     * bodies are drained but never delivered to the sink — it
+     * observes only the final response. */
+    cfw_status_t (*body_sink)(void *user, const void *data,
+                              size_t size);
+    void *body_sink_user;
 } cfw_http_client_request_t;
 
 /* Owns the complete raw response head and the decoded body. Both
@@ -121,6 +157,44 @@ CFW_API cfw_status_t cfw_http_client_response_head(
 /* Releases response storage. Idempotent; safe on a zeroed or
  * partially-filled struct. */
 CFW_API void cfw_http_client_response_free(
+    cfw_http_client_response_t *response);
+
+/* ------------------------------------------------------------------ */
+/* Keep-alive sessions (ADR 0078)                                      */
+/* ------------------------------------------------------------------ */
+
+/* Opaque keep-alive HTTP client session. A session caches at most one
+ * connection, reused by perform() calls whose request authority
+ * (TLS-ness, host, port) matches the cached one. Single-threaded:
+ * perform/close must not run concurrently on the same session. */
+typedef struct cfw_http_client_session cfw_http_client_session_t;
+
+/* Allocates a session. The returned pointer is owned by the caller and
+ * must be released with cfw_http_client_session_destroy. */
+CFW_API cfw_status_t cfw_http_client_session_create(
+    cfw_http_client_session_t **session);
+
+/* Drops the cached connection (saving any TLS session for resumption)
+ * and releases all session state. Idempotent; safe on NULL. */
+CFW_API void cfw_http_client_session_destroy(
+    cfw_http_client_session_t *session);
+
+/* Drops the cached connection without destroying the session; the
+ * next perform() connects fresh. Equivalent to destroy+create but
+ * retains the session allocation. Idempotent. */
+CFW_API void cfw_http_client_session_close(
+    cfw_http_client_session_t *session);
+
+/* Performs request on the session, reusing the cached connection when
+ * the authority matches and the connection negotiated persistence.
+ * Request/response semantics, redirect following, retries, streaming,
+ * and error mapping are identical to cfw_http_client_request; the
+ * session only changes connection reuse (Connection: keep-alive is
+ * sent instead of close). On a stale-connection failure the exchange
+ * reconnects and retries once for idempotent methods. */
+CFW_API cfw_status_t cfw_http_client_session_perform(
+    cfw_http_client_session_t *session,
+    const cfw_http_client_request_t *request,
     cfw_http_client_response_t *response);
 
 #ifdef __cplusplus

@@ -61,8 +61,10 @@ abstraction exists.
   (`cfw/pollset.h`, ADR 0069) sharing the same backend selection
 - `http`: request/response parsing and serialization, including
   response-side head parsing/framing for clients
-- `http_client`: minimal one-shot HTTP/1.1 client over `net` + `tls`
-  (implemented; see `cfw/http_client.h`, ADR 0068)
+- `http_client`: HTTP/1.1 client over `net` + `tls` — one-shot and
+  keep-alive sessions, redirect following, bounded retries, and
+  streaming bodies (implemented; see `cfw/http_client.h`, ADRs 0068,
+  0078)
 - `http1`: HTTP/1.1 server message reader and connection binding
   (implemented; see `cfw/http.h`, `cfw/http1.h`, `cfw/http1_conn.h`)
 - `router`: route matching and parameters (implemented; see `cfw/route.h`)

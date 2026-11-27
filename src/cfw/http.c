@@ -187,8 +187,14 @@ const char *cfw_http_status_reason(cfw_http_status_t status)
         return "Moved Permanently";
     case CFW_HTTP_STATUS_FOUND:
         return "Found";
+    case CFW_HTTP_STATUS_SEE_OTHER:
+        return "See Other";
     case CFW_HTTP_STATUS_NOT_MODIFIED:
         return "Not Modified";
+    case CFW_HTTP_STATUS_TEMPORARY_REDIRECT:
+        return "Temporary Redirect";
+    case CFW_HTTP_STATUS_PERMANENT_REDIRECT:
+        return "Permanent Redirect";
     case CFW_HTTP_STATUS_BAD_REQUEST:
         return "Bad Request";
     case CFW_HTTP_STATUS_UNAUTHORIZED:
@@ -248,7 +254,10 @@ cfw_status_t cfw_http_status_parse(uint32_t code, cfw_http_status_t *status)
     case 206: *status = CFW_HTTP_STATUS_PARTIAL_CONTENT; return CFW_OK;
     case 301: *status = CFW_HTTP_STATUS_MOVED_PERMANENTLY; return CFW_OK;
     case 302: *status = CFW_HTTP_STATUS_FOUND; return CFW_OK;
+    case 303: *status = CFW_HTTP_STATUS_SEE_OTHER; return CFW_OK;
     case 304: *status = CFW_HTTP_STATUS_NOT_MODIFIED; return CFW_OK;
+    case 307: *status = CFW_HTTP_STATUS_TEMPORARY_REDIRECT; return CFW_OK;
+    case 308: *status = CFW_HTTP_STATUS_PERMANENT_REDIRECT; return CFW_OK;
     case 400: *status = CFW_HTTP_STATUS_BAD_REQUEST; return CFW_OK;
     case 401: *status = CFW_HTTP_STATUS_UNAUTHORIZED; return CFW_OK;
     case 403: *status = CFW_HTTP_STATUS_FORBIDDEN; return CFW_OK;

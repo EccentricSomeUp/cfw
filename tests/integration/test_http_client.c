@@ -124,6 +124,89 @@ static cfw_status_t cfw_test_client_chunked(cfw_request_t *req,
     return CFW_OK;
 }
 
+/* Redirect fixture: /redir-* routes answer 3xx with a Location chosen
+ * by the per-route kind; /authcheck reports whether an Authorization
+ * header arrived (used to prove cross-origin header stripping). */
+static int cfw_redir_kind_rel = 0;
+static int cfw_redir_kind_abs = 1;
+static int cfw_redir_kind_see = 2;
+static int cfw_redir_kind_loop = 3;
+static int cfw_redir_kind_auth = 4;
+static uint16_t cfw_test_redirect_port;
+static char cfw_test_redirect_abs[256];
+
+static cfw_status_t cfw_test_client_redirect(cfw_request_t *req,
+                                             cfw_response_t *res,
+                                             void *user)
+{
+    static const char body[] = "redir-body";
+    cfw_strview_t n, v;
+    int kind = *(const int *)user;
+    (void)req;
+
+    cfw_strview_from_cstr(&n, "Location");
+    switch (kind) {
+    case 0:
+        cfw_strview_from_cstr(&v, "/hello");
+        res->status = CFW_HTTP_STATUS_FOUND;
+        break;
+    case 1:
+        snprintf(cfw_test_redirect_abs, sizeof(cfw_test_redirect_abs),
+                 "http://127.0.0.1:%u/hello", (unsigned)cfw_test_redirect_port);
+        v.data = cfw_test_redirect_abs;
+        v.size = strlen(cfw_test_redirect_abs);
+        res->status = CFW_HTTP_STATUS_FOUND;
+        break;
+    case 2:
+        cfw_strview_from_cstr(&v, "/hello");
+        res->status = CFW_HTTP_STATUS_SEE_OTHER;
+        break;
+    case 3:
+        cfw_strview_from_cstr(&v, "/redir-loop");
+        res->status = CFW_HTTP_STATUS_FOUND;
+        break;
+    default:
+        snprintf(cfw_test_redirect_abs, sizeof(cfw_test_redirect_abs),
+                 "http://127.0.0.1:%u/authcheck",
+                 (unsigned)cfw_test_redirect_port);
+        v.data = cfw_test_redirect_abs;
+        v.size = strlen(cfw_test_redirect_abs);
+        res->status = CFW_HTTP_STATUS_FOUND;
+        break;
+    }
+    cfw_response_header_add(res, &n, &v);
+    res->body.data = (const uint8_t *)body;
+    res->body.size = sizeof(body) - 1;
+    return CFW_OK;
+}
+
+static cfw_status_t cfw_test_client_authcheck(cfw_request_t *req,
+                                              cfw_response_t *res,
+                                              void *user)
+{
+    static const char clean[] = "clean";
+    static const char leak[] = "leak";
+    cfw_strview_t want;
+    int found = 0;
+    size_t i;
+    (void)user;
+
+    cfw_strview_from_cstr(&want, "authorization");
+    for (i = 0; i < req->header_count; i++) {
+        int eq = 0;
+        if (cfw_strview_equal_nocase(&req->headers[i].name, &want,
+                                     &eq) == CFW_OK &&
+            eq) {
+            found = 1;
+            break;
+        }
+    }
+    res->status = CFW_HTTP_STATUS_OK;
+    res->body.data = (const uint8_t *)(found ? leak : clean);
+    res->body.size = found ? sizeof(leak) - 1 : sizeof(clean) - 1;
+    return CFW_OK;
+}
+
 static int cfw_client_server_thread_main(void *arg)
 {
     cfw_client_fixture_t *fixture = (cfw_client_fixture_t *)arg;
@@ -181,6 +264,30 @@ static int cfw_client_server_start(cfw_client_fixture_t *fixture)
                            fixture, CFW_HTTP_METHOD_GET, "/chunked",
                            cfw_test_client_chunked,
                            &cfw_test_client_stream_state),
+                       0);
+    CFW_TEST_ASSERT_EQ(cfw_client_add_route(
+                           fixture, CFW_HTTP_METHOD_GET, "/redir-rel",
+                           cfw_test_client_redirect, &cfw_redir_kind_rel),
+                       0);
+    CFW_TEST_ASSERT_EQ(cfw_client_add_route(
+                           fixture, CFW_HTTP_METHOD_GET, "/redir-abs",
+                           cfw_test_client_redirect, &cfw_redir_kind_abs),
+                       0);
+    CFW_TEST_ASSERT_EQ(cfw_client_add_route(
+                           fixture, CFW_HTTP_METHOD_POST, "/redir-303",
+                           cfw_test_client_redirect, &cfw_redir_kind_see),
+                       0);
+    CFW_TEST_ASSERT_EQ(cfw_client_add_route(
+                           fixture, CFW_HTTP_METHOD_GET, "/redir-loop",
+                           cfw_test_client_redirect, &cfw_redir_kind_loop),
+                       0);
+    CFW_TEST_ASSERT_EQ(cfw_client_add_route(
+                           fixture, CFW_HTTP_METHOD_GET, "/redir-auth",
+                           cfw_test_client_redirect, &cfw_redir_kind_auth),
+                       0);
+    CFW_TEST_ASSERT_EQ(cfw_client_add_route(
+                           fixture, CFW_HTTP_METHOD_GET, "/authcheck",
+                           cfw_test_client_authcheck, NULL),
                        0);
 
     memset(&options, 0, sizeof(options));
@@ -394,8 +501,69 @@ typedef struct {
     size_t response_len;
     int read_request;
     int hold_ms;
+    /* Scripted connection handling: `conns` sequential connections
+     * are accepted (0 → 1); each serves `reqs_per_conn` requests when
+     * read_request is set (0 → 1). The same canned response is sent
+     * for every request; NULL response closes after reading. */
+    int conns;
+    int reqs_per_conn;
     int thread_started;
+    int conns_seen;
+    int reqs_seen;
 } cfw_raw_server_t;
+
+/* First request head seen by the raw server (for wire assertions). */
+static char cfw_raw_first_request[8192];
+static size_t cfw_raw_first_request_len;
+
+static int cfw_raw_has_head_end(const char *buf, size_t len)
+{
+    size_t i;
+    if (len < 4) {
+        return 0;
+    }
+    for (i = 0; i + 4 <= len; i++) {
+        if (buf[i] == '\r' && buf[i + 1] == '\n' && buf[i + 2] == '\r' &&
+            buf[i + 3] == '\n') {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Reads until a complete request head (CRLFCRLF), EOF, error, or
+ * ~4s of idle. Returns bytes read or -1. */
+static int cfw_raw_server_read_head(cfw_fd_t *conn, char *buf,
+                                    size_t cap)
+{
+    size_t len = 0;
+    int idle = 0;
+
+    while (len + 1 < cap) {
+        size_t got = 0;
+        cfw_status_t st =
+            cfw_net_recv(conn, buf + len, cap - 1 - len, &got);
+        if (st == CFW_OK) {
+            if (got == 0) {
+                return len != 0 ? (int)len : -1;
+            }
+            len += got;
+            idle = 0;
+            if (cfw_raw_has_head_end(buf, len)) {
+                buf[len] = '\0';
+                return (int)len;
+            }
+        } else if (st == CFW_ERROR_WOULDBLOCK) {
+            if (++idle > 4000) {
+                return -1;
+            }
+            cfw_test_sleep_us(1000);
+        } else {
+            return -1;
+        }
+    }
+    return -1;
+}
 
 static int cfw_raw_server_send_all(cfw_fd_t *fd, const char *data,
                                    size_t size)
@@ -422,56 +590,71 @@ static int cfw_raw_server_send_all(cfw_fd_t *fd, const char *data,
 static int cfw_raw_server_main(void *arg)
 {
     cfw_raw_server_t *rs = (cfw_raw_server_t *)arg;
-    cfw_fd_t conn;
-    cfw_addr_t peer;
+    int total_conns = rs->conns > 0 ? rs->conns : 1;
+    int per_conn = rs->reqs_per_conn > 0 ? rs->reqs_per_conn : 1;
     char drain[4096];
-    int attempts;
+    int c;
 
-    cfw_fd_init(&conn);
-    for (attempts = 0; attempts < 10000; attempts++) {
-        cfw_status_t st = cfw_net_accept(&rs->listener, &peer, &conn);
-        if (st == CFW_OK) {
-            break;
-        }
-        if (st != CFW_ERROR_WOULDBLOCK) {
-            return 1;
-        }
-        cfw_test_sleep_us(1000);
-    }
-    if (attempts == 10000) {
-        return 1;
-    }
+    for (c = 0; c < total_conns; c++) {
+        cfw_fd_t conn;
+        cfw_addr_t peer;
+        int attempts;
+        int r;
 
-    if (rs->read_request) {
-        /* Consume whatever the client sent so far; retry briefly on
-         * WOULDBLOCK since the request may still be in flight. */
-        int tries;
-        for (tries = 0; tries < 500; tries++) {
-            size_t got = 0;
-            cfw_status_t st =
-                cfw_net_recv(&conn, drain, sizeof(drain), &got);
-            if (st == CFW_OK || st != CFW_ERROR_WOULDBLOCK) {
+        cfw_fd_init(&conn);
+        for (attempts = 0; attempts < 10000; attempts++) {
+            cfw_status_t st = cfw_net_accept(&rs->listener, &peer, &conn);
+            if (st == CFW_OK) {
                 break;
+            }
+            if (st != CFW_ERROR_WOULDBLOCK) {
+                return 1;
             }
             cfw_test_sleep_us(1000);
         }
-    }
-    if (rs->hold_ms > 0) {
-        cfw_test_sleep_us((long)rs->hold_ms * 1000L);
-    }
-    if (rs->response != NULL &&
-        cfw_raw_server_send_all(&conn, rs->response, rs->response_len) != 0) {
+        if (attempts == 10000) {
+            cfw_fd_close(&conn);
+            return 1;
+        }
+        rs->conns_seen++;
+
+        for (r = 0; r < per_conn; r++) {
+            if (rs->read_request) {
+                int n = cfw_raw_server_read_head(&conn, drain,
+                                                 sizeof(drain));
+                if (n < 0) {
+                    break;
+                }
+                rs->reqs_seen++;
+                if (c == 0 && r == 0) {
+                    size_t cp = (size_t)n <
+                                        sizeof(cfw_raw_first_request) - 1
+                                    ? (size_t)n
+                                    : sizeof(cfw_raw_first_request) - 1;
+                    memcpy(cfw_raw_first_request, drain, cp);
+                    cfw_raw_first_request[cp] = '\0';
+                    cfw_raw_first_request_len = cp;
+                }
+            }
+            if (rs->hold_ms > 0) {
+                cfw_test_sleep_us((long)rs->hold_ms * 1000L);
+            }
+            if (rs->response != NULL &&
+                cfw_raw_server_send_all(&conn, rs->response,
+                                        rs->response_len) != 0) {
+                cfw_fd_close(&conn);
+                return 1;
+            }
+        }
         cfw_fd_close(&conn);
-        return 1;
     }
-    cfw_fd_close(&conn);
     cfw_fd_close(&rs->listener);
     return 0;
 }
 
 static int cfw_raw_server_start(cfw_raw_server_t *rs, const char *response,
                                 size_t response_len, int read_request,
-                                int hold_ms)
+                                int hold_ms, int conns, int reqs_per_conn)
 {
     cfw_addr_t bind_addr;
     cfw_addr_t local_addr;
@@ -482,6 +665,8 @@ static int cfw_raw_server_start(cfw_raw_server_t *rs, const char *response,
     rs->response_len = response_len;
     rs->read_request = read_request;
     rs->hold_ms = hold_ms;
+    rs->conns = conns;
+    rs->reqs_per_conn = reqs_per_conn;
 
     cfw_fd_init(&rs->listener);
     CFW_TEST_ASSERT_EQ(cfw_addr_any(0, 0, &bind_addr), CFW_OK);
@@ -527,7 +712,7 @@ static int test_client_raw_until_close(void)
     cfw_http_client_response_t out;
 
     CFW_TEST_ASSERT_EQ(cfw_raw_server_start(&rs, response,
-                                            sizeof(response) - 1, 1, 0),
+                                            sizeof(response) - 1, 1, 0, 0, 0),
                        0);
     CFW_TEST_ASSERT_EQ(cfw_raw_request(&rs, &out), CFW_OK);
     CFW_TEST_ASSERT_EQ(cfw_client_expect_status(&out, 200), 0);
@@ -547,7 +732,7 @@ static int test_client_raw_interim_100(void)
     cfw_http_client_response_t out;
 
     CFW_TEST_ASSERT_EQ(cfw_raw_server_start(&rs, response,
-                                            sizeof(response) - 1, 1, 0),
+                                            sizeof(response) - 1, 1, 0, 0, 0),
                        0);
     CFW_TEST_ASSERT_EQ(cfw_raw_request(&rs, &out), CFW_OK);
     CFW_TEST_ASSERT_EQ(cfw_client_expect_status(&out, 200), 0);
@@ -574,7 +759,7 @@ static int test_client_raw_chunked_and_204(void)
     cfw_http_client_response_t out;
 
     CFW_TEST_ASSERT_EQ(cfw_raw_server_start(&rs, chunked,
-                                            sizeof(chunked) - 1, 1, 0),
+                                            sizeof(chunked) - 1, 1, 0, 0, 0),
                        0);
     CFW_TEST_ASSERT_EQ(cfw_raw_request(&rs, &out), CFW_OK);
     CFW_TEST_ASSERT_TRUE(out.body.size == 11 &&
@@ -587,7 +772,7 @@ static int test_client_raw_chunked_and_204(void)
             "HTTP/1.1 204 No Content\r\nContent-Length: 9\r\n\r\n";
         CFW_TEST_ASSERT_EQ(cfw_raw_server_start(&rs, no_content,
                                                 sizeof(no_content) - 1,
-                                                1, 0),
+                                                1, 0, 0, 0),
                            0);
         CFW_TEST_ASSERT_EQ(cfw_raw_request(&rs, &out), CFW_OK);
         CFW_TEST_ASSERT_EQ(cfw_client_expect_status(&out, 204), 0);
@@ -608,7 +793,7 @@ static int test_client_raw_errors(void)
     {
         static const char bad[] = "this is not http\r\n\r\n";
         CFW_TEST_ASSERT_EQ(cfw_raw_server_start(&rs, bad,
-                                                sizeof(bad) - 1, 1, 0),
+                                                sizeof(bad) - 1, 1, 0, 0, 0),
                            0);
         CFW_TEST_ASSERT_EQ(cfw_raw_request(&rs, &out),
                            CFW_ERROR_INVALID_ARGUMENT);
@@ -622,7 +807,7 @@ static int test_client_raw_errors(void)
             "HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc";
         CFW_TEST_ASSERT_EQ(cfw_raw_server_start(&rs, short_body,
                                                 sizeof(short_body) - 1,
-                                                1, 0),
+                                                1, 0, 0, 0),
                            0);
         CFW_TEST_ASSERT_EQ(cfw_raw_request(&rs, &out), CFW_ERROR_IO);
         cfw_http_client_response_free(&out);
@@ -638,7 +823,7 @@ static int test_client_raw_errors(void)
         memset(big + off, 'a', 200);
         off += 200;
         off += (size_t)snprintf(big + off, sizeof(big) - off, "\r\n\r\n");
-        CFW_TEST_ASSERT_EQ(cfw_raw_server_start(&rs, big, off, 1, 0), 0);
+        CFW_TEST_ASSERT_EQ(cfw_raw_server_start(&rs, big, off, 1, 0, 0, 0), 0);
         cfw_client_req_init(&req, "127.0.0.1", rs.port, "/");
         req.max_head_size = 64;
         memset(&out, 0, sizeof(out));
@@ -655,7 +840,7 @@ static int test_client_raw_errors(void)
             "01234567890123456789012345678901";
         CFW_TEST_ASSERT_EQ(cfw_raw_server_start(&rs, body_resp,
                                                 sizeof(body_resp) - 1,
-                                                1, 0),
+                                                1, 0, 0, 0),
                            0);
         cfw_client_req_init(&req, "127.0.0.1", rs.port, "/");
         req.max_body_size = 16;
@@ -668,7 +853,7 @@ static int test_client_raw_errors(void)
 
     /* Server accepts but never responds → TIMEOUT. */
     {
-        CFW_TEST_ASSERT_EQ(cfw_raw_server_start(&rs, NULL, 0, 1, 1500), 0);
+        CFW_TEST_ASSERT_EQ(cfw_raw_server_start(&rs, NULL, 0, 1, 1500, 0, 0), 0);
         cfw_client_req_init(&req, "127.0.0.1", rs.port, "/");
         cfw_duration_from_millis(200, &req.timeout);
         memset(&out, 0, sizeof(out));
@@ -754,6 +939,381 @@ static int test_client_bad_args(void)
         CFW_TEST_ASSERT_EQ(cfw_http_client_response_head(&response, &head),
                            CFW_ERROR_INVALID_ARGUMENT);
     }
+    /* Session API arg checks. */
+    {
+        cfw_http_client_session_t *session = NULL;
+        CFW_TEST_ASSERT_EQ(cfw_http_client_session_perform(
+                               NULL, &req, &response),
+                           CFW_ERROR_INVALID_ARGUMENT);
+        cfw_http_client_session_close(NULL);
+        cfw_http_client_session_destroy(NULL);
+        CFW_TEST_ASSERT_EQ(cfw_http_client_session_create(NULL),
+                           CFW_ERROR_INVALID_ARGUMENT);
+        (void)session;
+    }
+    return 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Redirects, retries, streaming, sessions                             */
+/* ------------------------------------------------------------------ */
+
+static int test_client_redirects(void)
+{
+    cfw_client_fixture_t f1;
+    cfw_client_fixture_t f2;
+    cfw_http_client_request_t req;
+    cfw_http_client_response_t response;
+    uint16_t port1;
+
+    CFW_TEST_ASSERT_EQ(cfw_client_server_start(&f1), 0);
+    CFW_TEST_ASSERT_EQ(cfw_client_server_start(&f2), 0);
+    port1 = cfw_server_port(&f1.server);
+    cfw_test_redirect_port = cfw_server_port(&f2.server);
+
+    /* Relative redirect followed to /hello on the same server. */
+    cfw_client_req_init(&req, "127.0.0.1", port1, "/redir-rel");
+    req.max_redirects = 5;
+    memset(&response, 0, sizeof(response));
+    CFW_TEST_ASSERT_EQ(cfw_http_client_request(&req, &response), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_client_expect_status(&response, 200), 0);
+    CFW_TEST_ASSERT_TRUE(response.body.size == 9 &&
+                         memcmp(response.body.data, "client-ok", 9) == 0);
+    cfw_http_client_response_free(&response);
+
+    /* max_redirects = 0 returns the 302 itself. */
+    cfw_client_req_init(&req, "127.0.0.1", port1, "/redir-rel");
+    req.max_redirects = 0;
+    memset(&response, 0, sizeof(response));
+    CFW_TEST_ASSERT_EQ(cfw_http_client_request(&req, &response), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_client_expect_status(&response, 302), 0);
+    cfw_http_client_response_free(&response);
+
+    /* Redirect loop exhausts the hop budget and returns the last 3xx. */
+    cfw_client_req_init(&req, "127.0.0.1", port1, "/redir-loop");
+    req.max_redirects = 3;
+    memset(&response, 0, sizeof(response));
+    CFW_TEST_ASSERT_EQ(cfw_http_client_request(&req, &response), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_client_expect_status(&response, 302), 0);
+    cfw_http_client_response_free(&response);
+
+    /* 303 rewrites POST to GET: the /hello route only serves GET. */
+    {
+        static const char payload[] = "form-data";
+        cfw_client_req_init(&req, "127.0.0.1", port1, "/redir-303");
+        req.method = CFW_HTTP_METHOD_POST;
+        req.body = payload;
+        req.body_size = sizeof(payload) - 1;
+        req.max_redirects = 5;
+        memset(&response, 0, sizeof(response));
+        CFW_TEST_ASSERT_EQ(cfw_http_client_request(&req, &response),
+                           CFW_OK);
+        CFW_TEST_ASSERT_EQ(cfw_client_expect_status(&response, 200), 0);
+        CFW_TEST_ASSERT_TRUE(response.body.size == 9 &&
+                             memcmp(response.body.data, "client-ok",
+                                    9) == 0);
+        cfw_http_client_response_free(&response);
+    }
+
+    /* Absolute cross-authority redirect reaches the second fixture. */
+    cfw_client_req_init(&req, "127.0.0.1", port1, "/redir-abs");
+    req.max_redirects = 5;
+    memset(&response, 0, sizeof(response));
+    CFW_TEST_ASSERT_EQ(cfw_http_client_request(&req, &response), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_client_expect_status(&response, 200), 0);
+    CFW_TEST_ASSERT_TRUE(response.body.size == 9 &&
+                         memcmp(response.body.data, "client-ok", 9) == 0);
+    cfw_http_client_response_free(&response);
+
+    /* Authorization must not leak across the authority change. */
+    {
+        cfw_http_header_t headers[1];
+        cfw_strview_t hn, hv;
+        cfw_strview_from_cstr(&hn, "Authorization");
+        cfw_strview_from_cstr(&hv, "Bearer secret-token");
+        headers[0].name = hn;
+        headers[0].value = hv;
+        cfw_client_req_init(&req, "127.0.0.1", port1, "/redir-auth");
+        req.headers = headers;
+        req.header_count = 1;
+        req.max_redirects = 5;
+        memset(&response, 0, sizeof(response));
+        CFW_TEST_ASSERT_EQ(cfw_http_client_request(&req, &response),
+                           CFW_OK);
+        CFW_TEST_ASSERT_EQ(cfw_client_expect_status(&response, 200), 0);
+        CFW_TEST_ASSERT_TRUE(response.body.size == 5 &&
+                             memcmp(response.body.data, "clean", 5) == 0);
+        cfw_http_client_response_free(&response);
+    }
+
+    cfw_client_server_stop(&f1);
+    cfw_client_server_stop(&f2);
+    return 0;
+}
+
+/* Streaming sink: accumulates delivered chunks; can be told to fail. */
+static char cfw_test_sink_buf[8192];
+static size_t cfw_test_sink_len;
+static int cfw_test_sink_calls;
+static int cfw_test_sink_fail_after; /* -1 = never fail */
+
+static cfw_status_t cfw_test_body_sink(void *user, const void *data,
+                                       size_t size)
+{
+    (void)user;
+    cfw_test_sink_calls++;
+    if (cfw_test_sink_fail_after >= 0 &&
+        cfw_test_sink_calls > cfw_test_sink_fail_after) {
+        return CFW_ERROR_IO;
+    }
+    if (cfw_test_sink_len + size > sizeof(cfw_test_sink_buf)) {
+        return CFW_ERROR_OVERFLOW;
+    }
+    memcpy(cfw_test_sink_buf + cfw_test_sink_len, data, size);
+    cfw_test_sink_len += size;
+    return CFW_OK;
+}
+
+static void cfw_test_sink_reset(void)
+{
+    cfw_test_sink_len = 0;
+    cfw_test_sink_calls = 0;
+    cfw_test_sink_fail_after = -1;
+    cfw_test_sink_buf[0] = '\0';
+}
+
+static int test_client_body_sink(void)
+{
+    cfw_client_fixture_t fixture;
+    cfw_http_client_request_t req;
+    cfw_http_client_response_t response;
+    uint16_t port;
+
+    CFW_TEST_ASSERT_EQ(cfw_client_server_start(&fixture), 0);
+    port = cfw_server_port(&fixture.server);
+
+    /* Chunked response streams through the sink; body stays empty. */
+    cfw_test_sink_reset();
+    cfw_client_req_init(&req, "127.0.0.1", port, "/chunked");
+    req.body_sink = cfw_test_body_sink;
+    memset(&response, 0, sizeof(response));
+    CFW_TEST_ASSERT_EQ(cfw_http_client_request(&req, &response), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_client_expect_status(&response, 200), 0);
+    CFW_TEST_ASSERT_EQ(response.body.size, 0);
+    CFW_TEST_ASSERT_EQ(cfw_test_sink_len, 11);
+    CFW_TEST_ASSERT_TRUE(memcmp(cfw_test_sink_buf, "stream-body", 11) == 0);
+    CFW_TEST_ASSERT_TRUE(cfw_test_sink_calls >= 1);
+    cfw_http_client_response_free(&response);
+
+    /* A failing sink aborts the request and blocks retries even for
+     * an idempotent method (partial delivery cannot be unwound). */
+    cfw_test_client_stream_state.sent = 0; /* replay the stream */
+    cfw_test_sink_reset();
+    cfw_test_sink_fail_after = 0;
+    req.max_retries = 4;
+    memset(&response, 0, sizeof(response));
+    {
+        cfw_status_t st = cfw_http_client_request(&req, &response);
+        CFW_TEST_ASSERT_EQ(st, CFW_ERROR_IO);
+    }
+    CFW_TEST_ASSERT_EQ(cfw_test_sink_calls, 1);
+    cfw_http_client_response_free(&response);
+
+    cfw_client_server_stop(&fixture);
+    return 0;
+}
+
+static int test_client_session_smoke(void)
+{
+    cfw_client_fixture_t fixture;
+    cfw_http_client_session_t *session = NULL;
+    cfw_http_client_request_t req;
+    cfw_http_client_response_t response;
+    uint16_t port;
+
+    CFW_TEST_ASSERT_EQ(cfw_client_server_start(&fixture), 0);
+    port = cfw_server_port(&fixture.server);
+
+    CFW_TEST_ASSERT_EQ(cfw_http_client_session_create(&session), CFW_OK);
+    CFW_TEST_ASSERT_TRUE(session != NULL);
+
+    /* Two sequential performs on the same authority. */
+    cfw_client_req_init(&req, "127.0.0.1", port, "/hello");
+    memset(&response, 0, sizeof(response));
+    CFW_TEST_ASSERT_EQ(cfw_http_client_session_perform(session, &req,
+                                                     &response),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_client_expect_status(&response, 200), 0);
+    cfw_http_client_response_free(&response);
+
+    cfw_client_req_init(&req, "127.0.0.1", port, "/hdr");
+    memset(&response, 0, sizeof(response));
+    CFW_TEST_ASSERT_EQ(cfw_http_client_session_perform(session, &req,
+                                                     &response),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_client_expect_status(&response, 200), 0);
+    cfw_http_client_response_free(&response);
+
+    /* session_close drops the connection; next perform reconnects. */
+    cfw_http_client_session_close(session);
+    cfw_client_req_init(&req, "127.0.0.1", port, "/hello");
+    memset(&response, 0, sizeof(response));
+    CFW_TEST_ASSERT_EQ(cfw_http_client_session_perform(session, &req,
+                                                     &response),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_client_expect_status(&response, 200), 0);
+    cfw_http_client_response_free(&response);
+
+    cfw_http_client_session_destroy(session);
+    cfw_client_server_stop(&fixture);
+    return 0;
+}
+
+/* Raw-server proof of keep-alive reuse: one connection serves both
+ * requests; conns_seen must stay 1. */
+static int test_client_session_keepalive_wire(void)
+{
+    static const char response[] =
+        "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nX-Tag: ka\r\n\r\nok";
+    cfw_raw_server_t rs;
+    cfw_http_client_session_t *session = NULL;
+    cfw_http_client_request_t req;
+    cfw_http_client_response_t out;
+
+    memset(&cfw_raw_first_request, 0, sizeof(cfw_raw_first_request));
+    cfw_raw_first_request_len = 0;
+    CFW_TEST_ASSERT_EQ(cfw_raw_server_start(&rs, response,
+                                            sizeof(response) - 1, 1, 0,
+                                            1, 2),
+                       0);
+    CFW_TEST_ASSERT_EQ(cfw_http_client_session_create(&session), CFW_OK);
+
+    cfw_client_req_init(&req, "127.0.0.1", rs.port, "/one");
+    cfw_duration_from_millis(3000, &req.timeout);
+    memset(&out, 0, sizeof(out));
+    CFW_TEST_ASSERT_EQ(cfw_http_client_session_perform(session, &req,
+                                                     &out),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_client_expect_status(&out, 200), 0);
+    cfw_http_client_response_free(&out);
+
+    cfw_client_req_init(&req, "127.0.0.1", rs.port, "/two");
+    cfw_duration_from_millis(3000, &req.timeout);
+    memset(&out, 0, sizeof(out));
+    CFW_TEST_ASSERT_EQ(cfw_http_client_session_perform(session, &req,
+                                                     &out),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_client_expect_status(&out, 200), 0);
+    cfw_http_client_response_free(&out);
+
+    cfw_http_client_session_destroy(session);
+    cfw_raw_server_stop(&rs);
+
+    /* Both requests went over ONE connection, and the wire shows
+     * Connection: keep-alive plus the generated headers. */
+    CFW_TEST_ASSERT_EQ(rs.reqs_seen, 2);
+    CFW_TEST_ASSERT_EQ(rs.conns_seen, 1);
+    CFW_TEST_ASSERT_TRUE(strstr(cfw_raw_first_request,
+                                "keep-alive") != NULL);
+    CFW_TEST_ASSERT_TRUE(strstr(cfw_raw_first_request, "host:") != NULL);
+    return 0;
+}
+
+/* Stale keep-alive connection: the server closes right after each
+ * response; the session's next perform must transparently reconnect
+ * via the free stale-connection retry. */
+static int test_client_session_stale_retry(void)
+{
+    static const char response[] =
+        "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
+    cfw_raw_server_t rs;
+    cfw_http_client_session_t *session = NULL;
+    cfw_http_client_request_t req;
+    cfw_http_client_response_t out;
+
+    CFW_TEST_ASSERT_EQ(cfw_raw_server_start(&rs, response,
+                                            sizeof(response) - 1, 1, 0,
+                                            2, 1),
+                       0);
+    CFW_TEST_ASSERT_EQ(cfw_http_client_session_create(&session), CFW_OK);
+
+    cfw_client_req_init(&req, "127.0.0.1", rs.port, "/first");
+    cfw_duration_from_millis(3000, &req.timeout);
+    memset(&out, 0, sizeof(out));
+    CFW_TEST_ASSERT_EQ(cfw_http_client_session_perform(session, &req,
+                                                     &out),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_client_expect_status(&out, 200), 0);
+    cfw_http_client_response_free(&out);
+
+    /* The server already closed conn 1; perform must recover. */
+    cfw_client_req_init(&req, "127.0.0.1", rs.port, "/second");
+    cfw_duration_from_millis(3000, &req.timeout);
+    memset(&out, 0, sizeof(out));
+    CFW_TEST_ASSERT_EQ(cfw_http_client_session_perform(session, &req,
+                                                     &out),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_client_expect_status(&out, 200), 0);
+    cfw_http_client_response_free(&out);
+
+    cfw_http_client_session_destroy(session);
+    cfw_raw_server_stop(&rs);
+    CFW_TEST_ASSERT_EQ(rs.conns_seen, 2);
+    return 0;
+}
+
+/* Retries: server accepts then closes without responding. GET retries
+ * up to max_retries; POST (non-idempotent) does not retry at all. */
+static int test_client_retries(void)
+{
+    cfw_raw_server_t rs;
+    cfw_http_client_request_t req;
+    cfw_http_client_response_t out;
+
+    /* GET with max_retries=2 → three connection attempts total. */
+    CFW_TEST_ASSERT_EQ(cfw_raw_server_start(&rs, NULL, 0, 1, 0,
+                                            3, 1),
+                       0);
+    cfw_client_req_init(&req, "127.0.0.1", rs.port, "/");
+    req.max_retries = 2;
+    memset(&out, 0, sizeof(out));
+    CFW_TEST_ASSERT_EQ(cfw_http_client_request(&req, &out),
+                       CFW_ERROR_IO);
+    cfw_http_client_response_free(&out);
+    cfw_raw_server_stop(&rs);
+    CFW_TEST_ASSERT_EQ(rs.conns_seen, 3);
+
+    /* POST is not retried: one connection, immediate IO failure. */
+    {
+        static const char payload[] = "data";
+        CFW_TEST_ASSERT_EQ(cfw_raw_server_start(&rs, NULL, 0, 1, 0,
+                                                3, 1),
+                           0);
+        cfw_client_req_init(&req, "127.0.0.1", rs.port, "/");
+        req.method = CFW_HTTP_METHOD_POST;
+        req.body = payload;
+        req.body_size = sizeof(payload) - 1;
+        req.max_retries = 2;
+        memset(&out, 0, sizeof(out));
+        CFW_TEST_ASSERT_EQ(cfw_http_client_request(&req, &out),
+                           CFW_ERROR_IO);
+        cfw_http_client_response_free(&out);
+        cfw_raw_server_stop(&rs);
+        CFW_TEST_ASSERT_EQ(rs.conns_seen, 1);
+    }
+
+    /* max_retries = 0 disables retries entirely. */
+    CFW_TEST_ASSERT_EQ(cfw_raw_server_start(&rs, NULL, 0, 1, 0,
+                                            3, 1),
+                       0);
+    cfw_client_req_init(&req, "127.0.0.1", rs.port, "/");
+    req.max_retries = 0;
+    memset(&out, 0, sizeof(out));
+    CFW_TEST_ASSERT_EQ(cfw_http_client_request(&req, &out),
+                       CFW_ERROR_IO);
+    cfw_http_client_response_free(&out);
+    cfw_raw_server_stop(&rs);
+    CFW_TEST_ASSERT_EQ(rs.conns_seen, 1);
     return 0;
 }
 
@@ -898,6 +1458,12 @@ const cfw_test_case cfw_test_http_client_cases[] = {
     {"client_raw_chunked_and_204", test_client_raw_chunked_and_204},
     {"client_raw_errors", test_client_raw_errors},
     {"client_bad_args", test_client_bad_args},
+    {"client_redirects", test_client_redirects},
+    {"client_body_sink", test_client_body_sink},
+    {"client_session_smoke", test_client_session_smoke},
+    {"client_session_keepalive_wire", test_client_session_keepalive_wire},
+    {"client_session_stale_retry", test_client_session_stale_retry},
+    {"client_retries", test_client_retries},
 #if CFW_HAVE_TLS
     {"client_tls_roundtrip", test_client_tls_roundtrip},
 #endif

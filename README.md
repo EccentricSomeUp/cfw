@@ -33,7 +33,8 @@ application-owned concurrency (`cfw/sync.h`, `cfw/thread.h`, ADRs
 0050/0051), and a per-request completion audit hook delivering status,
 byte counts, duration, and peer address for every parsed request
 (ADR 0055). A public socket/address API (`cfw/net.h`, ADR 0067) and a
-minimal one-shot HTTP/1.1 client (`cfw/http_client.h`, ADR 0068 —
+an HTTP/1.1 client (`cfw/http_client.h`, ADRs 0068/0078 — one-shot or
+keep-alive sessions, redirect following, retries, streaming bodies,
 optional TLS via a client-role `cfw_tls_ctx_t`) and a public
 level-triggered pollset (`cfw/pollset.h`, ADR 0069) cover outbound
 and custom-protocol connections. TLS is available as an optional OpenSSL-backed module with
@@ -171,7 +172,7 @@ under ASan/UBSan. CI runs each target for 120 s per push.
 quickstart (built by default; disable with `-DCFW_BUILD_EXAMPLES=OFF`).
 `examples/tcp_echo.c` is a nonblocking TCP echo server built entirely on
 the public socket/pollset/fd APIs for custom-protocol work, and
-`examples/http_client.c` shows the one-shot HTTP/1.1 client.
+`examples/http_client.c` shows the HTTP/1.1 client.
 
 ```c
 #include <cfw/cfw.h>
