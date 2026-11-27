@@ -13,6 +13,7 @@
 #include <cfw/fs.h>
 #include <cfw/http.h>
 #include <cfw/http1.h>
+#include <cfw/http_client.h>
 #include <cfw/dispatch.h>
 #include <cfw/http1_conn.h>
 #include <cfw/log.h>

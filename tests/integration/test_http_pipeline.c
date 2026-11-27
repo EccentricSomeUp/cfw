@@ -422,7 +422,7 @@ static int test_integration_post_body(void)
     return 0;
 }
 
-const cfw_test_case cfw_test_integration_cases[] = {
+const cfw_test_case cfw_test_pipeline_cases[] = {
     {"integration_get_and_404", test_integration_get_and_404},
     {"integration_post_body", test_integration_post_body},
     {NULL, NULL},
@@ -430,7 +430,7 @@ const cfw_test_case cfw_test_integration_cases[] = {
 
 #else /* Windows */
 
-const cfw_test_case cfw_test_integration_cases[] = {
+const cfw_test_case cfw_test_pipeline_cases[] = {
     {NULL, NULL},
 };
 

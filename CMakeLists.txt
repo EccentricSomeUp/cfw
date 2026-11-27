@@ -56,6 +56,7 @@ set(CFW_SOURCES
     src/cfw/http.c
     src/cfw/http1.c
     src/cfw/http1_conn.c
+    src/cfw/http_client.c
     src/cfw/log.c
     src/cfw/multipart.c
     src/cfw/net.c
@@ -219,6 +220,12 @@ if(CFW_BUILD_EXAMPLES)
     cfw_apply_strict_flags(cfw_example_multipart_upload)
     cfw_apply_hardening_flags(cfw_example_multipart_upload)
     cfw_apply_sanitizer_flags(cfw_example_multipart_upload)
+
+    add_executable(cfw_example_http_client examples/http_client.c)
+    target_link_libraries(cfw_example_http_client PRIVATE cfw)
+    cfw_apply_strict_flags(cfw_example_http_client)
+    cfw_apply_hardening_flags(cfw_example_http_client)
+    cfw_apply_sanitizer_flags(cfw_example_http_client)
 endif()
 
 if(CFW_BUILD_TESTING)

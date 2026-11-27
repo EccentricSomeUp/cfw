@@ -51,10 +51,14 @@ abstraction exists.
   `cfw/checked_arithmetic.h`, `cfw/random.h`, `cfw/log.h`)
 - `platform`: OS capability detection and abstraction — page size, CSPRNG,
   file metadata (implemented; see `cfw/platform.h`, `cfw/fs.h`, `cfw/fd.h`)
-- `net`: sockets, address handling, polling/event loop primitives — internal
-  POSIX implementation: `epoll` on Linux/Android, `kqueue` on macOS/BSD,
-  `poll` fallback elsewhere (ADRs 0014/0052)
-- `http`: request/response parsing and serialization
+- `net`: sockets, address handling — public API (`cfw/net.h`,
+  ADR 0067) over a POSIX implementation: `epoll` on Linux/Android,
+  `kqueue` on macOS/BSD, `poll` fallback elsewhere (ADRs 0014/0052);
+  pollset/event-loop primitives remain internal
+- `http`: request/response parsing and serialization, including
+  response-side head parsing/framing for clients
+- `http_client`: minimal one-shot HTTP/1.1 client over `net` + `tls`
+  (implemented; see `cfw/http_client.h`, ADR 0068)
 - `http1`: HTTP/1.1 server message reader and connection binding
   (implemented; see `cfw/http.h`, `cfw/http1.h`, `cfw/http1_conn.h`)
 - `router`: route matching and parameters (implemented; see `cfw/route.h`)

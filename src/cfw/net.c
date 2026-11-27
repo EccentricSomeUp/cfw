@@ -563,6 +563,7 @@ cfw_status_t cfw_net_send(cfw_fd_t *fd, const void *data, size_t size,
         *sent = (size_t)n;
         return CFW_OK;
     }
+    *sent = 0;
     if (n == 0) {
         return CFW_ERROR_IO;
     }
@@ -588,9 +589,9 @@ cfw_status_t cfw_net_recv(cfw_fd_t *fd, void *buffer, size_t size,
         *received = (size_t)n;
         return CFW_OK;
     }
+    *received = 0;
     if (n == 0) {
         /* Orderly peer shutdown. */
-        *received = 0;
         return CFW_OK;
     }
     return cfw_net_errno(errno);

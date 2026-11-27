@@ -105,7 +105,12 @@ CFW_API cfw_status_t cfw_http_request_head_parse(
 typedef enum cfw_http_body_framing {
     CFW_HTTP_BODY_NONE = 0,
     CFW_HTTP_BODY_CONTENT_LENGTH,
-    CFW_HTTP_BODY_CHUNKED
+    CFW_HTTP_BODY_CHUNKED,
+    /* Response bodies delimited by connection close: no
+     * Content-Length or Transfer-Encoding was present. Only
+     * cfw_http_response_framing produces this value; the caller must
+     * read until EOF to obtain the complete body. */
+    CFW_HTTP_BODY_UNTIL_CLOSE
 } cfw_http_body_framing_t;
 
 typedef struct cfw_http_message_framing {
@@ -125,6 +130,46 @@ typedef struct cfw_http_message_framing {
  * to 400 Bad Request. */
 CFW_API cfw_status_t cfw_http_request_framing(
     const cfw_http_request_head_t *request_head,
+    cfw_http_message_framing_t *framing);
+
+/* ------------------------------------------------------------------ */
+/* Response head parsing (client side)                                 */
+/* ------------------------------------------------------------------ */
+
+typedef struct cfw_http_response_head {
+    cfw_http_version_t version;
+    /* Raw three-digit status code (100-999). Map known codes with
+     * cfw_http_status_parse; unrecognized codes are valid HTTP. */
+    uint32_t status_code;
+    /* Reason phrase; may be empty. */
+    cfw_strview_t reason;
+    /* Header section including its terminating empty line; iterate
+     * with cfw_http_headers_next, which stops at the empty line. */
+    cfw_strview_t headers;
+} cfw_http_response_head_t;
+
+/* Parses a complete response head: status line, header lines, and the
+ * mandatory empty-line terminator. Mirrors cfw_http_request_head_parse:
+ * the input must contain exactly the head bytes and nothing after the
+ * final CRLF. The status code must be exactly three digits; the reason
+ * phrase is optional and validated as a field of HTAB/SP/VCHAR/obs-text. */
+CFW_API cfw_status_t cfw_http_response_head_parse(
+    const cfw_strview_t *head, cfw_http_response_head_t *response_head);
+
+/* Determines response body framing from a parsed head and the request
+ * method, using request-smuggling-resistant rules:
+ * - HEAD responses, 1xx, 204, and 304 responses never carry a body
+ *   (framing NONE) regardless of declared lengths.
+ * - A sole "chunked" Transfer-Encoding selects chunked framing and
+ *   overrides Content-Length per RFC 9112 (the CL is ignored).
+ * - Multiple or non-"chunked" Transfer-Encoding values are rejected.
+ * - Without Transfer-Encoding, Content-Length must be 1*DIGIT with
+ *   consistent duplicates; conflicting values are rejected.
+ * - With neither, framing is CFW_HTTP_BODY_UNTIL_CLOSE.
+ * Returns CFW_ERROR_INVALID_ARGUMENT on any violation. */
+CFW_API cfw_status_t cfw_http_response_framing(
+    const cfw_http_response_head_t *response_head,
+    cfw_http_method_t method,
     cfw_http_message_framing_t *framing);
 
 /* Incremental request-head reader for streamed transport. Accumulates
@@ -261,6 +306,18 @@ CFW_API cfw_status_t cfw_http_header_line_format(
  * the terminating empty line. */
 CFW_API cfw_status_t cfw_http_response_head_format(
     const cfw_http_version_t *version, cfw_http_status_t status,
+    const cfw_http_header_t *headers, size_t header_count,
+    char *buffer, size_t capacity, size_t *written);
+
+/* Formats a complete request head (client side): request line
+ * "METHOD target HTTP/x.y", each header line, and the terminating
+ * empty line. The method must be a known cfw_http_method_t value; the
+ * target must be nonempty and contain no control characters, SP, or
+ * DEL (origin-, absolute-, authority-, and asterisk-forms are all
+ * accepted — form validation belongs to the server). */
+CFW_API cfw_status_t cfw_http_request_head_format(
+    cfw_http_method_t method, const cfw_strview_t *target,
+    const cfw_http_version_t *version,
     const cfw_http_header_t *headers, size_t header_count,
     char *buffer, size_t capacity, size_t *written);
 

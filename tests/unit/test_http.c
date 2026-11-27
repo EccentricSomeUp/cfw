@@ -935,6 +935,221 @@ static int test_http_date_parse(void)
     return 0;
 }
 
+static int test_http_response_head_parse(void)
+{
+    cfw_http_response_head_t head;
+    cfw_strview_t view;
+    cfw_strview_t hname;
+    cfw_strview_t hvalue;
+    size_t cursor;
+    cfw_http_header_t header;
+    int done;
+
+    view = cfw_test_view("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n"
+                         "X-Test: v\r\n\r\n");
+    CFW_TEST_ASSERT_EQ(cfw_http_response_head_parse(&view, &head), CFW_OK);
+    CFW_TEST_ASSERT_EQ(head.version.major, 1);
+    CFW_TEST_ASSERT_EQ(head.version.minor, 1);
+    CFW_TEST_ASSERT_EQ((int)head.status_code, 200);
+    CFW_TEST_ASSERT(head.reason.size == 2 &&
+                    memcmp(head.reason.data, "OK", 2) == 0);
+
+    /* Iterate the header block. */
+    cursor = 0;
+    CFW_TEST_ASSERT_EQ(cfw_http_headers_next(&head.headers, &cursor,
+                                             &header, &done),
+                       CFW_OK);
+    CFW_TEST_ASSERT_FALSE(done);
+    cfw_strview_from_cstr(&hname, "content-length");
+    cfw_strview_from_cstr(&hvalue, "5");
+    CFW_TEST_ASSERT_EQ(cfw_strview_equal_nocase(&header.name, &hname,
+                                                 &done),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(done, 1);
+    CFW_TEST_ASSERT_EQ(cfw_strview_equal(&header.value, &hvalue, &done),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(done, 1);
+
+    /* Empty reason phrase and unknown status codes are valid. */
+    view = cfw_test_view("HTTP/1.0 599 \r\n\r\n");
+    CFW_TEST_ASSERT_EQ(cfw_http_response_head_parse(&view, &head), CFW_OK);
+    CFW_TEST_ASSERT_EQ((int)head.status_code, 599);
+    CFW_TEST_ASSERT_EQ(head.reason.size, 0);
+
+    view = cfw_test_view("HTTP/1.1 204\r\n\r\n");
+    CFW_TEST_ASSERT_EQ(cfw_http_response_head_parse(&view, &head), CFW_OK);
+    CFW_TEST_ASSERT_EQ((int)head.status_code, 204);
+
+    /* Malformed status lines. */
+    {
+        static const char *invalid[] = {
+            "HTTP/1.1 20 OK\r\n\r\n",          /* 2-digit code */
+            "HTTP/1.1 2000 OK\r\n\r\n",        /* 4-digit code */
+            "HTTP/1.1 20x OK\r\n\r\n",
+            "HTTP/1.1 200 OK\n\r\n",           /* bare LF in line scan */
+            "HTTP/1.1 200 OK\rX\r\n\r\n",
+            "HTTP/1.1 200 O\x01K\r\n\r\n",     /* CTL in reason */
+            "HTTP/1.1 200 OK\r\nBad Header\r\n\r\n",
+            "HTTP/1.1 200 OK\r\n",             /* no header terminator */
+            "garbage\r\n\r\n",
+        };
+        size_t i;
+        for (i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+            view = cfw_test_view(invalid[i]);
+            CFW_TEST_ASSERT_EQ(cfw_http_response_head_parse(&view, &head),
+                               CFW_ERROR_INVALID_ARGUMENT);
+        }
+    }
+    CFW_TEST_ASSERT_EQ(cfw_http_response_head_parse(NULL, &head),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    return 0;
+}
+
+static int test_http_response_framing(void)
+{
+    static const struct {
+        const char *head;
+        cfw_http_method_t method;
+        cfw_http_body_framing_t framing;
+        uint64_t length;
+    } valid[] = {
+        {"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n",
+         CFW_HTTP_METHOD_GET, CFW_HTTP_BODY_CONTENT_LENGTH, 5},
+        {"HTTP/1.1 200 OK\r\n\r\n",
+         CFW_HTTP_METHOD_GET, CFW_HTTP_BODY_UNTIL_CLOSE, 0},
+        {"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n",
+         CFW_HTTP_METHOD_GET, CFW_HTTP_BODY_CHUNKED, 0},
+        /* TE overrides CL per RFC 9112. */
+        {"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n"
+         "Transfer-Encoding: chunked\r\n\r\n",
+         CFW_HTTP_METHOD_GET, CFW_HTTP_BODY_CHUNKED, 0},
+        /* No-body statuses ignore declared lengths. */
+        {"HTTP/1.1 204 No Content\r\nContent-Length: 9\r\n\r\n",
+         CFW_HTTP_METHOD_GET, CFW_HTTP_BODY_NONE, 0},
+        {"HTTP/1.1 304 Not Modified\r\n\r\n",
+         CFW_HTTP_METHOD_GET, CFW_HTTP_BODY_NONE, 0},
+        {"HTTP/1.1 100 Continue\r\n\r\n",
+         CFW_HTTP_METHOD_GET, CFW_HTTP_BODY_NONE, 0},
+        /* HEAD never carries a body even with Content-Length. */
+        {"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n",
+         CFW_HTTP_METHOD_HEAD, CFW_HTTP_BODY_NONE, 0},
+        {"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nContent-Length: 5\r\n\r\n",
+         CFW_HTTP_METHOD_GET, CFW_HTTP_BODY_CONTENT_LENGTH, 5},
+    };
+    static const char *invalid[] = {
+        "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nContent-Length: 6\r\n\r\n",
+        "HTTP/1.1 200 OK\r\nContent-Length: abc\r\n\r\n",
+        "HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip\r\n\r\n",
+        "HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip, chunked\r\n\r\n",
+        "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n"
+        "Transfer-Encoding: chunked\r\n\r\n",
+    };
+    cfw_http_response_head_t head;
+    cfw_http_message_framing_t framing;
+    size_t i;
+
+    for (i = 0; i < sizeof(valid) / sizeof(valid[0]); i++) {
+        cfw_strview_t view = cfw_test_view(valid[i].head);
+        CFW_TEST_ASSERT_EQ(cfw_http_response_head_parse(&view, &head),
+                           CFW_OK);
+        CFW_TEST_ASSERT_EQ(cfw_http_response_framing(&head,
+                                                      valid[i].method,
+                                                      &framing),
+                           CFW_OK);
+        CFW_TEST_ASSERT_EQ((int)framing.framing, (int)valid[i].framing);
+        CFW_TEST_ASSERT_EQ(framing.content_length, valid[i].length);
+    }
+    for (i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+        cfw_strview_t view = cfw_test_view(invalid[i]);
+        CFW_TEST_ASSERT_EQ(cfw_http_response_head_parse(&view, &head),
+                           CFW_OK);
+        CFW_TEST_ASSERT_EQ(cfw_http_response_framing(&head,
+                                                      CFW_HTTP_METHOD_GET,
+                                                      &framing),
+                           CFW_ERROR_INVALID_ARGUMENT);
+    }
+    CFW_TEST_ASSERT_EQ(cfw_http_response_framing(NULL,
+                                               CFW_HTTP_METHOD_GET,
+                                               &framing),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    return 0;
+}
+
+static int test_http_request_head_format(void)
+{
+    char buffer[512];
+    size_t written = 0;
+    cfw_http_header_t headers[3];
+    cfw_http_version_t version;
+    cfw_strview_t target;
+    cfw_strview_t hn, hv;
+
+    version.major = 1;
+    version.minor = 1;
+    target = cfw_test_view("/path?q=1");
+    cfw_strview_from_cstr(&hn, "X-Test");
+    cfw_strview_from_cstr(&hv, "yes");
+    headers[0].name = hn;
+    headers[0].value = hv;
+    cfw_strview_from_cstr(&hn, "Accept");
+    cfw_strview_from_cstr(&hv, "*/*");
+    headers[1].name = hn;
+    headers[1].value = hv;
+    headers[2].name = hn;
+    headers[2].value = hv;
+
+    CFW_TEST_ASSERT_EQ(cfw_http_request_head_format(
+                           CFW_HTTP_METHOD_POST, &target, &version,
+                           headers, 3, buffer, sizeof(buffer), &written),
+                       CFW_OK);
+    {
+        static const char expected[] =
+            "POST /path?q=1 HTTP/1.1\r\n"
+            "X-Test: yes\r\n"
+            "Accept: */*\r\n"
+            "Accept: */*\r\n"
+            "\r\n";
+        CFW_TEST_ASSERT_EQ(written, sizeof(expected) - 1);
+        CFW_TEST_ASSERT(memcmp(buffer, expected, written) == 0);
+    }
+
+    /* Round-trip: the formatted head parses back identically. */
+    {
+        cfw_http_request_head_t parsed;
+        cfw_strview_t head_view;
+        cfw_strview_init(&head_view, buffer, written);
+        CFW_TEST_ASSERT_EQ(cfw_http_request_head_parse(&head_view,
+                                                      &parsed),
+                           CFW_OK);
+        CFW_TEST_ASSERT_EQ(parsed.request_line.method,
+                           CFW_HTTP_METHOD_POST);
+    }
+
+    /* Rejections: unknown method, bad target, bad header, small buffer. */
+    CFW_TEST_ASSERT_EQ(cfw_http_request_head_format(
+                           CFW_HTTP_METHOD_UNKNOWN, &target, &version,
+                           NULL, 0, buffer, sizeof(buffer), &written),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    target = cfw_test_view("/bad target");
+    CFW_TEST_ASSERT_EQ(cfw_http_request_head_format(
+                           CFW_HTTP_METHOD_GET, &target, &version,
+                           NULL, 0, buffer, sizeof(buffer), &written),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    target = cfw_test_view("/ok");
+    cfw_strview_from_cstr(&hn, "Bad Name");
+    headers[0].name = hn;
+    headers[0].value = hv;
+    CFW_TEST_ASSERT_EQ(cfw_http_request_head_format(
+                           CFW_HTTP_METHOD_GET, &target, &version,
+                           headers, 1, buffer, sizeof(buffer), &written),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_http_request_head_format(
+                           CFW_HTTP_METHOD_GET, &target, &version,
+                           NULL, 0, buffer, 4, &written),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    return 0;
+}
+
 const cfw_test_case cfw_test_http_cases[] = {
     {"http_method_names_and_parse", test_http_method_names_and_parse},
     {"http_method_status_exhaustive",
@@ -954,5 +1169,8 @@ const cfw_test_case cfw_test_http_cases[] = {
     {"http_head_reader", test_http_head_reader},
     {"http_date_format", test_http_date_format},
     {"http_date_parse", test_http_date_parse},
+    {"http_response_head_parse", test_http_response_head_parse},
+    {"http_response_framing", test_http_response_framing},
+    {"http_request_head_format", test_http_request_head_format},
     {NULL, NULL},
 };

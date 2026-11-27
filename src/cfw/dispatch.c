@@ -222,6 +222,9 @@ static int cfw_dispatch_body_consistent(const cfw_http_message_framing_t *f,
                (uint64_t)size == f->content_length;
     case CFW_HTTP_BODY_CHUNKED:
         return 1;
+    case CFW_HTTP_BODY_UNTIL_CLOSE:
+        /* Response-side framing only; never valid for a request. */
+        return 0;
     }
     return 0;
 }

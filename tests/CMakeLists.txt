@@ -102,6 +102,7 @@ add_test(NAME cfw_unit COMMAND cfw_unit_tests)
 add_executable(cfw_integration_tests
     ../src/cfw/private/pollset.c
     integration/main.c
+    integration/test_http_client.c
     integration/test_http_pipeline.c
 )
 
@@ -110,6 +111,11 @@ target_include_directories(cfw_integration_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/src/cfw
 )
 target_link_libraries(cfw_integration_tests PRIVATE cfw)
+if(CFW_HAVE_TLS)
+    target_compile_definitions(cfw_integration_tests PRIVATE
+        CFW_TEST_TLS_DIR="${CFW_TEST_TLS_DIR}"
+    )
+endif()
 
 cfw_apply_strict_flags(cfw_integration_tests)
 cfw_apply_hardening_flags(cfw_integration_tests)

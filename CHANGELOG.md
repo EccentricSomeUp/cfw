@@ -23,6 +23,27 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   (SO_ERROR read-and-clear for connect completion) round out the
   surface. All functions return `CFW_ERROR_UNAVAILABLE` on Windows.
 
+- Minimal HTTP/1.1 client (`cfw/http_client.h`, ADR 0068):
+  `cfw_http_client_request` performs one request per call — resolve,
+  nonblocking connect, optional TLS (client-role `cfw_tls_ctx_t` with
+  SNI and hostname verification), send, and full response read under a
+  single monotonic deadline. `cfw_http_client_response_t` owns the raw
+  response head and decoded body; `cfw_http_client_response_head`
+  re-parses the head for status/headers. Supports all methods, caller
+  headers (framework-managed names rejected), request bodies,
+  Content-Length/chunked/close-delimited response framing, interim 1xx
+  skipping, and `max_head_size`/`max_body_size` caps. POSIX only;
+  `CFW_ERROR_UNAVAILABLE` on Windows or without TLS support.
+
+- Response-side HTTP primitives (`cfw/http.h`):
+  `cfw_http_response_head_parse` parses status line + headers,
+  `cfw_http_response_framing` applies RFC 9112 response framing rules
+  including the new `CFW_HTTP_BODY_UNTIL_CLOSE`, and
+  `cfw_http_request_head_format` serializes request heads.
+
+- `examples/http_client.c`: CLI GET client demonstrating the minimal
+  request/response path.
+
 ## [0.9.0] - 2026-11-27
 
 ### Added

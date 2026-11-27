@@ -4,24 +4,32 @@
 
 #include <stdio.h>
 
-extern const cfw_test_case cfw_test_integration_cases[];
+extern const cfw_test_case cfw_test_http_client_cases[];
+extern const cfw_test_case cfw_test_pipeline_cases[];
 
 int main(void)
 {
-    const cfw_test_case *test_case = cfw_test_integration_cases;
+    static const cfw_test_case *const suites[] = {
+        cfw_test_http_client_cases,
+        cfw_test_pipeline_cases,
+    };
     int executed = 0;
     int failed = 0;
+    size_t suite;
 
-    while (test_case->name != NULL) {
-        executed++;
-        printf("RUN  integration/%s\n", test_case->name);
-        if (test_case->function() != 0) {
-            failed++;
-            printf("FAIL integration/%s\n", test_case->name);
-        } else {
-            printf("PASS integration/%s\n", test_case->name);
+    for (suite = 0; suite < sizeof(suites) / sizeof(suites[0]); suite++) {
+        const cfw_test_case *test_case = suites[suite];
+        while (test_case->name != NULL) {
+            executed++;
+            printf("RUN  integration/%s\n", test_case->name);
+            if (test_case->function() != 0) {
+                failed++;
+                printf("FAIL integration/%s\n", test_case->name);
+            } else {
+                printf("PASS integration/%s\n", test_case->name);
+            }
+            test_case++;
         }
-        test_case++;
     }
 
     printf("summary: %d executed, %d failed\n", executed, failed);

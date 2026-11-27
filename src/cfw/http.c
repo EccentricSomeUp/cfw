@@ -698,6 +698,251 @@ cfw_status_t cfw_http_request_framing(
 }
 
 /* ------------------------------------------------------------------ */
+/* Response head parsing and framing (client side)                     */
+/* ------------------------------------------------------------------ */
+
+static int cfw_http_reason_char_valid(unsigned char c)
+{
+    /* reason-phrase = *( HTAB / SP / VCHAR / obs-text ) */
+    return c == 0x09 || c == 0x20 || (c >= 0x21 && c <= 0x7E) ||
+           c >= 0x80;
+}
+
+cfw_status_t cfw_http_response_head_parse(
+    const cfw_strview_t *head, cfw_http_response_head_t *response_head)
+{
+    size_t i;
+    size_t eol;
+    size_t sp1;
+    size_t code_start;
+    size_t code_end;
+    size_t reason_start;
+    cfw_strview_t version_token;
+    cfw_strview_t line_view;
+    cfw_strview_t headers_view;
+    size_t cursor;
+    cfw_http_header_t header;
+    int done;
+    cfw_status_t status;
+
+    if (head == NULL || head->data == NULL || response_head == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    /* Locate the CRLF ending the status line. */
+    eol = head->size;
+    for (i = 0; i < head->size; i++) {
+        if (head->data[i] == '\r') {
+            if (i + 1 >= head->size || head->data[i + 1] != '\n') {
+                return CFW_ERROR_INVALID_ARGUMENT;
+            }
+            eol = i;
+            break;
+        }
+        if (head->data[i] == '\n') {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+    }
+    if (eol == head->size || eol == 0) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    line_view.data = head->data;
+    line_view.size = eol;
+
+    /* Status line: HTTP-version SP status-code [SP reason-phrase]. */
+    sp1 = line_view.size;
+    for (i = 0; i < line_view.size; i++) {
+        if (line_view.data[i] == ' ') {
+            sp1 = i;
+            break;
+        }
+        if ((unsigned char)line_view.data[i] <= 0x20 ||
+            (unsigned char)line_view.data[i] == 0x7F) {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+    }
+    if (sp1 == line_view.size || sp1 == 0 || sp1 + 1 >= line_view.size) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    version_token.data = line_view.data;
+    version_token.size = sp1;
+    status = cfw_http_version_parse(&version_token,
+                                    &response_head->version);
+    if (status != CFW_OK) {
+        return status;
+    }
+
+    /* Exactly three digits for the status code. */
+    code_start = sp1 + 1;
+    code_end = code_start;
+    {
+        uint32_t code = 0;
+        int digits = 0;
+        while (code_end < line_view.size &&
+               line_view.data[code_end] >= '0' &&
+               line_view.data[code_end] <= '9') {
+            code = code * 10 + (uint32_t)(line_view.data[code_end] - '0');
+            code_end++;
+            digits++;
+        }
+        if (digits != 3) {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+        response_head->status_code = code;
+    }
+
+    /* Optional SP + reason-phrase; a bare SP with empty reason is legal. */
+    if (code_end < line_view.size) {
+        if (line_view.data[code_end] != ' ') {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+        reason_start = code_end + 1;
+        for (i = reason_start; i < line_view.size; i++) {
+            if (!cfw_http_reason_char_valid(
+                    (unsigned char)line_view.data[i])) {
+                return CFW_ERROR_INVALID_ARGUMENT;
+            }
+        }
+        response_head->reason.data = line_view.data + reason_start;
+        response_head->reason.size = line_view.size - reason_start;
+    } else {
+        response_head->reason.data = NULL;
+        response_head->reason.size = 0;
+    }
+
+    /* Everything after the status-line CRLF is the header section; it
+     * must be at least the two-byte empty-line terminator. */
+    if (eol + 2 >= head->size) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    headers_view.data = head->data + eol + 2;
+    headers_view.size = head->size - eol - 2;
+
+    cursor = 0;
+    for (;;) {
+        status = cfw_http_headers_next(&headers_view, &cursor, &header,
+                                       &done);
+        if (status != CFW_OK) {
+            return status;
+        }
+        if (done) {
+            break;
+        }
+    }
+
+    if (cursor + 2 != headers_view.size ||
+        headers_view.data[cursor] != '\r' ||
+        headers_view.data[cursor + 1] != '\n') {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    response_head->headers = headers_view;
+    return CFW_OK;
+}
+
+cfw_status_t cfw_http_response_framing(
+    const cfw_http_response_head_t *response_head,
+    cfw_http_method_t method,
+    cfw_http_message_framing_t *framing)
+{
+    cfw_strview_t headers_block;
+    cfw_strview_t content_length_name;
+    cfw_strview_t transfer_encoding_name;
+    cfw_strview_t chunked_token;
+    uint32_t status;
+    size_t cursor;
+    cfw_http_header_t header;
+    int done;
+    int have_length = 0;
+    int have_chunked = 0;
+    uint64_t content_length = 0;
+    uint64_t parsed_length;
+    int equal;
+    cfw_status_t st;
+
+    if (response_head == NULL || framing == NULL ||
+        response_head->headers.data == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+
+    framing->framing = CFW_HTTP_BODY_NONE;
+    framing->content_length = 0;
+
+    status = response_head->status_code;
+    if (method == CFW_HTTP_METHOD_HEAD ||
+        (status >= 100 && status <= 199) || status == 204 || status == 304) {
+        return CFW_OK;
+    }
+
+    headers_block = response_head->headers;
+    cursor = 0;
+    cfw_strview_from_cstr(&content_length_name, "content-length");
+    cfw_strview_from_cstr(&transfer_encoding_name, "transfer-encoding");
+    cfw_strview_from_cstr(&chunked_token, "chunked");
+
+    for (;;) {
+        st = cfw_http_headers_next(&headers_block, &cursor, &header,
+                                   &done);
+        if (st != CFW_OK) {
+            return st;
+        }
+        if (done) {
+            break;
+        }
+
+        if (cfw_strview_equal_nocase(&header.name, &content_length_name,
+                                     &equal) != CFW_OK) {
+            return CFW_ERROR_INTERNAL;
+        }
+        if (equal) {
+            st = cfw_http_parse_content_length(&header.value,
+                                               &parsed_length);
+            if (st != CFW_OK) {
+                return st;
+            }
+            if (have_length && parsed_length != content_length) {
+                return CFW_ERROR_INVALID_ARGUMENT;
+            }
+            have_length = 1;
+            content_length = parsed_length;
+            continue;
+        }
+
+        if (cfw_strview_equal_nocase(&header.name, &transfer_encoding_name,
+                                     &equal) != CFW_OK) {
+            return CFW_ERROR_INTERNAL;
+        }
+        if (equal) {
+            if (have_chunked) {
+                return CFW_ERROR_INVALID_ARGUMENT;
+            }
+            have_chunked = 1;
+            if (cfw_strview_equal_nocase(&header.value, &chunked_token,
+                                         &equal) != CFW_OK) {
+                return CFW_ERROR_INTERNAL;
+            }
+            if (!equal) {
+                /* Only a sole "chunked" coding is supported. */
+                return CFW_ERROR_INVALID_ARGUMENT;
+            }
+        }
+    }
+
+    if (have_chunked) {
+        /* RFC 9112: Transfer-Encoding overrides Content-Length. */
+        framing->framing = CFW_HTTP_BODY_CHUNKED;
+    } else if (have_length) {
+        framing->framing = CFW_HTTP_BODY_CONTENT_LENGTH;
+        framing->content_length = content_length;
+    } else {
+        framing->framing = CFW_HTTP_BODY_UNTIL_CLOSE;
+    }
+    return CFW_OK;
+}
+
+/* ------------------------------------------------------------------ */
 /* Chunked transfer decoder                                            */
 /* ------------------------------------------------------------------ */
 
@@ -1084,6 +1329,84 @@ cfw_status_t cfw_http_response_head_format(
         return st;
     }
     offset += n;
+
+    for (i = 0; i < header_count; i++) {
+        st = cfw_http_header_line_format(&headers[i].name,
+                                         &headers[i].value,
+                                         buffer + offset,
+                                         capacity - offset, &n);
+        if (st != CFW_OK) {
+            return st;
+        }
+        offset += n;
+    }
+
+    if (capacity - offset < 2) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    buffer[offset++] = '\r';
+    buffer[offset++] = '\n';
+
+    *written = offset;
+    return CFW_OK;
+}
+
+cfw_status_t cfw_http_request_head_format(
+    cfw_http_method_t method, const cfw_strview_t *target,
+    const cfw_http_version_t *version,
+    const cfw_http_header_t *headers, size_t header_count,
+    char *buffer, size_t capacity, size_t *written)
+{
+    const char *method_name;
+    char version_text[16];
+    size_t method_len;
+    size_t version_len;
+    size_t offset = 0;
+    size_t n;
+    size_t i;
+    cfw_status_t st;
+
+    if (target == NULL || version == NULL || buffer == NULL ||
+        written == NULL || (header_count != 0 && headers == NULL)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (target->size == 0 || target->data == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    for (i = 0; i < target->size; i++) {
+        unsigned char c = (unsigned char)target->data[i];
+        if (c <= 0x20 || c == 0x7F) {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
+    }
+
+    method_name = cfw_http_method_name(method);
+    if (method_name == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    st = cfw_http_version_format(version, version_text,
+                                 sizeof(version_text));
+    if (st != CFW_OK) {
+        return st;
+    }
+    version_len = strlen(version_text);
+    method_len = strlen(method_name);
+
+    /* "METHOD SP target SP HTTP/x.y CRLF" */
+    if (method_len > SIZE_MAX - target->size - version_len - 4 ||
+        method_len + target->size + version_len + 4 > capacity) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    memcpy(buffer + offset, method_name, method_len);
+    offset += method_len;
+    buffer[offset++] = ' ';
+    memcpy(buffer + offset, target->data, target->size);
+    offset += target->size;
+    buffer[offset++] = ' ';
+    memcpy(buffer + offset, version_text, version_len);
+    offset += version_len;
+    buffer[offset++] = '\r';
+    buffer[offset++] = '\n';
 
     for (i = 0; i < header_count; i++) {
         st = cfw_http_header_line_format(&headers[i].name,
