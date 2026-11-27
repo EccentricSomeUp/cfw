@@ -9,7 +9,8 @@
 - Category: memory safety, denial-of-service, test integrity,
   supply-chain compliance
 - Scope: `tests/fuzz/fuzz_support.[ch]` (new), `fuzz_http.c`,
-  `fuzz_uri.c`, `fuzz_query.c`, `fuzz_multipart.c`, `fuzz_driver.c`
+  `fuzz_uri.c`, `fuzz_query.c`, `fuzz_multipart.c`,
+  `fuzz_head_reader.c`, `fuzz_ws_proto.c`, `fuzz_driver.c`
   (new), `tests/unit/test_http_fuzz.c`, `CMakeLists.txt`,
   `tests/CMakeLists.txt`, `CMakePresets.json`, `.github/workflows/ci.yml`
 
@@ -48,7 +49,7 @@
   - Supply-chain: no new dependencies; libFuzzer ships with clang.
 - `cmake --preset debug && cmake --build --preset debug` and
   `ctest --preset debug`: 6/6 pass (extraction is behavior-identical).
-- `cmake --preset fuzz && cmake --build --preset fuzz`: all four
+- `cmake --preset fuzz && cmake --build --preset fuzz`: all six
   driver-mode targets build clean under GCC with `-fsanitize=
   address,undefined -Werror`.
 - Corpus replay: each `build/fuzz/tests/cfw_fuzz_*` binary run over
@@ -59,7 +60,7 @@
 | ID | Severity | Location | Summary | Disposition |
 |----|----------|----------|---------|-------------|
 | F-001 | low | `fuzz_http` static ctx | Lazy static dispatch context lives for the process; intentional for fuzz throughput, read-only after init, and matches libFuzzer's single-process model. | accepted |
-| F-002 | info | CI `fuzz` job | 120 s × 4 targets ≈ 8 min of fuzzing per push; bounded and parallel. First run may surface real bugs — that is the point; fixes are follow-ups. | accepted |
+| F-002 | info | CI `fuzz` job | 120 s × 6 targets ≈ 12 min of fuzzing per push; bounded and parallel. First run may surface real bugs — that is the point; fixes are follow-ups. | accepted |
 | F-003 | info | `fuzz_driver.c` | Driver is a dev tool, not shipped; file reading uses stdio with size caps, no path handling beyond argv. | accepted |
 | F-004 | low | Windows fuzz builds | Driver mode works on Windows but `CFW_ENABLE_FUZZING` is not enabled in any preset used by Windows CI; enabling it there is a possible follow-up for corpus replay coverage. | deferred |
 

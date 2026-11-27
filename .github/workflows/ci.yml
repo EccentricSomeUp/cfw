@@ -113,7 +113,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [http, uri, query, multipart]
+        target: [http, uri, query, multipart, head_reader, ws_proto]
     env:
       CC: clang
       CXX: clang++

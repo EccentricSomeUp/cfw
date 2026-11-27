@@ -30,7 +30,11 @@ option `CFW_ENABLE_FUZZING` (default OFF):
   response-head parse pass over the same input.
 - Targets: `fuzz_http` (head/framing/dispatch/chunked/http1_server),
   `fuzz_uri` (percent-decoder, target path/query split, query pairs),
-  `fuzz_query`, `fuzz_multipart` (boundary extraction + body parse).
+  `fuzz_query`, `fuzz_multipart` (boundary extraction + body parse),
+  `fuzz_head_reader` (incremental head accumulation fed in
+  content-dependent chunk sizes), and `fuzz_ws_proto` (WS UTF-8
+  validator, SHA-1 accept-key primitive, close-status allowlist —
+  links `ws_proto.c` directly like the pollset compile fixtures).
   All operate on in-memory buffers through the public API — no
   sockets, threads, or filesystem — so they are fully deterministic
   and platform-independent.
@@ -41,7 +45,7 @@ option `CFW_ENABLE_FUZZING` (default OFF):
   corpus replay and manual mutation fuzzing everywhere, and real
   coverage-guided fuzzing wherever clang is available.
 - New `fuzz` CMake preset (`build/fuzz`, RelWithDebInfo +
-  `CFW_ENABLE_FUZZING=ON`) and a CI `fuzz` job: matrix over the four
+  `CFW_ENABLE_FUZZING=ON`) and a CI `fuzz` job: matrix over the six
   targets on `ubuntu-latest` with `CC=clang`, each running
   `-max_total_time=120 -max_len=4096` against `tests/fuzz/corpus` as
   the seed corpus, artifacts to `build/fuzz/artifacts/`.
