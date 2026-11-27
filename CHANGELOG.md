@@ -32,7 +32,11 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 - Release workflow now publishes a single GitHub release after all preset
   checks and install smoke tests pass, uses the matching `CHANGELOG.md`
   section as release notes via `gh release create`, and no longer uploads
-  redundant per-OS source archives.
+  redundant per-OS source archives. The release job is now gated on the
+  full CI matrix — Ubuntu/macOS presets (including `tsan`), FreeBSD
+  14/15, Windows cleartext and TLS, and the fuzz smoke jobs — so a tag
+  only publishes when the complete verification suite is green on the
+  tagged tree.
 - `scripts/cfw-release.sh` gains `--wait`, which watches the `release.yml`
   run for the new tag and verifies the published GitHub release.
 

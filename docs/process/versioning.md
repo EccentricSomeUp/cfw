@@ -74,10 +74,13 @@ The script, in order:
    be signed (`commit.gpgsign` / `tag.gpgsign` enabled); the script fails
    rather than silently producing an unsigned release commit or tag.
 8. With `--push`, pushes the branch and the tag. The tag push triggers
-   `release.yml`, which re-runs the preset matrix on Ubuntu and macOS,
-   runs an install smoke test for the release preset, and publishes the
+   `release.yml`, which re-runs the full CI matrix on the tagged tree —
+   every configure preset on Ubuntu and macOS, FreeBSD 14/15, Windows
+   cleartext and TLS, and the fuzz smoke jobs — then publishes the
    GitHub release via `gh release create` using the matching
-   `CHANGELOG.md` section as its notes.
+   `CHANGELOG.md` section as its notes. The release job is gated on all
+   verification jobs, so a tag only becomes a GitHub release when the
+   complete matrix is green.
 
 `--dry-run` performs all checks and prints the plan without modifying
 anything — use it to validate a proposed version before committing to it.

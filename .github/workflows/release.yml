@@ -17,6 +17,10 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+# A tag is only published as a GitHub release after the full CI matrix —
+# every preset on Ubuntu/macOS, FreeBSD, Windows (cleartext + TLS), and
+# the fuzz smoke jobs — passes on the exact tagged tree. The job set
+# mirrors .github/workflows/ci.yml; keep the two in sync.
 jobs:
   presets:
     name: ${{ matrix.preset }} (${{ matrix.os }})
@@ -25,12 +29,15 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        preset: [debug, release, sanitizers, shared, debug-tls]
+        preset: [debug, release, sanitizers, tsan, shared, debug-tls]
         # macOS ships LibreSSL, which lacks OpenSSL 3 APIs used by
-        # cfw_tls; TLS verification is OpenSSL-only for now.
+        # cfw_tls; TLS verification is OpenSSL-only for now. TSan is
+        # verified on Ubuntu/Clang only.
         exclude:
           - os: macos-latest
             preset: debug-tls
+          - os: macos-latest
+            preset: tsan
     steps:
       - uses: actions/checkout@v7
 
@@ -50,9 +57,132 @@ jobs:
           find "$RUNNER_TEMP/cfw-install" -name cfwConfig.cmake -print -quit \
             | grep -q .
 
+  # GitHub-hosted runners have no BSD image, so FreeBSD runs in a QEMU VM
+  # via vmactions/freebsd-vm (same as ci.yml). Debug preset exercises the
+  # kqueue pollset backend end-to-end.
+  freebsd:
+    name: freebsd debug (${{ matrix.release }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        release: ["14", "15"]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure, build, and test in FreeBSD ${{ matrix.release }}
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: ${{ matrix.release }}
+          copyback: false
+          prepare: |
+            pkg install -y cmake
+          run: |
+            cmake --preset debug
+            cmake --build --preset debug
+            ctest --preset debug --output-on-failure
+
+  windows:
+    name: windows build + test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure debug
+        run: cmake --preset debug
+
+      - name: Build debug
+        run: cmake --build --preset debug --config Debug
+
+      - name: Test debug
+        run: ctest --preset debug --output-on-failure
+
+  # TLS on Windows uses the same OpenSSL 3 backend as POSIX (ADR 0075);
+  # Chocolatey's openssl package provides headers, import libraries, the
+  # openssl CLI (needed at configure time to mint test certs), and the
+  # runtime DLLs on PATH for ctest.
+  windows-tls:
+    name: windows TLS build + test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install OpenSSL
+        run: choco install openssl -y
+
+      - name: Configure debug + TLS
+        run: >
+          cmake --preset debug-tls
+          -DOPENSSL_ROOT_DIR="C:\Program Files\OpenSSL-Win64"
+
+      - name: Build debug + TLS
+        run: cmake --build --preset debug-tls --config Debug
+
+      - name: Test debug + TLS
+        run: ctest --preset debug-tls --output-on-failure
+
+  fuzz:
+    name: fuzz smoke (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [http, uri, query, multipart, head_reader, ws_proto, crypto, http1_conn, ws_client, ws_server, http_client, static]
+    env:
+      CC: clang
+      CXX: clang++
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure fuzz preset
+        run: cmake --preset fuzz
+
+      - name: Build fuzz targets
+        run: cmake --build --preset fuzz --target cfw_fuzz_${{ matrix.target }}
+
+      - name: Fuzz ${{ matrix.target }}
+        run: >
+          mkdir -p build/fuzz/artifacts &&
+          ./build/fuzz/tests/cfw_fuzz_${{ matrix.target }}
+          -max_total_time=120 -max_len=4096 -rss_limit_mb=2048
+          -artifact_prefix=build/fuzz/artifacts/
+          tests/fuzz/corpus
+
+  # Windows corpus replay (ADR 0077): no libFuzzer on MSVC, so the fuzz
+  # preset builds the standalone driver binaries; this job replays the
+  # seed corpus through every target under ASan.
+  windows-fuzz:
+    name: windows fuzz corpus replay
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure fuzz driver build
+        run: >
+          cmake -B build/fuzz -G Ninja
+          -DCMAKE_BUILD_TYPE=Release -DCFW_ENABLE_FUZZING=ON
+
+      - name: Build fuzz targets
+        run: >
+          cmake --build build/fuzz
+          --target cfw_fuzz_http cfw_fuzz_uri cfw_fuzz_query
+          cfw_fuzz_multipart cfw_fuzz_head_reader cfw_fuzz_ws_proto
+          cfw_fuzz_crypto cfw_fuzz_http1_conn cfw_fuzz_ws_client cfw_fuzz_ws_server cfw_fuzz_http_client cfw_fuzz_static
+
+      - name: Replay corpus
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem tests/fuzz/corpus -File |
+            ForEach-Object { $_.FullName }
+          foreach ($t in 'http','uri','query','multipart','head_reader','ws_proto','crypto','http1_conn','ws_client','ws_server','http_client','static') {
+            Write-Host "== cfw_fuzz_$t"
+            & "build/fuzz/tests/cfw_fuzz_$t.exe" @files
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
   release:
     name: release
-    needs: presets
+    needs: [presets, freebsd, windows, windows-tls, fuzz, windows-fuzz]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
