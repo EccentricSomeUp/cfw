@@ -11,6 +11,9 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ### Added
 
+- `examples/mtls_authz.c`: mutual-TLS authorization example —
+  mandatory client certificates plus a SHA-256 fingerprint
+  allowlist checked through `req->tls_conn`.
 - TLS session exposure to handlers (ADR 0063):
   `cfw_request_t.tls_conn` carries the connection's
   `cfw_tls_conn_t` (borrowed, valid for the dispatch call) when the

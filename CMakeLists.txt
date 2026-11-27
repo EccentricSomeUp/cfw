@@ -201,6 +201,12 @@ if(CFW_BUILD_EXAMPLES)
     cfw_apply_strict_flags(cfw_example_tls_server)
     cfw_apply_hardening_flags(cfw_example_tls_server)
     cfw_apply_sanitizer_flags(cfw_example_tls_server)
+
+    add_executable(cfw_example_mtls_authz examples/mtls_authz.c)
+    target_link_libraries(cfw_example_mtls_authz PRIVATE cfw)
+    cfw_apply_strict_flags(cfw_example_mtls_authz)
+    cfw_apply_hardening_flags(cfw_example_mtls_authz)
+    cfw_apply_sanitizer_flags(cfw_example_mtls_authz)
 endif()
 
 if(CFW_BUILD_TESTING)
