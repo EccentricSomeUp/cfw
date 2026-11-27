@@ -33,15 +33,32 @@ cfw_status_t cfw_fuzz_dispatch_init(cfw_fuzz_dispatch_t *ctx)
     if (cfw_dispatch_init(&ctx->dispatch, ctx->arena, &dopt) != CFW_OK) {
         goto fail;
     }
-    if (cfw_strview_from_cstr(&pattern, "/") != CFW_OK ||
-        cfw_dispatch_add_route(&ctx->dispatch, CFW_HTTP_METHOD_GET, &pattern,
-                               cfw_fuzz_handler, NULL) != CFW_OK) {
-        goto fail;
-    }
-    if (cfw_strview_from_cstr(&pattern, "/users/:id") != CFW_OK ||
-        cfw_dispatch_add_route(&ctx->dispatch, CFW_HTTP_METHOD_GET, &pattern,
-                               cfw_fuzz_handler, NULL) != CFW_OK) {
-        goto fail;
+    /* Route table covering literal, single-param, multi-param, and
+     * method-specific patterns so parsed fuzz inputs exercise the
+     * full matcher, param extraction, and method filtering. */
+    {
+        static const struct {
+            cfw_http_method_t method;
+            const char *pattern;
+        } routes[] = {
+            {CFW_HTTP_METHOD_GET, "/"},
+            {CFW_HTTP_METHOD_GET, "/users/:id"},
+            {CFW_HTTP_METHOD_GET, "/items/:id/comments/:cid"},
+            {CFW_HTTP_METHOD_POST, "/submit"},
+            {CFW_HTTP_METHOD_PUT, "/upload/:name"},
+            {CFW_HTTP_METHOD_DELETE, "/admin/:section"},
+            {CFW_HTTP_METHOD_GET, "/files/:name"},
+        };
+        size_t r;
+        for (r = 0; r < sizeof(routes) / sizeof(routes[0]); r++) {
+            if (cfw_strview_from_cstr(&pattern, routes[r].pattern) !=
+                    CFW_OK ||
+                cfw_dispatch_add_route(&ctx->dispatch, routes[r].method,
+                                       &pattern, cfw_fuzz_handler,
+                                       NULL) != CFW_OK) {
+                goto fail;
+            }
+        }
     }
     return CFW_OK;
 
