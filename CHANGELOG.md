@@ -52,6 +52,9 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   OpenSSL 4.x no longer falls back to the CN for `X509_check_host`,
   which broke hostname verification in the TLS and client tests on
   Windows (choco ships OpenSSL 4.x).
+- The `cfw` target now exports `c_std_11` as a public compile feature,
+  so `find_package(cfw)` consumers automatically compile as C11 or
+  later (required by the public headers' atomics).
 
 ## [0.13.0] - 2026-11-27
 

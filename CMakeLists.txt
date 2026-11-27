@@ -117,6 +117,10 @@ set_target_properties(cfw PROPERTIES
     SOVERSION ${PROJECT_VERSION_MAJOR}
 )
 
+# Public headers use C11 features (e.g. atomics); consumers must compile
+# as C11 or later. Exported so find_package(cfw) users inherit it.
+target_compile_features(cfw PUBLIC c_std_11)
+
 target_include_directories(cfw
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
