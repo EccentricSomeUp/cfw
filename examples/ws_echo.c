@@ -6,14 +6,16 @@
  * upgrade hook (ADR 0034) owns the framed data path. Every complete
  * message is echoed back with its original opcode.
  *
- * Cleartext ws:// only — wss:// waits on the deferred TLS decision
- * (ADR 0030). Point a browser or `websocat`/`wscat` at
- * ws://127.0.0.1:8080/ws to try it.
+ * ws:// by default; pass a certificate and key to serve wss:// — the
+ * framed path is transport-agnostic (ADR 0058). Point a browser or
+ * `websocat`/`wscat` at ws(s)://127.0.0.1:8080/ws to try it.
+ * Usage: cfw_example_ws_echo [port] [cert.pem key.pem]
  */
 
 #include <cfw/cfw.h>
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* Echoes each complete message verbatim (text stays text, binary
@@ -93,15 +95,32 @@ static cfw_status_t ws_upgrade(cfw_upgraded_conn_t *conn, uint32_t events,
     return CFW_OK;
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
     cfw_arena_t *arena = cfw_arena_create(1u << 20);
     cfw_router_t router;
     cfw_dispatch_t dispatch;
     cfw_dispatch_options_t dopt = {0};
     cfw_server_options_t sopt = {0};
+    cfw_tls_ctx_t *tls_ctx = NULL;
     cfw_server_t server;
     cfw_strview_t pattern;
+    uint16_t port = 8080;
+
+    /* Optional: [port] [cert.pem key.pem] — cert+key enables wss://. */
+    if (argc > 1) {
+        long parsed = strtol(argv[1], NULL, 10);
+        if (parsed <= 0 || parsed > 65535) {
+            fprintf(stderr, "usage: %s [port] [cert.pem key.pem]\n",
+                    argv[0]);
+            return 2;
+        }
+        port = (uint16_t)parsed;
+    }
+    if (argc != 1 && argc != 2 && argc != 4) {
+        fprintf(stderr, "usage: %s [port] [cert.pem key.pem]\n", argv[0]);
+        return 2;
+    }
 
     if (arena == NULL) {
         return 1;
@@ -128,7 +147,7 @@ int main(void)
 
     memset(&sopt, 0, sizeof(sopt));
     sopt.host = "127.0.0.1";
-    sopt.port = 8080;
+    sopt.port = port;
     sopt.dispatch = &dispatch;
     sopt.http.max_head_size = 8192;
     sopt.http.max_pending_size = 65536;
@@ -137,18 +156,36 @@ int main(void)
     sopt.max_headers = 32;
     sopt.max_params = 16;
     sopt.upgrade = ws_upgrade;
+
+    if (argc == 4) {
+        cfw_tls_ctx_options_t topts;
+        memset(&topts, 0, sizeof(topts));
+        topts.role = CFW_TLS_SERVER;
+        topts.cert_file = argv[2];
+        topts.key_file = argv[3];
+        if (cfw_tls_ctx_create(&topts, &tls_ctx) != CFW_OK) {
+            fprintf(stderr, "failed to load TLS certificate/key\n");
+            cfw_arena_destroy(arena);
+            return 1;
+        }
+        sopt.tls_ctx = tls_ctx;
+    }
+
     if (cfw_server_init(&server, &sopt) != CFW_OK) {
+        cfw_tls_ctx_destroy(tls_ctx);
         cfw_arena_destroy(arena);
         return 1;
     }
 
     fprintf(stderr,
-            "cfw ws echo server listening on ws://%s:%u/ws\n",
-            sopt.host, (unsigned)cfw_server_port(&server));
+            "cfw ws echo server listening on %s://%s:%u/ws\n",
+            tls_ctx != NULL ? "wss" : "ws", sopt.host,
+            (unsigned)cfw_server_port(&server));
 
     cfw_server_run(&server); /* blocks; call cfw_server_stop() elsewhere */
 
     cfw_server_free(&server);
+    cfw_tls_ctx_destroy(tls_ctx);
     cfw_arena_destroy(arena);
     return 0;
 }

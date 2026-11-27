@@ -11,6 +11,11 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ### Added
 
+- `wss://` support verified and documented (ADR 0070): the WebSocket
+  stack runs unchanged over TLS listeners via the transport seam.
+  `examples/ws_echo.c` now accepts optional certificate/key arguments
+  to serve `wss://`, and `server_tls_ws_echo` covers the full path —
+  TLS handshake, masked client frames, echo, and ping/pong.
 - `examples/tcp_echo.c`: nonblocking TCP echo server built entirely on
   the public socket, pollset, and fd APIs (`cfw/net.h`,
   `cfw/pollset.h`, `cfw/fd.h`) — a worked example of custom-protocol

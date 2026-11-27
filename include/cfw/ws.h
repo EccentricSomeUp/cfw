@@ -25,8 +25,10 @@ extern "C" {
  *    (cfw_server_options_t.upgrade, ADR 0034) for the framed data
  *    path.
  *
- * Cleartext ws:// only for now; wss:// waits on the deferred TLS
- * decision (ADR 0030). No extensions are negotiated.
+ * ws:// and wss:// are both supported: the framed path is
+ * transport-agnostic, so a listener with a tls_ctx (ADR 0058) serves
+ * WebSocket over TLS with no extra wiring. There is no client-side
+ * WebSocket API yet, and no extensions are negotiated.
  */
 
 /* Capacity of the Sec-WebSocket-Accept value including the trailing

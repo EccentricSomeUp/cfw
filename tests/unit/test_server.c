@@ -3666,20 +3666,20 @@ static int cfw_test_tls_handshake(cfw_server_t *server,
     return 1;
 }
 
-/* Writes the full request over TLS, retrying WOULDBLOCK while
+/* Writes exactly `len` bytes over TLS, retrying WOULDBLOCK while
  * stepping the server. */
-static int cfw_test_tls_write_all(cfw_server_t *server,
-                                  cfw_tls_conn_t *client,
-                                  const char *data)
+static int cfw_test_tls_write_all_len(cfw_server_t *server,
+                                      cfw_tls_conn_t *client,
+                                      const void *data, size_t len)
 {
-    size_t len = strlen(data);
+    const unsigned char *bytes = data;
     size_t sent = 0;
     int i;
 
     for (i = 0; i < 4000 && sent < len; i++) {
         size_t done = 0;
         cfw_status_t st =
-            cfw_tls_write(client, data + sent, len - sent, &done);
+            cfw_tls_write(client, bytes + sent, len - sent, &done);
         if (st == CFW_OK) {
             sent += done;
         } else if (st != CFW_ERROR_WOULDBLOCK) {
@@ -3690,6 +3690,16 @@ static int cfw_test_tls_write_all(cfw_server_t *server,
         }
     }
     return sent != len;
+}
+
+/* Writes the full request over TLS, retrying WOULDBLOCK while
+ * stepping the server. */
+static int cfw_test_tls_write_all(cfw_server_t *server,
+                                  cfw_tls_conn_t *client,
+                                  const char *data)
+{
+    return cfw_test_tls_write_all_len(server, client, data,
+                                      strlen(data));
 }
 
 /* Reads TLS plaintext until `needle` appears or the budget ends.
@@ -3968,6 +3978,229 @@ static int test_server_tls_upgrade_echo(void)
     return rc;
 }
 
+/* WebSocket-over-TLS (wss://, ADR 0035 + ADR 0058): the full RFC 6455
+ * stack — handshake helpers, masked client frames, cfw_ws framing —
+ * runs over the TLS transport seam on a TLS listener. */
+
+static cfw_status_t cfw_test_ws_echo_message(cfw_ws_t *ws,
+                                             const cfw_ws_message_t *msg,
+                                             void *user)
+{
+    (void)user;
+    return cfw_ws_send(ws, msg->opcode, msg->payload.data,
+                       msg->payload.size);
+}
+
+static cfw_status_t cfw_test_ws_handler(cfw_request_t *req,
+                                        cfw_response_t *res, void *user)
+{
+    static char accept[CFW_WS_ACCEPT_KEY_CAPACITY];
+    cfw_strview_t name;
+    cfw_strview_t value;
+    (void)user;
+
+    if (cfw_ws_handshake_validate(req) != CFW_OK ||
+        cfw_ws_handshake_accept(req, accept, sizeof(accept)) != CFW_OK) {
+        res->status = CFW_HTTP_STATUS_BAD_REQUEST;
+        return CFW_OK;
+    }
+    res->status = CFW_HTTP_STATUS_SWITCHING_PROTOCOLS;
+    cfw_strview_from_cstr(&name, "Upgrade");
+    cfw_strview_from_cstr(&value, "websocket");
+    cfw_response_header_add(res, &name, &value);
+    cfw_strview_from_cstr(&name, "Connection");
+    cfw_strview_from_cstr(&value, "Upgrade");
+    cfw_response_header_add(res, &name, &value);
+    cfw_strview_from_cstr(&name, "Sec-WebSocket-Accept");
+    cfw_strview_init(&value, accept, strlen(accept));
+    cfw_response_header_add(res, &name, &value);
+    return CFW_OK;
+}
+
+static cfw_status_t cfw_test_ws_upgrade(cfw_upgraded_conn_t *conn,
+                                        uint32_t events, void *user)
+{
+    cfw_ws_t *ws;
+    (void)user;
+
+    if (events == CFW_UPGRADE_EV_CLOSE) {
+        ws = cfw_upgraded_user(conn);
+        if (ws != NULL) {
+            cfw_ws_destroy(ws);
+        }
+        return CFW_OK;
+    }
+    if (events == CFW_UPGRADE_EV_READY) {
+        cfw_ws_options_t options;
+        memset(&options, 0, sizeof(options));
+        options.on_message = cfw_test_ws_echo_message;
+        ws = cfw_ws_create(conn, &options);
+        if (ws == NULL) {
+            return CFW_ERROR_INTERNAL;
+        }
+        cfw_upgraded_set_user(conn, ws);
+        return CFW_OK;
+    }
+    ws = cfw_upgraded_user(conn);
+    if (ws != NULL) {
+        (void)cfw_ws_on_event(ws, events);
+    }
+    return CFW_OK;
+}
+
+/* Sends one masked client frame (opcode + payload <= 125 bytes) over
+ * the TLS conn. Client frames must be masked per RFC 6455 §5.3. */
+static int cfw_test_ws_send_frame(cfw_server_t *server,
+                                  cfw_tls_conn_t *client,
+                                  unsigned char opcode,
+                                  const char *payload, size_t payload_len)
+{
+    static const unsigned char mask[4] = {0x12, 0x34, 0x56, 0x78};
+    unsigned char frame[4 + 125 + 4];
+    size_t i;
+
+    if (payload_len > 125) {
+        return 1;
+    }
+    frame[0] = (unsigned char)(0x80 | opcode);
+    frame[1] = (unsigned char)(0x80 | payload_len);
+    memcpy(frame + 2, mask, 4);
+    for (i = 0; i < payload_len; i++) {
+        frame[6 + i] =
+            (unsigned char)((unsigned char)payload[i] ^ mask[i % 4]);
+    }
+    return cfw_test_tls_write_all_len(server, client, frame,
+                                      6 + payload_len);
+}
+
+static int test_server_tls_ws_echo(void)
+{
+    cfw_test_server ts;
+    cfw_server_options_t options;
+    cfw_dispatch_options_t doptions;
+    cfw_tls_ctx_options_t sopt;
+    cfw_tls_ctx_options_t copt;
+    cfw_tls_ctx_t *sctx = NULL;
+    cfw_tls_ctx_t *cctx = NULL;
+    cfw_tls_conn_t *client = NULL;
+    cfw_fd_t raw;
+    char cert[512];
+    char key[512];
+    char response[8192];
+    ssize_t n;
+    uint16_t port;
+    int rc = 1;
+
+    memset(&sopt, 0, sizeof(sopt));
+    sopt.role = CFW_TLS_SERVER;
+    snprintf(cert, sizeof(cert), "%s/server.crt", CFW_TEST_TLS_DIR);
+    snprintf(key, sizeof(key), "%s/server.key", CFW_TEST_TLS_DIR);
+    sopt.cert_file = cert;
+    sopt.key_file = key;
+    CFW_TEST_ASSERT_EQ(cfw_tls_ctx_create(&sopt, &sctx), CFW_OK);
+
+    memset(&copt, 0, sizeof(copt));
+    copt.role = CFW_TLS_CLIENT;
+    CFW_TEST_ASSERT_EQ(cfw_tls_ctx_create(&copt, &cctx), CFW_OK);
+
+    memset(&ts, 0, sizeof(ts));
+    ts.arena = cfw_arena_create(32768);
+    CFW_TEST_ASSERT_TRUE(ts.arena != NULL);
+    CFW_TEST_ASSERT_EQ(cfw_router_init(&ts.router, ts.arena), CFW_OK);
+    memset(&doptions, 0, sizeof(doptions));
+    doptions.router = &ts.router;
+    doptions.handler = cfw_test_ws_handler;
+    doptions.max_middleware = 4;
+    CFW_TEST_ASSERT_EQ(cfw_dispatch_init(&ts.dispatch, ts.arena,
+                                         &doptions),
+                       CFW_OK);
+    {
+        cfw_strview_t pattern;
+        cfw_strview_from_cstr(&pattern, "/ws");
+        CFW_TEST_ASSERT_EQ(cfw_dispatch_add_route(
+                               &ts.dispatch, CFW_HTTP_METHOD_GET,
+                               &pattern, cfw_test_ws_handler, NULL),
+                           CFW_OK);
+    }
+    memset(&options, 0, sizeof(options));
+    options.host = "127.0.0.1";
+    options.port = 0;
+    options.backlog = 16;
+    options.dispatch = &ts.dispatch;
+    options.http.max_head_size = 8192;
+    options.http.max_body_size = 65536;
+    options.http.max_pending_size = 65536;
+    options.max_out_size = 65536;
+    options.max_connections = 8;
+    options.max_headers = 32;
+    options.max_params = 16;
+    options.upgrade = cfw_test_ws_upgrade;
+    options.tls_ctx = sctx;
+    CFW_TEST_ASSERT_EQ(cfw_server_init(&ts.server, &options), CFW_OK);
+    port = cfw_server_port(&ts.server);
+    CFW_TEST_ASSERT_TRUE(port != 0);
+
+    cfw_fd_init(&raw);
+    CFW_TEST_ASSERT_EQ(cfw_test_connect(&raw, port), CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_tls_conn_create(cctx, cfw_fd_get(&raw),
+                                           &client),
+                       CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_test_tls_handshake(&ts.server, client), 0);
+
+    /* RFC 6455 §1.3 example handshake: the accept value is a known
+     * answer, so this also pins cfw_ws_accept_key end-to-end. */
+    CFW_TEST_ASSERT_EQ(cfw_test_tls_write_all(
+                           &ts.server, client,
+                           "GET /ws HTTP/1.1\r\n"
+                           "Host: t\r\n"
+                           "Upgrade: websocket\r\n"
+                           "Connection: Upgrade\r\n"
+                           "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+                           "Sec-WebSocket-Version: 13\r\n\r\n"),
+                       0);
+    memset(response, 0, sizeof(response));
+    n = cfw_test_tls_read_until(&ts.server, client, response,
+                                sizeof(response), "101");
+    CFW_TEST_ASSERT_TRUE(n > 0);
+    response[n] = '\0';
+    CFW_TEST_ASSERT_TRUE(cfw_test_contains(response, (size_t)n,
+                                           "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="));
+
+    /* Masked text frame "wss-echo": the server must unmask, reassemble,
+     * and echo it as an unmasked frame. */
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_send_frame(
+                           &ts.server, client, 0x1, "wss-echo",
+                           sizeof("wss-echo") - 1),
+                       0);
+    memset(response, 0, sizeof(response));
+    n = cfw_test_tls_read_until(&ts.server, client, response,
+                                sizeof(response), "\x81\x08wss-echo");
+    CFW_TEST_ASSERT_TRUE(n > 0);
+
+    /* Masked ping: the module must answer with an unmasked pong. */
+    CFW_TEST_ASSERT_EQ(cfw_test_ws_send_frame(
+                           &ts.server, client, 0x9, "hi",
+                           sizeof("hi") - 1),
+                       0);
+    memset(response, 0, sizeof(response));
+    n = cfw_test_tls_read_until(&ts.server, client, response,
+                                sizeof(response), "\x8a\x02hi");
+    CFW_TEST_ASSERT_TRUE(n > 0);
+
+    rc = 0;
+
+    if (client != NULL) {
+        cfw_tls_conn_destroy(client);
+    }
+    cfw_fd_close(&raw);
+    cfw_tls_ctx_destroy(sctx);
+    cfw_tls_ctx_destroy(cctx);
+    if (ts.arena != NULL) {
+        cfw_test_server_teardown(&ts);
+    }
+    return rc;
+}
+
 /* Mixed cleartext/TLS listener (ADR 0061): one port serves both —
  * the first byte decides. A cleartext GET and a full TLS session
  * must both succeed on the same server. */
@@ -4147,6 +4380,7 @@ const cfw_test_case cfw_test_server_cases[] = {
 #if CFW_HAVE_TLS
     {"server_tls_request_response", test_server_tls_request_response},
     {"server_tls_upgrade_echo", test_server_tls_upgrade_echo},
+    {"server_tls_ws_echo", test_server_tls_ws_echo},
     {"server_tls_detect_mixed", test_server_tls_detect_mixed},
 #endif
     {NULL, NULL},
