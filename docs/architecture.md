@@ -77,8 +77,10 @@ abstraction exists.
   confined no-follow file opens on POSIX, and conditional/Range request
   support with entity-tag validators (implemented; see `cfw/static.h`,
   ADRs 0036/0037/0039/0040)
-- `tls`: out of scope for the core library (ADR 0030); a future optional
-  module would sit below `http1_conn`/`server` behind its own dependency ADR
+- `tls`: optional OpenSSL 3.x-backed transport module below
+  `http1_conn`/`server` (implemented as `cfw/tls.h`/`src/cfw/tls.c`;
+  ADRs 0030/0057). Opt-in via `CFW_ENABLE_TLS`; default builds are
+  cleartext-only and the entry points stub to `CFW_ERROR_UNAVAILABLE`
 - `uri`: shared percent-decoding primitive with per-use flags
   (implemented; see `cfw/uri.h`, ADR 0044); also backs query parsing,
   static-file path decoding, and route-parameter decoding

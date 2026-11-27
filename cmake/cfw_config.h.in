@@ -10,4 +10,8 @@
 
 #define CFW_ABI_VERSION @CFW_ABI_VERSION@
 
+/* 1 when the optional OpenSSL-backed TLS module (ADR 0057) was
+ * compiled in via CFW_ENABLE_TLS; 0 otherwise. */
+#define CFW_HAVE_TLS @CFW_HAVE_TLS@
+
 #endif /* CFW_CONFIG_H */

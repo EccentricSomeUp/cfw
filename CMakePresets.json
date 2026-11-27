@@ -46,6 +46,17 @@
                 "CFW_ENABLE_WERROR": "ON",
                 "CFW_ENABLE_SANITIZERS": "OFF"
             }
+        },
+        {
+            "name": "debug-tls",
+            "displayName": "Debug + OpenSSL TLS module",
+            "binaryDir": "${sourceDir}/build/debug-tls",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CFW_ENABLE_WERROR": "ON",
+                "CFW_ENABLE_SANITIZERS": "OFF",
+                "CFW_ENABLE_TLS": "ON"
+            }
         }
     ],
     "buildPresets": [
@@ -64,6 +75,10 @@
         {
             "name": "shared",
             "configurePreset": "shared"
+        },
+        {
+            "name": "debug-tls",
+            "configurePreset": "debug-tls"
         }
     ],
     "testPresets": [
@@ -91,6 +106,13 @@
         {
             "name": "shared",
             "configurePreset": "shared",
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "debug-tls",
+            "configurePreset": "debug-tls",
             "output": {
                 "outputOnFailure": true
             }

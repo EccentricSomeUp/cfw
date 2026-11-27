@@ -89,6 +89,24 @@ List or run selected unit tests directly:
 The exact test executable path may differ on Windows; use the path reported by
 the selected generator.
 
+## Optional TLS module
+
+The core library is dependency-free by default. An optional TLS
+transport module (`cfw/tls.h`, ADR 0057) backed by the system
+OpenSSL 3.x can be enabled at configure time:
+
+```sh
+cmake --preset debug-tls   # or: cmake -B build -DCFW_ENABLE_TLS=ON
+cmake --build --preset debug-tls
+ctest --preset debug-tls --output-on-failure
+```
+
+This links `libssl`/`libcrypto` and defines `CFW_HAVE_TLS` as 1 in
+`cfw_config.h`. Without it, the `cfw_tls_*` entry points exist but
+return `CFW_ERROR_UNAVAILABLE`. See `docs/decisions/0057` for the
+license and pinning rationale; `cfw_server_t` listener integration is
+a documented follow-up.
+
 ## Minimal server
 
 `examples/minimal_server.c` is a complete, compilable version of this

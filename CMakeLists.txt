@@ -24,6 +24,18 @@ option(CFW_BUILD_SHARED "Build cfw as a shared library" OFF)
 option(CFW_ENABLE_WERROR "Treat compiler warnings as errors" ON)
 option(CFW_ENABLE_SANITIZERS "Enable address and undefined behavior sanitizers" OFF)
 option(CFW_ENABLE_HARDENING "Enable available platform hardening flags" ON)
+option(CFW_ENABLE_TLS "Build the optional OpenSSL-backed TLS module (ADR 0057)" OFF)
+
+set(CFW_HAVE_TLS 0)
+if(CFW_ENABLE_TLS)
+    if(WIN32)
+        message(FATAL_ERROR
+            "CFW_ENABLE_TLS is not supported on Windows builds yet "
+            "(ADR 0057); the TLS module targets POSIX platforms.")
+    endif()
+    find_package(OpenSSL 3 REQUIRED)
+    set(CFW_HAVE_TLS 1)
+endif()
 
 configure_file(
     cmake/cfw_config.h.in
@@ -61,6 +73,7 @@ set(CFW_SOURCES
     src/cfw/sync.c
     src/cfw/thread.c
     src/cfw/time.c
+    src/cfw/tls.c
     src/cfw/uri.c
     src/cfw/version.c
     src/cfw/ws.c
@@ -98,6 +111,10 @@ if(WIN32)
 else()
     find_package(Threads REQUIRED)
     target_link_libraries(cfw PUBLIC Threads::Threads)
+endif()
+
+if(CFW_HAVE_TLS)
+    target_link_libraries(cfw PUBLIC OpenSSL::SSL OpenSSL::Crypto)
 endif()
 
 if(CFW_BUILD_SHARED)

@@ -6,4 +6,10 @@ if(NOT WIN32)
     find_dependency(Threads)
 endif()
 
+if(@CFW_HAVE_TLS@)
+    # TLS-enabled builds link OpenSSL publicly; consumers must be able
+    # to resolve the imported targets (ADR 0057).
+    find_dependency(OpenSSL 3)
+endif()
+
 include("${CMAKE_CURRENT_LIST_DIR}/cfwTargets.cmake")

@@ -9,6 +9,24 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ## [Unreleased]
 
+### Added
+
+- Optional TLS transport module `cfw/tls.h` backed by OpenSSL 3.x
+  (ADR 0057, implementing the deferred Phase 6 boundary from ADR
+  0030): `cfw_tls_ctx_t` for certificate/trust/verify configuration
+  and `cfw_tls_conn_t` for nonblocking `SSL_accept`/`SSL_read`/
+  `SSL_write`/`SSL_shutdown` over `cfw_fd_t` sockets with explicit
+  want-read/want-write hints and `SSL_pending` reporting for
+  pollset-driven event loops. Enabled with `-DCFW_ENABLE_TLS=ON`
+  (CMake option `CFW_ENABLE_TLS`, default OFF — the default build
+  remains dependency-free); `CFW_HAVE_TLS` in `cfw_config.h` reports
+  availability and all entry points return `CFW_ERROR_UNAVAILABLE`
+  when compiled out. `cfw_server_t` listener integration is a
+  documented follow-up.
+- `debug-tls` CMake preset exercising the TLS module; TLS unit tests
+  generate their CA/server/client certificates into the build tree at
+  configure time (no key material committed).
+
 ### Changed
 
 - Reduced per-request event-loop overhead: connection interest changes

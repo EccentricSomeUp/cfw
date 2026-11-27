@@ -1,5 +1,45 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
+# TLS test certificates (ADR 0057): generated into the build tree at
+# configure time so no private key material is ever committed. Requires
+# the openssl CLI that ships with OpenSSL 3.x installations.
+set(CFW_TEST_TLS_DIR "")
+if(CFW_HAVE_TLS)
+    # FindOpenSSL does not always locate the openssl CLI; fall back to
+    # PATH. Certificate generation happens at configure time into the
+    # build tree.
+    if(NOT OPENSSL_EXECUTABLE)
+        find_program(OPENSSL_EXECUTABLE openssl)
+    endif()
+    if(NOT OPENSSL_EXECUTABLE)
+        message(FATAL_ERROR
+            "CFW_ENABLE_TLS requires the openssl CLI to generate test "
+            "certificates; install the OpenSSL tools package.")
+    endif()
+    set(CFW_TEST_TLS_DIR "${CMAKE_CURRENT_BINARY_DIR}/tls-certs")
+    file(MAKE_DIRECTORY "${CFW_TEST_TLS_DIR}")
+    set(_cfw_tls_cert_cmds
+        "req -x509 -newkey rsa:2048 -nodes -days 3650 -subj /CN=cfw-test-ca -keyout ${CFW_TEST_TLS_DIR}/ca.key -out ${CFW_TEST_TLS_DIR}/ca.crt"
+        "req -newkey rsa:2048 -nodes -subj /CN=localhost -keyout ${CFW_TEST_TLS_DIR}/server.key -out ${CFW_TEST_TLS_DIR}/server.csr"
+        "x509 -req -in ${CFW_TEST_TLS_DIR}/server.csr -CA ${CFW_TEST_TLS_DIR}/ca.crt -CAkey ${CFW_TEST_TLS_DIR}/ca.key -CAcreateserial -days 3650 -out ${CFW_TEST_TLS_DIR}/server.crt"
+        "req -newkey rsa:2048 -nodes -subj /CN=cfw-test-client -keyout ${CFW_TEST_TLS_DIR}/client.key -out ${CFW_TEST_TLS_DIR}/client.csr"
+        "x509 -req -in ${CFW_TEST_TLS_DIR}/client.csr -CA ${CFW_TEST_TLS_DIR}/ca.crt -CAkey ${CFW_TEST_TLS_DIR}/ca.key -CAcreateserial -days 3650 -out ${CFW_TEST_TLS_DIR}/client.crt"
+    )
+    foreach(_cfw_tls_cert_cmd IN LISTS _cfw_tls_cert_cmds)
+        separate_arguments(_cfw_tls_cert_args NATIVE_COMMAND
+            "${_cfw_tls_cert_cmd}")
+        execute_process(
+            COMMAND "${OPENSSL_EXECUTABLE}" ${_cfw_tls_cert_args}
+            RESULT_VARIABLE _cfw_tls_cert_result
+            OUTPUT_QUIET ERROR_QUIET)
+        if(NOT _cfw_tls_cert_result EQUAL 0)
+            message(FATAL_ERROR
+                "TLS test certificate generation failed: "
+                "${OPENSSL_EXECUTABLE} ${_cfw_tls_cert_cmd}")
+        endif()
+    endforeach()
+endif()
+
 add_executable(cfw_unit_tests
     ../src/cfw/private/net.c
     ../src/cfw/private/pollset.c
@@ -33,6 +73,7 @@ add_executable(cfw_unit_tests
     unit/test_strview.c
     unit/test_sync.c
     unit/test_thread.c
+    unit/test_tls.c
     unit/test_uri.c
     unit/test_ws.c
     unit/test_time.c
@@ -47,6 +88,11 @@ target_link_libraries(cfw_unit_tests PRIVATE cfw)
 target_compile_definitions(cfw_unit_tests PRIVATE
     CFW_FUZZ_CORPUS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fuzz/corpus"
 )
+if(CFW_HAVE_TLS)
+    target_compile_definitions(cfw_unit_tests PRIVATE
+        CFW_TEST_TLS_DIR="${CFW_TEST_TLS_DIR}"
+    )
+endif()
 
 cfw_apply_strict_flags(cfw_unit_tests)
 cfw_apply_hardening_flags(cfw_unit_tests)

@@ -78,14 +78,23 @@ audit (audits/2026-11-26-http-server-dos-audit.md) with three fixes.
 
 ## Phase 6: Optional TLS boundary
 
-- Decide whether TLS is in scope — decided: out of scope for the core
-  library (ADR 0030); cleartext transport only, TLS deferred to a
-  future optional module pending a dependency ADR
+- Decide whether TLS is in scope — decided: optional module, not core
+  (ADR 0030); cleartext transport by default
+- Dependency approval — met: OpenSSL 3.x approved as the optional TLS
+  backend (ADR 0057)
 - Boundary preserved: `cfw_http1_conn_t`/`cfw_server_t` consume an
-  established byte stream; a future `cfw_tls` module slots below them
+  established byte stream; `cfw_tls` (`cfw/tls.h`) provides the
+  nonblocking TLS transport below them
+- `cfw_tls` transport module — met (context + nonblocking conn,
+  handshake/read/write/shutdown, want-direction hints, peer
+  verification; unit-tested over socketpairs)
+- `cfw_server_t` TLS listener integration — deferred (accept →
+  handshake → decrypted stream into `cfw_http1_conn`)
 
-Exit criteria: scope decision recorded (ADR 0030); cryptographic and
-transport audit deferred with the module itself.
+Exit criteria: scope decision recorded (ADR 0030), dependency
+approved (ADR 0057), transport module implemented and tested;
+server integration and cryptographic/transport audit of the
+integration path remain open.
 
 ## Phase 7: Hardening and 1.0 readiness
 
