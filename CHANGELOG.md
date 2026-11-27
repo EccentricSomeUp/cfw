@@ -9,6 +9,8 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-27
+
 ### Added
 
 - WebSocket client (`cfw/ws_client.h`, ADR 0071): synchronous-style
