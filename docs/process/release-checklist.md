@@ -44,5 +44,6 @@ releaser's responsibility.
       (`docs/api-stability.md` + `docs/process/versioning.md`; no
       migration needed pre-1.0)
 - [ ] Security reporting process has been tested — channel documented
-      in `docs/security/process.md`; a test report submission is still
-      outstanding
+      in `docs/security/process.md` and GitHub Private Vulnerability
+      Reporting enabled on the repository; a test report submission
+      is still outstanding (reporter-side step, no API)

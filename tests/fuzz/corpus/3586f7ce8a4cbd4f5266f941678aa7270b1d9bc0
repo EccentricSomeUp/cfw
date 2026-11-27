@@ -1,0 +1,9 @@
+GET /ws HTTP/0.1
+Host: e
+Connection: UpE HTTP/1.1
+Host: e
+Transfer-Encoding: chunked
+
+3
+abEEEEEEPkdt-Version: 13
+

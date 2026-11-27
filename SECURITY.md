@@ -8,8 +8,8 @@ unnecessary sensitive information.
 
 ## Reporting a vulnerability
 
-Preferred: use GitHub Private Vulnerability Reporting for this repository if it
-is enabled.
+Preferred: GitHub Private Vulnerability Reporting is enabled for this
+repository (Security tab → "Report a vulnerability").
 
 If private reporting is unavailable, contact the repository owner through the
 channel associated with the repository and request a private security

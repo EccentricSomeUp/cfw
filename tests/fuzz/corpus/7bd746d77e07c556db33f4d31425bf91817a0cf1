@@ -1,0 +1,18 @@
+POST /x HTTP/0.1
+Transfer-Encoding: chunked
+
+3
+abc
+2
+de
+0
+X-A: chunked
+
+3
+abc
+2
+de
+0
+X-A: 1
+X-B: 2
+
