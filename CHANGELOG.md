@@ -9,6 +9,8 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-27
+
 ### Added
 
 - `examples/static_files.c`: static file server example mounting
