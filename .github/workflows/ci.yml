@@ -61,13 +61,11 @@ jobs:
             cmake --build --preset debug
             ctest --preset debug --output-on-failure
 
-  # Windows sockets/pollset/server/fd-close are stubs returning
-  # CFW_STATUS_UNAVAILABLE (IOCP pending, ADR 0011), so the test suite
-  # cannot pass at runtime yet. This job is compile-only: it verifies
-  # that no POSIX-isms leak into shared code and that the MSVC
-  # /W4 /permissive- /WX build stays clean.
+  # Most of the suite is POSIX-gated and cannot run on Windows yet, but
+  # the cfw_windows_smoke target (ADR 0072/0074) exercises the public
+  # socket/pollset/server surface over loopback, so CI runs it here.
   windows:
-    name: windows compile check
+    name: windows compile + smoke check
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -77,3 +75,6 @@ jobs:
 
       - name: Build debug
         run: cmake --build --preset debug --config Debug
+
+      - name: Run Windows smoke test
+        run: ctest --preset debug -R cfw_windows_smoke --output-on-failure

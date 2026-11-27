@@ -32,10 +32,8 @@ extern "C" {
  * or construct the bytes directly. The storage is sized for
  * sockaddr_storage on every supported platform (128 bytes).
  *
- * Platform support: implemented on POSIX systems. On Windows every
- * function in this header returns CFW_ERROR_UNAVAILABLE (or 0 for the
- * predicates) until the Winsock backend lands; see
- * docs/platform-matrix.md.
+ * Platform support: implemented on POSIX systems and Windows (Winsock2,
+ * ADR 0072). See docs/platform-matrix.md.
  */
 
 /* Capacity of cfw_addr_t storage in bytes; matches sockaddr_storage. */

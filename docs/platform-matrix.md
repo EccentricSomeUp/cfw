@@ -14,7 +14,7 @@ not yet implemented; "planned" means no contract exists yet.
 | Linux (glibc/musl) | Primary | `clock_gettime`, `getrandom`, `epoll`; the primary CI/dev-verified target |
 | macOS | POSIX-compatible | `clock_gettime`, `arc4random_buf`, `kqueue` backend (ADR 0052); verified on macOS CI |
 | FreeBSD/OpenBSD/NetBSD | POSIX-compatible | `clock_gettime`, `arc4random_buf`, `kqueue` backend (ADR 0052); FreeBSD verified on CI (debug preset via `vmactions/freebsd-vm`); OpenBSD/NetBSD not yet verified on a BSD host |
-| Windows (MSVC/MinGW) | Partial | core primitives, Winsock sockets, WSAPoll pollset, fd close, `cfw_http1_conn`, `cfw_server` (cleartext), and the HTTP/WebSocket clients implemented (ADRs 0072–0074); TLS remains a stub returning `CFW_STATUS_UNAVAILABLE`; compile-checked on Windows CI (MSVC `/W4 /WX`, configure+build only, no test run) |
+| Windows (MSVC/MinGW) | Partial | core primitives, Winsock sockets, WSAPoll pollset, fd close, `cfw_http1_conn`, `cfw_server` (cleartext), and the HTTP/WebSocket clients implemented (ADRs 0072–0074); TLS remains a stub returning `CFW_STATUS_UNAVAILABLE`; Windows CI runs configure+build plus the `cfw_windows_smoke` runtime test over loopback (the POSIX unit/integration/security suites remain POSIX-gated) |
 
 ## Compiler and language requirements
 

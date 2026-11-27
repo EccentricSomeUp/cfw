@@ -23,6 +23,11 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   and recv/send/errno call sites go through small platform wrappers.
   All TLS paths remain `CFW_ERROR_UNAVAILABLE` stubs pending a Windows
   TLS backend decision.
+- `tests/windows_smoke.c` (Windows CI only): a public-API-only
+  end-to-end check that exercises address helpers, socket I/O,
+  `WSAPoll`, fd close, and a full cleartext `cfw_server` request/
+  response cycle over loopback, giving the Windows job runtime
+  coverage instead of compile-only verification.
 
 ### Fixed
 

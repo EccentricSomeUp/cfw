@@ -26,8 +26,9 @@ extern "C" {
  * require external synchronization only for shared dispatch/router
  * state (dispatch is read-only during requests).
  *
- * POSIX transport only for now; on Windows all operations report
- * CFW_ERROR_UNAVAILABLE.
+ * Transport: cleartext HTTP/1.1 works on POSIX and Windows (Winsock2,
+ * ADR 0074). TLS requires a CFW_ENABLE_TLS build, which is POSIX-only
+ * for now; on Windows all TLS paths report CFW_ERROR_UNAVAILABLE.
  *
  * Usage:
  *   cfw_server_t server;
@@ -230,7 +231,7 @@ typedef struct cfw_server_options {
      * Requires platform support; init fails with
      * CFW_ERROR_UNAVAILABLE where SO_REUSEPORT does not exist and
      * CFW_ERROR_IO if the kernel rejects the option. POSIX only —
-     * Windows servers are unavailable regardless. */
+     * Windows has no SO_REUSEPORT equivalent. */
     int reuse_port;
     /* Optional per-request completion hook (ADR 0055); may be NULL.
      * Invoked once per parsed request head with the final status,

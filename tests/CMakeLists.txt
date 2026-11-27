@@ -246,6 +246,21 @@ if(NOT WIN32)
     cfw_apply_sanitizer_flags(cfw_bench)
 endif()
 
+# Windows runtime smoke test (ADR 0072/0074): the POSIX unit/integration
+# suites cannot execute on Windows, so this target exercises the public
+# socket/pollset/server surface over loopback using only portable API.
+if(WIN32)
+    add_executable(cfw_windows_smoke windows_smoke.c)
+    target_include_directories(cfw_windows_smoke PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/cfw
+    )
+    target_link_libraries(cfw_windows_smoke PRIVATE cfw)
+    cfw_apply_strict_flags(cfw_windows_smoke)
+    cfw_apply_hardening_flags(cfw_windows_smoke)
+    cfw_apply_sanitizer_flags(cfw_windows_smoke)
+    add_test(NAME cfw_windows_smoke COMMAND cfw_windows_smoke)
+endif()
+
 # C++ consumer smoke test: all public headers must compile as C++ and the
 # exported symbols must link. Only built when a C++ compiler is available.
 include(CheckLanguage)

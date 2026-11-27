@@ -18,8 +18,8 @@ extern "C" {
 /*
  * HTTP/1.1 connection: binds an accepted nonblocking socket to the
  * cfw_http1_server_t message reader and an outbound response buffer.
- * POSIX transport only for now; on Windows all operations report
- * CFW_ERROR_UNAVAILABLE.
+ * Transport-agnostic: socket I/O goes through cfw_net_* (ADR 0073), so
+ * it works on POSIX and Windows (Winsock2, ADR 0072).
  *
  * Ownership: cfw_http1_conn_init takes ownership of *fd (the wrapper is
  * invalidated). cfw_http1_conn_free or cfw_http1_conn_close releases it.

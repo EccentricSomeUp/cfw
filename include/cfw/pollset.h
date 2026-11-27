@@ -47,9 +47,10 @@ extern "C" {
  *   cfw_pollset_wait. Concurrent use requires external synchronization
  *   or one pollset per thread.
  *
- * Platform support: POSIX only — epoll on Linux/Android, kqueue on
- * macOS/BSD, poll() fallback elsewhere. On Windows (and any platform
- * without a backend) every function returns CFW_ERROR_UNAVAILABLE.
+ * Platform support: POSIX — epoll on Linux/Android, kqueue on
+ * macOS/BSD, poll() fallback elsewhere — and Windows via WSAPoll
+ * (ADR 0072). On any platform without a backend every function
+ * returns CFW_ERROR_UNAVAILABLE.
  */
 
 typedef enum cfw_poll_events {

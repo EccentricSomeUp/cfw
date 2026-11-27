@@ -39,8 +39,8 @@ typedef struct cfw_static_options {
      * URL suffix; the suffix is validated to contain no ".." segments,
      * NUL bytes, or backslashes. On POSIX the served file is opened
      * relative to this root without following symlink components
-     * (ADR 0037); Windows remains best-effort while server support is
-     * deferred. */
+     * (ADR 0037); on Windows confinement is best-effort (no
+     * openat2-style guarantees). */
     const char *root;
     /* URL prefix to intercept, e.g. "/static" or "/". Must start with
      * '/'; must not end with '/' unless it is exactly "/". */
