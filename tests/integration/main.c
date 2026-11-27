@@ -6,12 +6,14 @@
 
 extern const cfw_test_case cfw_test_http_client_cases[];
 extern const cfw_test_case cfw_test_pipeline_cases[];
+extern const cfw_test_case cfw_test_ws_client_cases[];
 
 int main(void)
 {
     static const cfw_test_case *const suites[] = {
         cfw_test_http_client_cases,
         cfw_test_pipeline_cases,
+        cfw_test_ws_client_cases,
     };
     int executed = 0;
     int failed = 0;

@@ -114,6 +114,12 @@ abstraction exists.
   single-threaded, and multi-worker deployments bind separate
   instances via `SO_REUSEPORT` (implemented; see `cfw/thread.h`,
   ADRs 0051/0056)
+- `ws`: server-side WebSocket (RFC 6455) — handshake helpers plus a
+  connection object for the upgrade-hook data path, ws:// and wss://
+  (implemented; see `cfw/ws.h`, ADRs 0034/0035/0070)
+- `ws_client`: synchronous-style WebSocket client — connect/handshake
+  with deadline, pull-style pump, masked-frame sends, ws:// and wss://
+  (implemented; see `cfw/ws_client.h`, ADR 0071)
 - `log`: structured, rate-limited, non-blocking-friendly logging
 
 ## Security invariants

@@ -78,6 +78,8 @@ set(CFW_SOURCES
     src/cfw/uri.c
     src/cfw/version.c
     src/cfw/ws.c
+    src/cfw/ws_client.c
+    src/cfw/private/ws_proto.c
 )
 
 if(CFW_BUILD_SHARED)
@@ -178,6 +180,12 @@ if(CFW_BUILD_EXAMPLES)
     cfw_apply_strict_flags(cfw_example_ws_echo)
     cfw_apply_hardening_flags(cfw_example_ws_echo)
     cfw_apply_sanitizer_flags(cfw_example_ws_echo)
+
+    add_executable(cfw_example_ws_client examples/ws_client.c)
+    target_link_libraries(cfw_example_ws_client PRIVATE cfw)
+    cfw_apply_strict_flags(cfw_example_ws_client)
+    cfw_apply_hardening_flags(cfw_example_ws_client)
+    cfw_apply_sanitizer_flags(cfw_example_ws_client)
 
     add_executable(cfw_example_signed_cookie examples/signed_cookie.c)
     target_link_libraries(cfw_example_signed_cookie PRIVATE cfw)

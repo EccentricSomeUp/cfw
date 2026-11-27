@@ -27,8 +27,8 @@ extern "C" {
  *
  * ws:// and wss:// are both supported: the framed path is
  * transport-agnostic, so a listener with a tls_ctx (ADR 0058) serves
- * WebSocket over TLS with no extra wiring. There is no client-side
- * WebSocket API yet, and no extensions are negotiated.
+ * WebSocket over TLS with no extra wiring. The client role lives in
+ * cfw/ws_client.h (ADR 0071). No extensions are negotiated.
  */
 
 /* Capacity of the Sec-WebSocket-Accept value including the trailing

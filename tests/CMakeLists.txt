@@ -104,6 +104,7 @@ add_executable(cfw_integration_tests
     integration/main.c
     integration/test_http_client.c
     integration/test_http_pipeline.c
+    integration/test_ws_client.c
 )
 
 target_include_directories(cfw_integration_tests PRIVATE

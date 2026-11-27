@@ -38,5 +38,6 @@
 #include <cfw/uri.h>
 #include <cfw/version.h>
 #include <cfw/ws.h>
+#include <cfw/ws_client.h>
 
 #endif /* CFW_H */

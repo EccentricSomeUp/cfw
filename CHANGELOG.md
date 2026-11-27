@@ -11,6 +11,16 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ### Added
 
+- WebSocket client (`cfw/ws_client.h`, ADR 0071): synchronous-style
+  RFC 6455 client over the public net/pollset/TLS surface —
+  `cfw_ws_client_connect` performs resolve/connect/TLS/Upgrade with a
+  deadline and validates `Sec-WebSocket-Accept`, `cfw_ws_client_pump`
+  is the pull-style event driver with auto ping/pong and close
+  handling, and `cfw_ws_client_send_*` writes masked frames. Cleartext
+  `ws://` and `wss://` (client `tls_ctx` with SNI + hostname
+  verification) are supported; `examples/ws_client.c` demonstrates
+  both. Shared SHA-1/UTF-8/close-status helpers moved to
+  `src/cfw/private/ws_proto.*`.
 - `wss://` support verified and documented (ADR 0070): the WebSocket
   stack runs unchanged over TLS listeners via the transport seam.
   `examples/ws_echo.c` now accepts optional certificate/key arguments

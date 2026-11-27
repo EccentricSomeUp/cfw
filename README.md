@@ -16,9 +16,10 @@ bodies (Content-Length identity framing for declared sizes, chunked or
 close-delimited otherwise), streaming request-body uploads via
 server hooks, peer-address exposure to handlers, and opt-in protocol
 upgrades (`101 Switching Protocols` takeover for application-defined
-protocols, ADR 0034), a WebSocket module (`cfw/ws.h`, RFC 6455:
-handshake helpers, masked frame codec, fragmentation, ping/pong, close
-handshake, bounded reassembly — ADR 0035), and static file serving
+protocols, ADR 0034), WebSocket on both sides (`cfw/ws.h` server module
+and `cfw/ws_client.h` synchronous-style client, RFC 6455: handshake
+helpers, frame codec, fragmentation, ping/pong, close handshake,
+bounded reassembly — ADRs 0035/0071), and static file serving
 (`cfw/static.h`: prefix middleware, traversal-safe decoding,
 index resolution, MIME types, bounded stream slots, and confined
 no-follow file opens on POSIX — ADRs 0036/0037), cookie parsing and
