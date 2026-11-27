@@ -26,8 +26,12 @@ if(CFW_HAVE_TLS)
     file(MAKE_DIRECTORY "${CFW_TEST_TLS_DIR}")
     set(_cfw_tls_cert_cmds
         "req -x509 -newkey rsa:2048 -nodes -days 3650 -subj /CN=cfw-test-ca -keyout ${CFW_TEST_TLS_DIR}/ca.key -out ${CFW_TEST_TLS_DIR}/ca.crt"
-        "req -newkey rsa:2048 -nodes -subj /CN=localhost -keyout ${CFW_TEST_TLS_DIR}/server.key -out ${CFW_TEST_TLS_DIR}/server.csr"
-        "x509 -req -in ${CFW_TEST_TLS_DIR}/server.csr -CA ${CFW_TEST_TLS_DIR}/ca.crt -CAkey ${CFW_TEST_TLS_DIR}/ca.key -CAcreateserial -days 3650 -out ${CFW_TEST_TLS_DIR}/server.crt"
+        # The server cert carries subjectAltName=DNS:localhost (added
+        # to the CSR, copied into the cert): OpenSSL 4.x no longer
+        # falls back to CN for X509_check_host, and SAN is the correct
+        # modern mechanism anyway.
+        "req -newkey rsa:2048 -nodes -subj /CN=localhost -addext subjectAltName=DNS:localhost -keyout ${CFW_TEST_TLS_DIR}/server.key -out ${CFW_TEST_TLS_DIR}/server.csr"
+        "x509 -req -in ${CFW_TEST_TLS_DIR}/server.csr -CA ${CFW_TEST_TLS_DIR}/ca.crt -CAkey ${CFW_TEST_TLS_DIR}/ca.key -CAcreateserial -days 3650 -copy_extensions copy -out ${CFW_TEST_TLS_DIR}/server.crt"
         "req -newkey rsa:2048 -nodes -subj /CN=cfw-test-client -keyout ${CFW_TEST_TLS_DIR}/client.key -out ${CFW_TEST_TLS_DIR}/client.csr"
         "x509 -req -in ${CFW_TEST_TLS_DIR}/client.csr -CA ${CFW_TEST_TLS_DIR}/ca.crt -CAkey ${CFW_TEST_TLS_DIR}/ca.key -CAcreateserial -days 3650 -out ${CFW_TEST_TLS_DIR}/client.crt"
     )
@@ -320,6 +324,7 @@ if(NOT CFW_ENABLE_SANITIZERS AND NOT CFW_ENABLE_TSAN)
             -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
             -DBINARY_DIR=${CMAKE_BINARY_DIR}
             -DPREFIX=${CMAKE_BINARY_DIR}/install-smoke
+            -DEXPECTED_CONFIG=$<CONFIG>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/install_smoke.cmake
     )
 endif()

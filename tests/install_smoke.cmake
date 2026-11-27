@@ -10,12 +10,21 @@ if(NOT DEFINED CMAKE_COMMAND OR NOT DEFINED SOURCE_DIR OR
                         "SOURCE_DIR, BINARY_DIR, and PREFIX")
 endif()
 
+# EXPECTED_CONFIG is the configuration under test ($<CONFIG> from
+# add_test); multi-config generators need it for --install/--build.
+set(install_config_args "")
+set(consumer_config "Release")
+if(DEFINED EXPECTED_CONFIG AND NOT EXPECTED_CONFIG STREQUAL "")
+    list(APPEND install_config_args --config "${EXPECTED_CONFIG}")
+    set(consumer_config "${EXPECTED_CONFIG}")
+endif()
+
 file(REMOVE_RECURSE "${PREFIX}")
 file(REMOVE_RECURSE "${BINARY_DIR}/install-smoke-build")
 
 execute_process(
     COMMAND "${CMAKE_COMMAND}" --install "${BINARY_DIR}"
-            --prefix "${PREFIX}"
+            --prefix "${PREFIX}" ${install_config_args}
     RESULT_VARIABLE install_result
 )
 if(NOT install_result EQUAL 0)
@@ -43,7 +52,7 @@ execute_process(
     COMMAND "${CMAKE_COMMAND}"
             -S "${SOURCE_DIR}/tests/install_smoke/consumer"
             -B "${consumer_build}"
-            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_BUILD_TYPE=${consumer_config}
     RESULT_VARIABLE configure_result
 )
 if(NOT configure_result EQUAL 0)
@@ -52,6 +61,7 @@ endif()
 
 execute_process(
     COMMAND "${CMAKE_COMMAND}" --build "${consumer_build}"
+            ${install_config_args}
     RESULT_VARIABLE build_result
 )
 if(NOT build_result EQUAL 0)

@@ -1390,6 +1390,18 @@ cfw_status_t cfw_pollset_wait(cfw_pollset_t *pollset,
         return status;
     }
 
+    /* WSAPoll rejects nfds == 0; with no registrations the only
+     * possible outcome is a timeout (or an infinite wait). */
+    if (pollset->count == 0) {
+        if (timeout_ms < 0) {
+            Sleep(INFINITE);
+        } else if (timeout_ms > 0) {
+            Sleep((DWORD)timeout_ms);
+        }
+        *count = 0;
+        return CFW_ERROR_TIMEOUT;
+    }
+
     for (;;) {
         ready = WSAPoll(pollset->pfds, (ULONG)pollset->count,
                         timeout_ms);

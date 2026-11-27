@@ -42,6 +42,16 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   the tests; and `cfw_test_socketpair` retries `accept` on
   `WOULDBLOCK`, fixing a rare FreeBSD flake where the server-side
   accept queue lagged the client's blocking `connect()` return.
+- WSAPoll `cfw_pollset_wait` now handles a zero-registration pollset:
+  `WSAPoll` rejects `nfds == 0`, so an empty pollset sleeps until the
+  deadline and reports `CFW_ERROR_TIMEOUT` (matching `poll(2)`).
+- The install/package smoke test now propagates the tested CTest
+  configuration (`$<CONFIG>`) to `cmake --install`/`--build`, fixing
+  the Debug preset on multi-config generators (Visual Studio).
+- TLS test certificates now carry `subjectAltName=DNS:localhost`:
+  OpenSSL 4.x no longer falls back to the CN for `X509_check_host`,
+  which broke hostname verification in the TLS and client tests on
+  Windows (choco ships OpenSSL 4.x).
 
 ## [0.13.0] - 2026-11-27
 
