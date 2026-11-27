@@ -329,6 +329,11 @@ if(CFW_ENABLE_FUZZING)
     set(_cfw_fuzz_libfuzzer FALSE)
     if(CMAKE_C_COMPILER_ID MATCHES "Clang")
         set(_cfw_fuzz_libfuzzer TRUE)
+        # Instrument the library itself so libFuzzer gets coverage
+        # feedback and ASan/UBSan checks inside cfw code, not just the
+        # harness TU.
+        target_compile_options(cfw PRIVATE
+            -fsanitize=fuzzer-no-link,address,undefined)
     endif()
 
     foreach(_cfw_fuzz_t IN LISTS _cfw_fuzz_targets)

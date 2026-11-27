@@ -19,6 +19,8 @@
 #include <cfw/cfw.h>
 #include <cfw/net.h>
 
+#include <string.h>
+
 #if CFW_PLATFORM_WINDOWS
     #include <winsock2.h>
     #include <windows.h>
