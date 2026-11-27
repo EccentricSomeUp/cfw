@@ -65,19 +65,37 @@ The script, in order:
 4. Moves the `[Unreleased]` entries under `## [X.Y.Z] - <date>` and leaves
    a fresh empty `[Unreleased]` section.
 5. Sets `project(VERSION)` in `CMakeLists.txt`.
-6. Configures, builds, and runs `ctest` for **all four presets**
-   (`debug`, `release`, `sanitizers`, `shared`). Any failure aborts the
-   release and restores the edited files.
+6. Configures, builds, and runs `ctest` for **all presets**
+   (`debug`, `release`, `sanitizers`, `shared`, `debug-tls`). Any failure
+   aborts the release and restores the edited files.
 7. Commits `release: vX.Y.Z` (containing only the changelog and version
    bump) and creates the annotated tag `vX.Y.Z`. The release commit must
    be signed (`commit.gpgsign` / `tag.gpgsign` enabled); the script fails
    rather than silently producing an unsigned release commit or tag.
 8. With `--push`, pushes the branch and the tag. The tag push triggers
-   `release.yml`, which re-runs every preset on Ubuntu and macOS, builds
-   source archives, and publishes the GitHub release with generated notes.
+   `release.yml`, which re-runs the preset matrix on Ubuntu and macOS,
+   runs an install smoke test for the release preset, and publishes the
+   GitHub release via `gh release create` using the matching
+   `CHANGELOG.md` section as its notes.
 
 `--dry-run` performs all checks and prints the plan without modifying
 anything — use it to validate a proposed version before committing to it.
+
+### Post-release verification
+
+`release.yml` attaches no build artifacts; GitHub's automatic source
+archives are the only assets. Once the workflow run for the tag
+concludes, verify the published release:
+
+```sh
+git tag -v vX.Y.Z                          # annotated tag signature
+gh release view vX.Y.Z --json url,name     # release exists, notes match CHANGELOG
+```
+
+`scripts/cfw-release.sh X.Y.Z --push --wait` automates the workflow
+side of this: it locates the `release.yml` run for the new tag, watches
+it to completion, and prints the published release URL. `--wait`
+requires an authenticated `gh` CLI.
 
 ### What still requires judgment
 

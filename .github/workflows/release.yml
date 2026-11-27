@@ -13,6 +13,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   presets:
     name: ${{ matrix.preset }} (${{ matrix.os }})
@@ -28,7 +32,7 @@ jobs:
           - os: macos-latest
             preset: debug-tls
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Configure ${{ matrix.preset }}
         run: cmake --preset ${{ matrix.preset }}
@@ -39,40 +43,38 @@ jobs:
       - name: Test ${{ matrix.preset }}
         run: ctest --preset ${{ matrix.preset }} --output-on-failure
 
-  package:
-    name: package (${{ matrix.os }})
-    needs: presets
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure release
-        run: cmake --preset release
-
-      - name: Build release
-        run: cmake --build --preset release
-
-      - name: Test release
-        run: ctest --preset release --output-on-failure
-
-      - name: Install and package smoke test
+      - name: Install smoke test
+        if: matrix.preset == 'release'
         run: |
           cmake --install build/release --prefix "$RUNNER_TEMP/cfw-install"
           find "$RUNNER_TEMP/cfw-install" -name cfwConfig.cmake -print -quit \
             | grep -q .
 
-      - name: Create source archive
-        run: |
-          git archive --format=tar.gz --prefix="cfw-${GITHUB_REF_NAME}/" \
-            -o "cfw-${GITHUB_REF_NAME}-${{ matrix.os }}.tar.gz" HEAD
+  release:
+    name: release
+    needs: presets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
 
+      - name: Extract changelog notes
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v version="$version" '
+              index($0, "## [" version "] - ") == 1 { in_section = 1; next }
+              in_section && /^## \[/ { exit }
+              in_section { print }
+          ' CHANGELOG.md | sed -e '/./,$!d' > release-notes.md
+          grep -q '[^[:space:]]' release-notes.md
+
+      # gh is preinstalled on GitHub-hosted runners; using it directly
+      # avoids a third-party release action in the supply chain.
       - name: Publish release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: cfw-${{ github.ref_name }}-${{ matrix.os }}.tar.gz
-          generate_release_notes: true
-          fail_on_unmatched_files: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --repo "${{ github.repository }}" \
+            --title "${GITHUB_REF_NAME}" \
+            --notes-file release-notes.md \
+            --verify-tag

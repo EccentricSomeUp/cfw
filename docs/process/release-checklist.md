@@ -27,6 +27,13 @@ releaser's responsibility.
 - [ ] Resource-limit and denial-of-service tests pass
 - [ ] Platform matrix verification is complete for supported platforms
 
+## Post-release verification
+
+- [ ] The `release.yml` run for the tag concluded successfully
+- [ ] `git tag -v vX.Y.Z` verifies the annotated tag signature
+- [ ] `gh release view vX.Y.Z` shows the published release with notes
+      matching the `CHANGELOG.md` section
+
 ## Required before 1.0
 
 - [ ] Public API and ABI stability policy is accepted

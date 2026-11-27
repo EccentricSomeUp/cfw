@@ -18,6 +18,7 @@ cd "$ROOT"
 VERSION=""
 DO_PUSH=0
 DRY_RUN=0
+WAIT=0
 
 usage() {
     cat >&2 <<'EOF'
@@ -28,6 +29,9 @@ Usage: scripts/cfw-release.sh <major.minor.patch> [--push] [--dry-run]
   --push               Push the release commit and tag to origin after the
                         local tag is created. Without this flag nothing is
                         pushed and no GitHub release is produced.
+  --wait               With --push, watch the release.yml workflow run for
+                        the new tag and verify the GitHub release was
+                        published. Requires an authenticated gh CLI.
   --dry-run            Run every check and print the planned actions without
                         modifying files, committing, tagging, or pushing.
 EOF
@@ -37,6 +41,7 @@ EOF
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --push)     DO_PUSH=1 ;;
+        --wait)     WAIT=1 ;;
         --dry-run)  DRY_RUN=1 ;;
         -h|--help)  usage ;;
         -*)         echo "cfw-release: unknown option: $1" >&2; usage ;;
@@ -54,6 +59,37 @@ done
 fail() {
     echo "cfw-release: $*" >&2
     exit 1
+}
+
+[[ "$WAIT" -eq 0 || "$DO_PUSH" -eq 1 ]] \
+    || fail "--wait requires --push"
+
+# Blocks until the release.yml run triggered by the tag push completes,
+# then confirms the GitHub release exists. Requires gh on PATH.
+cfw_wait_for_release() {
+    command -v gh >/dev/null 2>&1 \
+        || fail "--wait requires the gh CLI (https://cli.github.com)"
+    gh auth status >/dev/null 2>&1 \
+        || fail "--wait requires an authenticated gh CLI ('gh auth login')"
+
+    echo "==> Waiting for the release.yml run for ${TAG}"
+    local run_id=""
+    local i
+    for i in $(seq 1 24); do
+        run_id="$(gh run list --workflow release.yml --limit 30 \
+            --json databaseId,headBranch \
+            --jq ".[] | select(.headBranch == \"${TAG}\") | .databaseId" \
+            | head -n 1)"
+        [[ -n "$run_id" ]] && break
+        sleep 5
+    done
+    [[ -n "$run_id" ]] \
+        || fail "no release.yml run found for ${TAG}; check the Actions tab"
+
+    gh run watch "$run_id" --exit-status --interval 30
+    gh release view "$TAG" \
+        --json name,tagName,isDraft,url \
+        --jq '"Published GitHub release: \(.name) (\(.tagName))\n\(.url)"'
 }
 
 [[ -n "$VERSION" ]] || usage
@@ -139,6 +175,7 @@ cfw-release dry run — planned actions for $TAG:
   5. Create annotated tag: $TAG
 EOF
     [[ "$DO_PUSH" -eq 1 ]] && echo "  6. Push branch and tag to origin (triggers release.yml)"
+    [[ "$WAIT" -eq 1 ]] && echo "  7. Watch the release.yml run and verify the GitHub release (gh)"
     echo "Dry run complete; no changes made."
     exit 0
 fi
@@ -201,6 +238,9 @@ if [[ "$DO_PUSH" -eq 1 ]]; then
     git push origin HEAD
     git push origin "refs/tags/${TAG}"
     echo "==> Pushed ${TAG}; .github/workflows/release.yml will build and publish the GitHub release"
+    if [[ "$WAIT" -eq 1 ]]; then
+        cfw_wait_for_release
+    fi
 else
     echo "==> Not pushed. Re-run with --push (or 'git push origin ${TAG}') to publish."
 fi
