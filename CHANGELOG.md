@@ -9,6 +9,8 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-27
+
 ### Added
 
 - Public socket and address API (`cfw/net.h`, ADR 0067): the internal
