@@ -50,6 +50,7 @@
 | WC-005 | medium | src/cfw/ws_client.c `cfw_wsc_handshake_request` | Request target and caller header name/value were emitted verbatim; SP/CTL bytes in `path` or CR/LF in header fields could inject into the Upgrade request. | fixed post-release (`cfw_http_request_head_format` grammar applied via shared `private/http_fields.h` helpers; rejected with `CFW_ERROR_INVALID_ARGUMENT`) |
 | WC-006 | low | src/cfw/ws_client.c `cfw_ws_client_send_close` | Unlike `cfw_ws_client_send`, it did not arm a fresh per-call deadline, inheriting a stale or infinite pump deadline for its bounded write. | fixed post-release (`cfw_wsc_set_deadline` per call) |
 | WC-007 | low | src/cfw/ws_client.c `cfw_ws_client_send` (CLOSE) | The generic send path emitted a raw CLOSE payload without validating status/reason, allowing frames a peer must protocol-fail. | fixed post-release (payload validated with `cfw_ws_close_status_ok` + UTF-8 reason check) |
+| WC-008 | low | src/cfw/ws_client.c send paths | Sends remained accepted after a close frame was sent (`close_sent` did not gate the public send API), unlike the server-side `closing` guard; a second close could also be queued. | fixed post-release (`close_sent` rejects all public sends) |
 
 No memory-safety, UTF-8, fragmentation, or close-handshake defects
 found; sanitizer presets are clean including the new suite.

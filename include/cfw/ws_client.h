@@ -106,10 +106,11 @@ CFW_API int cfw_ws_client_is_closed(const cfw_ws_client_t *ws);
  * exceed the frame size and are fragmented automatically; PING/PONG
  * payloads are limited to 125 bytes. CLOSE sends a close frame —
  * optionally carrying a status via cfw_ws_client_send_close —
- * and begins the closing handshake. Returns
+ * and begins the closing handshake. No further sends are accepted
+ * once a close frame has been sent. Returns
  * CFW_ERROR_INVALID_ARGUMENT for a bad opcode/oversized control
- * payload/NULL arguments/closed connection, CFW_ERROR_TIMEOUT or
- * CFW_ERROR_IO on transport failure. */
+ * payload/NULL arguments/closed or closing connection,
+ * CFW_ERROR_TIMEOUT or CFW_ERROR_IO on transport failure. */
 CFW_API cfw_status_t cfw_ws_client_send(cfw_ws_client_t *ws,
                                        cfw_ws_opcode_t opcode,
                                        const void *data, size_t size);

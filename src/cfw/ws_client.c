@@ -1335,7 +1335,7 @@ cfw_status_t cfw_ws_client_send(cfw_ws_client_t *ws,
 {
     cfw_status_t status;
 
-    if (ws == NULL || ws->closed ||
+    if (ws == NULL || ws->closed || ws->close_sent ||
         (data == NULL && size != 0)) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
@@ -1420,7 +1420,7 @@ cfw_status_t cfw_ws_client_send_close(cfw_ws_client_t *ws,
     size_t n = 0;
     cfw_status_t st;
 
-    if (ws == NULL || ws->closed || reason == NULL) {
+    if (ws == NULL || ws->closed || ws->close_sent || reason == NULL) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
     /* Fresh per-call deadline, matching cfw_ws_client_send. */

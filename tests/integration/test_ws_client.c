@@ -306,9 +306,12 @@ static int test_ws_client_echo(void)
                               cfw_wsc_got_size),
                        0);
 
-    /* Graceful close: client close -> server echo -> client closed. */
+    /* Graceful close: client close -> server echo -> client closed.
+     * Once close is sent no further data frames may be queued. */
     CFW_TEST_ASSERT_EQ(cfw_ws_client_send_close(ws, 1000, "bye", 3),
                        CFW_OK);
+    CFW_TEST_ASSERT_EQ(cfw_ws_client_send_text(ws, "late", 4),
+                       CFW_ERROR_INVALID_ARGUMENT);
     {
         cfw_duration_t slice;
         int i;

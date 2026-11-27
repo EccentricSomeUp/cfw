@@ -25,6 +25,9 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 - `cfw_ws_send_close` (server) now validates the status code, rejects
   a reason without a status, and no longer dereferences a NULL reason
   pointer when `reason_size` is nonzero.
+- `cfw_ws_client_send*` and `cfw_ws_client_send_close` now reject all
+  sends once a close frame has been sent, matching the server-side
+  `closing` guard and RFC 6455 close semantics.
 
 ## [0.11.0] - 2026-11-27
 
