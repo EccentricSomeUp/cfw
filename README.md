@@ -141,6 +141,21 @@ multiple `cfw_server_t` instances share one listen address via
 `tests/bench/bench_server.c` (`cfw_bench [requests] [warmup]
 [workers] [tls]`; TLS mode needs `CFW_BENCH_TLS_CERT`/`_KEY`).
 
+## Fuzzing
+
+Coverage-guided fuzz targets for the parser and codec surface live in
+`tests/fuzz/` (ADR 0077) and build with the opt-in `fuzz` preset:
+
+```sh
+cmake --preset fuzz        # clang: libFuzzer targets; other compilers: corpus driver
+cmake --build --preset fuzz
+./build/fuzz/tests/cfw_fuzz_http -max_total_time=120 tests/fuzz/corpus
+```
+
+On non-Clang toolchains the same binaries replay corpus files (and
+stdin) through the identical `LLVMFuzzerTestOneInput` entry points
+under ASan/UBSan. CI runs each target for 120 s per push.
+
 ## Minimal server
 
 `examples/minimal_server.c` is a complete, compilable version of this
