@@ -173,6 +173,61 @@ concern.
   explicit selected requirement subset, so verification claims cite a
   standard rather than an informal checklist
 
+### Phase 12: Protocol breadth
+
+Candidates, each gated on its own ADR and audit pass:
+
+- HTTP/2 server support (h2c upgrade and TLS ALPN) as an opt-in module:
+  HPACK encode/decode, connection state machine, flow control, stream
+  prioritization, and CONTINUATION-flooding defenses. The existing
+  `cfw_http1_transport_t` seam is the likely integration point; whether
+  h2 shares or parallels the dispatch pipeline is an open design
+  question for the ADR.
+- Response compression: start with precompressed static assets
+  (`.br`/`.gz` variants negotiated via `Accept-Encoding`) as the cheap,
+  safe path; a dynamic-compression backend (zlib or equivalent) is a
+  separate optional dependency decision.
+- HTTP/1.1 polish: HEAD/ETag consistency audit, resumable/ranged
+  uploads, and connection-coalescing groundwork shared with HTTP/2.
+- Graceful reload: a documented drain + socket-handoff pattern (the
+  nginx-style `cfw_server_drain` + listener transfer across worker
+  processes) on top of ADR 0056's multi-instance model.
+- Reverse proxy / upstream module built on `cfw_http_client`: load
+  balancing, health checks, and least-connection scheduling as opt-in
+  middleware rather than core.
+- Declarative per-route body-size and content-type policy extending the
+  phase-8 validation helpers.
+
+### Phase 13: Performance and operational depth
+
+- `io_uring` pollset backend (Linux-only, opt-in build) behind the
+  existing platform seam, following the epoll/kqueue/WSAPoll precedent.
+- kTLS offload behind the `cfw_tls` boundary where the kernel supports
+  it, reducing per-byte TLS cost for high-throughput deployments.
+- Zero-copy static-file paths (sendfile/splice on Linux, equivalent
+  platform calls elsewhere) inside the existing stream-slot model.
+- Multi-worker hardening: per-worker memory arenas, connection
+  migration between workers, and SCM_RIGHTS/PIDfd listener handoff for
+  zero-downtime reloads.
+- Structured tracing export compatible with OTLP/HTTP semantics —
+  cfw emits span data; an exporter remains an application concern.
+- Predeclared metrics registry with fixed label sets, extending the
+  phase-10 interface so exposition helpers cannot introduce
+  cardinality bombs.
+- Bounds-checked configuration parsing helper so applications do not
+  hand-roll argv/env parsing per deployment.
+- Reproducible in-repo benchmark suite (`wrk`-style) with published
+  numbers against comparable servers on identical hardware.
+
+### Long-horizon directions
+
+Beyond the staged phases above, `docs/long-term-vision.md` records
+exploratory directions — formal verification of the wire parser,
+capability-based request security, opt-in memory-safety build modes,
+WASM middleware hosting, embedded profiles, and agent-facing interfaces.
+These are research candidates, not commitments; each would require the
+same ADR + audit discipline before any code lands.
+
 ### Explicitly out of framework scope
 
 The following are application-layer concerns. `cfw` provides primitives

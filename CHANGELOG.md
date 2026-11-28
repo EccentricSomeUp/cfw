@@ -10,6 +10,17 @@ guarantees; starting with `1.0`, the public API and ABI are frozen under
 
 ## [Unreleased]
 
+### Added
+
+- `docs/long-term-vision.md` records exploratory long-horizon directions
+  (formal verification, capability tokens, memory-safety build modes, WASM
+  hosting, embedded profiles, agent-facing interfaces, and others) as
+  research candidates, and `docs/roadmap.md` gains Phase 12 (protocol
+  breadth), Phase 13 (performance and operational depth), and a pointer to
+  the vision document.
+- `docs/architecture.md` now documents the pluggable-backend policy for
+  optional external implementations.
+
 ## [1.0.0] - 2026-11-28
 
 ### Changed

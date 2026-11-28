@@ -144,6 +144,13 @@ Extensibility occurs through typed callbacks and lifecycle hooks rather
 than macro injection or global mutable state. Middleware ordering, ownership,
 and cancellation behavior are specified in `cfw/dispatch.h` and ADR 0031.
 
+Optional capabilities that need an external implementation (TLS today;
+compression, QUIC, tracing, and similar in the future) follow a pluggable
+backend pattern: `cfw` defines a stable internal contract, ships one
+approved best-fit backend, and admits interchangeable backends over time so
+deployments can choose per environment. See `docs/long-term-vision.md` for
+the long-horizon directions this pattern is meant to support.
+
 ## Responsibility boundary
 
 `cfw` provides protocol, transport, routing, and safety primitives. It does
