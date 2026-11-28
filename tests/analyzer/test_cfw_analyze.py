@@ -7,12 +7,13 @@ static analyzer.
 
 import os
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), os.pardir,
                                 os.pardir, "tools", "analyzer"))
 
-from cfw_analyze.driver import analyze_file  # noqa: E402
+from cfw_analyze.driver import analyze_file, scan  # noqa: E402
 from cfw_analyze.parser import parse_file  # noqa: E402
 
 
@@ -264,6 +265,70 @@ void f(void) {
         fs = analyze(src)
         self.assertIsNone(has(fs, "OUT_OF_BOUNDS"))
 
+    def test_numeric_macro_index_is_constant(self):
+        src = """
+#define CFW_TEST_INDEX 4
+void f(void) {
+    char buf[4];
+    int i = CFW_TEST_INDEX;
+    buf[i] = 0;
+}
+"""
+        fs = analyze(src)
+        self.assertIsNotNone(has(fs, "OUT_OF_BOUNDS", "definite"))
+
+    def test_enum_constant_index_is_constant(self):
+        src = """
+void f(void) {
+    enum E { CFW_TEST_A = 4, CFW_TEST_B = CFW_TEST_A + 1 } x = CFW_TEST_B;
+    char buf[4];
+    buf[x] = 0;
+}
+"""
+        fs = analyze(src)
+        self.assertIsNotNone(has(fs, "OUT_OF_BOUNDS", "definite"))
+
+
+    def test_file_scope_enum_constant_index_is_constant(self):
+        src = """
+enum E { CFW_TEST_A = 4, CFW_TEST_B = CFW_TEST_A + 1 };
+void f(void) {
+    char buf[4];
+    int i = CFW_TEST_B;
+    buf[i] = 0;
+}
+"""
+        fs = analyze(src)
+        self.assertIsNotNone(has(fs, "OUT_OF_BOUNDS", "definite"))
+
+    def test_parameter_shadows_file_scope_enum_constant(self):
+        src = """
+enum E { CFW_TEST_A = 4 };
+void f(int CFW_TEST_A) {
+    char buf[4];
+    int i = CFW_TEST_A;
+    buf[i] = 0;
+}
+"""
+        fs = analyze(src)
+        self.assertIsNone(has(fs, "OUT_OF_BOUNDS"))
+
+    def test_cross_file_enum_constant_shared_by_scan(self):
+        with tempfile.TemporaryDirectory() as td:
+            with open(os.path.join(td, "limits.h"), "w") as f:
+                f.write("enum Limits { CFW_TEST_LIMIT = 4 };\n")
+            with open(os.path.join(td, "use.c"), "w") as f:
+                f.write("""
+void f(void) {
+    char buf[4];
+    int i = CFW_TEST_LIMIT;
+    buf[i] = 0;
+}
+""")
+            result = scan([td])
+        self.assertIsNotNone(has(result.findings, "OUT_OF_BOUNDS",
+                                  "definite"))
+
 
 class TestRealloc(unittest.TestCase):
     def test_realloc_failure_path_leak(self):
@@ -373,17 +438,294 @@ void f(size_t n) {
         self.assertEqual(len(funcs), 1)
         self.assertTrue(any("variably" in p for p in funcs[0].partial))
 
-    def test_preprocessor_in_function_partial(self):
+    def test_resolvable_preprocessor_in_function_not_partial(self):
         src = """
+#define CFW_TEST_FEATURE 1
 void f(void) {
-#if defined(FOO)
+#if CFW_TEST_FEATURE
     int x = 1;
+#else
+    int x = 2;
 #endif
     (void)x;
 }
 """
         funcs = parse_file("fixture.c", src)
+        self.assertEqual(len(funcs), 1)
+        self.assertFalse(any("preprocessor" in p for p in funcs[0].partial))
+
+    def test_unknown_preprocessor_branch_is_partial(self):
+        src = """
+void f(void) {
+#if UNKNOWN_ANALYZER_FEATURE > 0
+    int x = 1;
+#else
+    int x = 2;
+#endif
+    (void)x;
+}
+"""
+        funcs = parse_file("fixture.c", src)
+        self.assertEqual(len(funcs), 1)
         self.assertTrue(any("preprocessor" in p for p in funcs[0].partial))
+
+    def test_if_zero_else_branch_selected(self):
+        src = """
+#if 0
+void bad(void) { }
+#else
+void good(void) { }
+#endif
+"""
+        funcs = parse_file("fixture.c", src)
+        self.assertEqual([f.name for f in funcs], ["good"])
+
+    def test_ifndef_not_treated_as_if_expression(self):
+        src = """
+#ifndef _WIN32
+void good(void) { }
+#else
+void bad(void) { }
+#endif
+"""
+        funcs = parse_file("fixture.c", src)
+        self.assertEqual([f.name for f in funcs], ["good"])
+        self.assertFalse(any("preprocessor" in p for f in funcs
+                             for p in f.partial))
+
+    def test_transitive_numeric_macro_array_bound(self):
+        src = """
+#define CFW_SHA256_DIGEST_SIZE 32u
+#define CFW_SIGNED_MAC_LEN CFW_SHA256_DIGEST_SIZE
+void f(void) {
+    unsigned char mac[CFW_SIGNED_MAC_LEN];
+    mac[0] = 0;
+}
+"""
+        funcs = parse_file("fixture.c", src)
+        self.assertEqual(len(funcs), 1)
+        self.assertFalse(any("variably" in p for p in funcs[0].partial))
+
+    def test_sizeof_string_array_in_bound(self):
+        src = r"""
+void f(void) {
+    static const char guid[] = "0123456789abcdef0123456789abcdef";
+    char material[256 + sizeof(guid) - 1];
+    material[0] = 0;
+}
+"""
+        funcs = parse_file("fixture.c", src)
+        self.assertEqual(len(funcs), 1)
+        self.assertFalse(any("variably" in p for p in funcs[0].partial))
+
+    def test_function_pointer_declarator_not_partial(self):
+        src = """
+void f(void) {
+    void (*cb)(void) = 0;
+    cb = 0;
+}
+"""
+        funcs = parse_file("fixture.c", src)
+        self.assertEqual(len(funcs), 1)
+        self.assertFalse(any("function-pointer" in p for p in funcs[0].partial))
+
+    def test_string_macro_adjacent_literal(self):
+        src = """
+#define CFW_TEST_OUTSIDE_FILE "outside.txt"
+int cfw_test_symlink(const char *a, const char *b);
+void f(void) {
+    (void)cfw_test_symlink("../" CFW_TEST_OUTSIDE_FILE, "link");
+}
+"""
+        funcs = parse_file("fixture.c", src)
+        self.assertEqual(len(funcs), 1)
+        self.assertFalse(any("parse error" in p for p in funcs[0].partial))
+
+    def test_block_static_assert_and_alignas(self):
+        src = """
+void f(void) {
+    _Static_assert(sizeof(int) == 4, "int size");
+    _Alignas(16) char buf[16];
+    buf[0] = 0;
+}
+"""
+        funcs = parse_file("fixture.c", src)
+        self.assertEqual(len(funcs), 1)
+        self.assertFalse(funcs[0].partial)
+
+    def test_integer_constant_macros_and_casts(self):
+        src = """
+#define CFW_TEST_BLOCK_SIZE ((size_t)32)
+#define CFW_TEST_NS INT64_C(1000000000)
+void f(void) {
+    char buf[CFW_TEST_BLOCK_SIZE];
+    unsigned long long ns = CFW_TEST_NS;
+    buf[0] = 0;
+    (void)ns;
+}
+"""
+        funcs = parse_file("fixture.c", src)
+        self.assertEqual(len(funcs), 1)
+        self.assertFalse(any("variably" in p or "parse error" in p
+                             for p in funcs[0].partial))
+
+    def test_prefixed_string_literals_parse(self):
+        src = r"""
+void f(void) {
+    const char *a = u8"utf8";
+    const char *b = L"wide";
+    wchar_t c = U'x';
+    (void)a; (void)b; (void)c;
+}
+"""
+        funcs = parse_file("fixture.c", src)
+        self.assertEqual(len(funcs), 1)
+        self.assertFalse(any("parse error" in p for p in funcs[0].partial))
+
+    def test_generic_and_statement_expression_partial_not_parse_error(self):
+        src = """
+void f(int x) {
+    int y = _Generic(x, int: 1, default: 0);
+    int z = ({ int a = 1; a; });
+    (void)y; (void)z;
+}
+"""
+        funcs = parse_file("fixture.c", src)
+        self.assertEqual(len(funcs), 1)
+        self.assertTrue(any("_Generic" in p for p in funcs[0].partial))
+        self.assertTrue(any("statement expression" in p
+                            for p in funcs[0].partial))
+        self.assertFalse(any("parse error" in p for p in funcs[0].partial))
+
+    def test_asm_and_computed_goto_partial_not_parse_error(self):
+        src = """
+void *f(void *p) {
+    asm volatile ("nop");
+    goto *p;
+}
+void *g(void) {
+    void *p = &&done;
+    goto *p;
+done:
+    return 0;
+}
+"""
+        funcs = parse_file("fixture.c", src)
+        self.assertEqual(len(funcs), 2)
+        self.assertTrue(any("inline assembly" in p for p in funcs[0].partial))
+        self.assertTrue(any("computed goto" in p for p in funcs[0].partial))
+        self.assertTrue(any("computed goto" in p for p in funcs[1].partial))
+        self.assertFalse(any("parse error" in p
+                             for f in funcs for p in f.partial))
+
+    def test_va_arg_type_operand_not_parse_error(self):
+        src = """
+void f(va_list ap) {
+    va_list aq;
+    int n = va_arg(ap, int);
+    char *s = va_arg(ap, char *);
+    va_copy(aq, ap);
+    va_end(aq);
+    (void)n; (void)s;
+}
+"""
+        funcs = parse_file("fixture.c", src)
+        self.assertEqual(len(funcs), 1)
+        self.assertFalse(any("parse error" in p for p in funcs[0].partial))
+
+    def test_va_arg_pointer_may_be_null(self):
+        src = """
+void f(va_list ap) {
+    char *p = va_arg(ap, char *);
+    p[0] = 0;
+}
+"""
+        fs = analyze(src)
+        self.assertIsNotNone(has(fs, "NULL_DEREF", "possible"))
+
+    def test_va_arg_pointer_check_ok(self):
+        src = """
+void f(va_list ap) {
+    char *p = va_arg(ap, char *);
+    if (p == NULL) {
+        return;
+    }
+    p[0] = 0;
+}
+"""
+        fs = analyze(src)
+        self.assertIsNone(has(fs, "NULL_DEREF"))
+
+    def test_block_typedef_cast_not_parse_error(self):
+        src = """
+void f(void) {
+    typedef int myint;
+    typedef int *myint_p;
+    myint x = (myint)1;
+    myint_p p = (myint_p)0;
+    (void)x; (void)p;
+}
+"""
+        funcs = parse_file("fixture.c", src)
+        self.assertEqual(len(funcs), 1)
+        self.assertFalse(any("parse error" in p for p in funcs[0].partial))
+
+    def test_block_function_prototype_not_parse_error(self):
+        src = """
+void f(void) {
+    int g(int);
+    extern int h(const char *);
+    int x, i = g(1);
+    (void)h("x");
+    (void)x; (void)i;
+}
+"""
+        funcs = parse_file("fixture.c", src)
+        self.assertEqual(len(funcs), 1)
+        self.assertFalse(any("parse error" in p for p in funcs[0].partial))
+
+    def test_declaration_attributes_not_parse_error(self):
+        src = """
+void f(void) {
+    int x __attribute__((unused)) = 0;
+    __declspec(deprecated) int y = 1;
+    (void)x; (void)y;
+}
+"""
+        funcs = parse_file("fixture.c", src)
+        self.assertEqual(len(funcs), 1)
+        self.assertFalse(any("parse error" in p for p in funcs[0].partial))
+
+    def test_parenthesized_and_pointer_to_array_declarators(self):
+        src = """
+void f(void) {
+    int (x) = 1;
+    int ((y)) = 2;
+    int (*p)[4];
+    int (*(*pp))(void);
+    (void)x; (void)y; (void)p; (void)pp;
+}
+"""
+        funcs = parse_file("fixture.c", src)
+        self.assertEqual(len(funcs), 1)
+        self.assertFalse(any("parse error" in p for p in funcs[0].partial))
+
+    def test_switch_break_is_not_loop_break(self):
+        src = """
+int f(int x) {
+    switch (x) {
+    case 0:
+        break;
+    default:
+        break;
+    }
+    return 0;
+}
+"""
+        _findings, nfuncs, npart, err = analyze_file("fixture.c", src, {})
+        self.assertIsNone(err)
+        self.assertEqual(nfuncs, 1)
+        self.assertEqual(npart, 0)
 
     def test_constructs_parse_without_error(self):
         # casts, compound literals, comma exprs, adjacent strings,

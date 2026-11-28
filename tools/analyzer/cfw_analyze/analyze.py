@@ -193,6 +193,8 @@ class FunctionAnalyzer:
             "strstr", "strspn", "strcspn", "strpbrk", "strtok", "strcpy",
             "strncpy", "strcat", "strncat", "sprintf", "vsprintf",
             "snprintf", "vsnprintf", "sscanf", "fscanf", "scanf",
+            "va_start", "va_end", "va_copy",
+            "__builtin_va_start", "__builtin_va_end", "__builtin_va_copy",
             "cfw_arena_reset", "cfw_arena_alloc", "cfw_arena_alloc_zeroed",
         }
         self.alloc_out_fns = {"posix_memalign": 0, "aligned_alloc": None}
@@ -300,8 +302,14 @@ class FunctionAnalyzer:
             return join_value(tv, fv)
         if tag == "sizeof":
             # sizeof does not evaluate its operand: no dereference, no
-            # side effects. Return an unknown size.
-            return int_val(0, None)
+            # side effects.
+            return int_val(*self._sizeof_interval(st, expr[1]))
+        if tag == "va_arg":
+            self.eval(st, expr[1])
+            type_text = expr[2]
+            if "*" in type_text:
+                return ptr_val((), null=True, unk=True)
+            return UNKNOWN
         if tag == "cast":
             v = self.eval(st, expr[2])
             ts = expr[1]
@@ -335,6 +343,18 @@ class FunctionAnalyzer:
         if tag == "compound":
             return UNKNOWN
         return UNKNOWN
+
+    def _sizeof_interval(self, st, e):
+        """Byte-size interval for a sizeof operand expression."""
+        if e is not None and e[0] == "var":
+            v = st.vars.get(e[1])
+            if v is not None and v[0] == "array":
+                sv = v[1][1] if len(v[1]) > 1 else None
+                if sv is not None:
+                    return sv
+            elif v is not None and v[0] == "ptr":
+                return (8, 8)
+        return (1, None)
 
     def eval_num(self, text):
         t = text.rstrip("uUlLfF")
@@ -635,6 +655,12 @@ class FunctionAnalyzer:
         argvals = [self.eval(st, a) for a in args]
         self._last_out_writes = set()
 
+        # CFW_TEST_ASSERT* macros abort the test on failure, so the
+        # enclosed condition holds on the fallthrough path.
+        if name is not None and name.startswith("CFW_TEST_ASSERT"):
+            self._apply_test_assert(st, name, args)
+            return VOID
+
         # modeled functions
         if name in self.free_fns or name in self.builtin_free \
                 or name in self.free_handlers:
@@ -865,6 +891,26 @@ class FunctionAnalyzer:
                 # callee may free or store through the pointer-to-pointer;
                 # it may also overwrite the variable itself
                 self.escape_var_ptr(st, av[1])
+
+    def _apply_test_assert(self, st, name, args):
+        """Refine state by the condition inside a CFW_TEST_ASSERT* call."""
+        cond = None
+        want = True
+        if name in ("CFW_TEST_ASSERT_EQ", "CFW_TEST_ASSERT_NE") \
+                and len(args) >= 2:
+            op = "==" if name.endswith("_EQ") else "!="
+            cond = ("binary", op, args[0], args[1],
+                    args[0][-1] if args[0] else 0)
+        elif name == "CFW_TEST_ASSERT" and args:
+            cond = args[0]
+        elif name in ("CFW_TEST_ASSERT_TRUE", "CFW_TEST_ASSERT_FALSE") \
+                and args:
+            cond = args[0]
+            want = name.endswith("TRUE")
+        if cond is None:
+            return
+        ref = self.refine(st.copy(), cond, want)
+        st.vars, st.objs, st.outmap = ref.vars, ref.objs, ref.outmap
 
     # ---------------------------------------------------------- refine
     def refine(self, st, expr, want_true):
@@ -1108,6 +1154,8 @@ class FunctionAnalyzer:
             return self.eval_pure(st, expr[2])
         if tag == "comma":
             return self.eval_pure(st, expr[1][-1])
+        if tag == "sizeof":
+            return int_val(*self._sizeof_interval(st, expr[1]))
         return UNKNOWN
 
     def eval_trunc(self, iv, type_str, line):
@@ -1162,7 +1210,8 @@ class FunctionAnalyzer:
     def transfer_decl(self, st, decls):
         for d in decls:
             name = d.name
-            is_ptr = d.ptr_depth > 0 or d.is_funcptr or bool(d.dims)
+            is_ptr = (d.ptr_depth > 0 or d.is_funcptr or d.is_function
+                      or bool(d.dims))
             if is_ptr and not d.dims:
                 if d.init == "complex":
                     st.vars[name] = ptr_val((), null=False, unk=True)
@@ -1184,7 +1233,8 @@ class FunctionAnalyzer:
                 else:
                     st.vars[name] = ptr_val((), null=False, unk=True)
             elif d.dims:
-                # array variable: record first dim interval
+                # array variable: record first dim interval plus the
+                # total byte size for sizeof()
                 dim_iv = None
                 if d.dims and d.dims[0] is not None \
                         and d.dims[0][0] == "num":
@@ -1195,7 +1245,8 @@ class FunctionAnalyzer:
                     ev = self.eval(st, d.dims[0])
                     if ev[0] == "int":
                         dim_iv = ev[1]
-                st.vars[name] = ("array", (dim_iv,))
+                st.vars[name] = ("array", (dim_iv,
+                                           self._array_sizeof(st, d)))
                 if d.init is not None and d.init != "complex":
                     self.eval(st, d.init)
             else:
@@ -1219,6 +1270,27 @@ class FunctionAnalyzer:
                     st.vars[name] = INT_UNKNOWN
                 if d.is_funcptr:
                     st.vars[name] = UNKNOWN
+
+    def _array_sizeof(self, st, d):
+        """Byte size of a fixed array declarator, or None when any dim or
+        the element size is unknown."""
+        if d.ptr_depth > 0 or d.is_funcptr:
+            esize = 8
+        else:
+            esize = d.type_size
+        if not esize or not d.dims:
+            return None
+        prod = (1, 1)
+        for dim in d.dims:
+            if dim is None:
+                return None
+            dv = self.eval(st, dim)
+            if dv[0] != "int":
+                return None
+            prod = self.int_mul(prod, dv[1])[1]
+            if prod[0] is None and prod[1] is None:
+                return None
+        return self.int_mul(prod, (esize, esize))[1]
 
     # ---------------------------------------------------------- leaks
     def check_leaks(self, st):

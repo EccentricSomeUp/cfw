@@ -80,6 +80,16 @@ def _lex_string(src: str, i: int, n: int, quote: str):
     return src[i:j], j
 
 
+def _literal_prefix(src: str, i: int, n: int):
+    """Return (prefix_len, quote) for u8/u/U/L string and char literals."""
+    for prefix in ("u8", "u", "U", "L"):
+        plen = len(prefix)
+        if src.startswith(prefix, i) and i + plen < n \
+                and src[i + plen] in "\"'":
+            return plen, src[i + plen]
+    return None
+
+
 def _lex_number(src: str, i: int, n: int):
     j = i
     # consume mantissa/exponent loosely: alnum, '_', '.', '\'',
@@ -173,6 +183,18 @@ def tokenize(src: str):
             tokens.append(Token("pp", text, line, col))
             advance(text)
             i = j
+            continue
+
+        # encoding-prefixed string/char literals (u8"...", L'x', ...)
+        prefix = _literal_prefix(src, i, n)
+        if prefix is not None:
+            plen, quote = prefix
+            lit, j = _lex_string(src, i + plen, n, quote)
+            text = src[i:i + plen] + lit
+            kind = "str" if quote == '"' else "chr"
+            tokens.append(Token(kind, text, line, col))
+            advance(text)
+            i = i + plen + len(lit)
             continue
 
         # identifiers / keywords

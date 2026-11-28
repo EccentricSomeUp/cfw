@@ -16,6 +16,7 @@ No dependencies beyond Python 3 (standard library only):
 python3 -m tools.analyzer.cfw_analyze src/cfw          # human-readable
 python3 -m tools.analyzer.cfw_analyze --json src/cfw   # JSON
 python3 -m tools.analyzer.cfw_analyze tests/unit       # any path(s)
+python3 -m tools.analyzer.cfw_analyze --include-generated src include tests
 ```
 
 Exit status is 1 when findings are present (`--exit-zero` or
@@ -36,6 +37,10 @@ Allocator/release summaries can be extended on the command line:
   writes through them but takes no ownership)
 - `--out-param NAME[:IDX]` — allocator that writes the result pointer
   through an argument (default index 2, i.e. `f(..., &out)`)
+- `--define NAME[=VALUE]` — pretend `NAME` is defined for preprocessor
+  conditionals (repeatable; `VALUE` may be a numeric constant expression)
+- `--include-generated` — also read generated CMake headers under
+  `build/*/include/cfw` for platform/configuration macro values
 
 Built-in modeled APIs: `malloc`, `calloc`, `realloc`, `free`, `strdup`,
 `strndup`, `valloc`, `aligned_alloc`, `posix_memalign`, and the project
@@ -104,20 +109,33 @@ lists, local declarations (pointer depth, array dims, initializers),
 compound statements, `if`/`else`, `while`, `do`/`while`, `for`,
 `switch`, `return`/`break`/`continue`/`goto`/labels, calls, indexing,
 member access, casts (including typedef/`*_t`/all-caps macro type names),
-`sizeof`, ternary, comma expressions, compound literals, adjacent string
-literal concatenation, and function-pointer declarators (parsed
-best-effort).
+`sizeof`, `_Alignof`, ternary, comma expressions, compound literals,
+block-scope `_Static_assert`, `_Alignas` declarations, adjacent string
+literal concatenation (including object-like string macros and
+encoding-prefixed literals), function-pointer and parenthesized
+declarators (modeled as pointer-like values), block-scope typedefs and
+function prototype declarations (used for name/cast disambiguation),
+`va_arg` type-name operands plus `va_start`/`va_end`/`va_copy` calls,
+declaration attributes such as `__attribute__`/`__declspec`, enum
+constants (block- and file-scope, shared across the scan like typedefs),
+and C11 integer constant macros such as `INT64_C`.
+
+Preprocessor conditionals are filtered before parsing: `#if`/`#ifdef`/
+`#ifndef`/`#elif`/`#else`/`#endif` are evaluated against C99/C11 integer
+limits, host platform/compiler macros, numeric object-like `#define`s
+(including transitive and cross-file references), generated CMake config
+headers when `--include-generated` is used, and `--define` values.
 
 Functions are marked *partially analyzed* (and listed in the summary)
-when they use:
+when they use constructs the bounded evaluator cannot resolve, including:
 
-- preprocessor conditionals or directives inside the body — **no macro
-  expansion is performed**; both `#if` branches are analyzed as if
-  sequential, which can produce false positives/negatives
+- preprocessor conditionals whose value is still unknown after macro
+  resolution — unknown branches are kept and reported rather than guessed
 - variably-modified (VLA) types
-- function-pointer declarators (tracked as unknown pointers)
 - statement expressions, `_Generic`, inline `asm`, K&R definitions,
-  nested functions, computed goto, and other unsupported constructs
+  nested functions, computed goto, and other unsupported constructs;
+  these are skipped conservatively and reported instead of making the
+  whole function opaque when possible
 
 Other blind spots:
 
@@ -129,8 +147,11 @@ Other blind spots:
 - no aliasing precision beyond direct assignment (`q = p`, `&x` out-params)
 - no concurrency reasoning, no integer wraparound modeling beyond interval
   bounds, no floating-point reasoning
-- macros are opaque text; `#define` constants are not evaluated, so sizes
-  hidden behind macros are unknown
+- macro expansion is limited to object-like numeric/string constants used
+  for preprocessor conditionals, constant expressions, array bounds, and
+  string literals, plus C11 integer constant macros (`INT64_C`, `UINT32_C`,
+  ...) and simple casts in constant expressions; function-like macros and
+  non-constant expressions remain opaque
 - findings are per-function; cross-function lifetime bugs (e.g. freeing in
   another function) are out of scope
 

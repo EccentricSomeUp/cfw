@@ -23,6 +23,7 @@ class CFGBuilder:
         # switch stack handled via ctx list
         self.switch_stack = []
         self.loop_stack = []      # (break_cont, continue_target)
+        self.break_stack = []     # nearest breakable continuation (loop/switch)
         self.loop_heads = set()   # node ids that are loop headers
         self.partial = list(func.partial)
 
@@ -51,13 +52,13 @@ class CFGBuilder:
             self.nodes[nid].succs = []
             return nid
         if tag == "break":
-            if not self.loop_stack:
+            if not self.break_stack:
                 self.partial.append("break outside loop")
                 nid = self.new_node(("opaque", stmt[1]))
                 self.nodes[nid].succs = [(cont, None, None)]
                 return nid
             nid = self.new_node(stmt)
-            self.nodes[nid].succs = [(self.loop_stack[-1][0], None, None)]
+            self.nodes[nid].succs = [(self.break_stack[-1], None, None)]
             return nid
         if tag == "continue":
             if not self.loop_stack:
@@ -113,7 +114,9 @@ class CFGBuilder:
             eval_id = self.new_node(("eval", stmt[1], stmt[3]))
             self.loop_heads.add(eval_id)
             self.loop_stack.append((cont, eval_id))
+            self.break_stack.append(cont)
             body_entry = self.emit(stmt[2], eval_id)
+            self.break_stack.pop()
             self.loop_stack.pop()
             self.nodes[eval_id].succs = [
                 (body_entry, "true", stmt[1]),
@@ -124,7 +127,9 @@ class CFGBuilder:
             eval_id = self.new_node(("eval", stmt[2], stmt[3]))
             self.loop_heads.add(eval_id)
             self.loop_stack.append((cont, eval_id))
+            self.break_stack.append(cont)
             body_entry = self.emit(stmt[1], eval_id)
+            self.break_stack.pop()
             self.loop_stack.pop()
             self.nodes[eval_id].succs = [
                 (body_entry, "true", stmt[2]),
@@ -144,7 +149,9 @@ class CFGBuilder:
                 seq = [("expr", e, stmt[6]) for e in stmt[4]]
                 incr_entry = self.emit_seq(seq, cond_node)
             self.loop_stack.append((cont, incr_entry))
+            self.break_stack.append(cont)
             body_entry = self.emit(stmt[5], incr_entry)
+            self.break_stack.pop()
             self.loop_stack.pop()
             if stmt[3] is not None:
                 self.nodes[cond_node].succs = [
@@ -165,7 +172,9 @@ class CFGBuilder:
         if tag == "switch":
             cases = []
             self.switch_stack.append(cases)
+            self.break_stack.append(cont)
             body_entry = self.emit(stmt[2], cont)
+            self.break_stack.pop()
             self.switch_stack.pop()
             eval_id = self.new_node(("eval", stmt[1], stmt[3]))
             has_default = any(e is None for _, e in cases)

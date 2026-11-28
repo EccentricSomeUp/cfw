@@ -3,13 +3,16 @@ analysis, and result aggregation."""
 
 from __future__ import annotations
 
+import glob
 import os
 from dataclasses import dataclass, field
 
 from .analyze import FunctionAnalyzer, Finding
 from .cfg import CFGBuilder
 from .lexer import tokenize
-from .parser import collect_typedefs, parse_file
+from .parser import (collect_enum_constants, collect_macro_definitions,
+                     collect_typedefs, filter_tokens, parse_file,
+                     resolve_numeric_macros)
 
 C_EXTENSIONS = (".c", ".h")
 
@@ -86,7 +89,11 @@ def analyze_file(path, text, config):
     error_or_None)."""
     findings = set()
     funcs = parse_file(path, text, extra_typedefs=config.get("typedefs",
-                                                            ()))
+                                                            ()),
+                       extra_macros=config.get("numeric_macros", ()),
+                       extra_defines=config.get("defines", ()),
+                       extra_enum_constants=config.get("enum_constants",
+                                                       ()))
     n_partial = 0
     for func in funcs:
         builder = CFGBuilder(func)
@@ -105,16 +112,23 @@ def analyze_file(path, text, config):
 
 
 def scan(paths, config=None, recursive=True, excludes=None,
-         collect_typedefs_first=True):
+         collect_typedefs_first=True, include_generated=False):
     """Full scan. Returns ScanResult."""
     config = config or {}
     files, skipped = collect_files(paths, recursive=recursive,
                                    excludes=excludes)
+    if include_generated:
+        files.extend(sorted(glob.glob(
+            os.path.join("build", "*", "include", "cfw", "*.h"))))
     result = ScanResult(files_skipped=len(skipped))
 
-    # pass 1: collect typedef names across all files for disambiguation
+    # pass 1: collect typedef names and macro definitions across all files,
+    # then resolve numeric constants once so transitive/cross-file references
+    # work regardless of file order.
     typedefs = set()
+    macro_definitions = {}
     sources = {}
+    tokenized = {}
     for fp in files:
         try:
             with open(fp, "r", encoding="utf-8", errors="replace") as f:
@@ -125,14 +139,33 @@ def scan(paths, config=None, recursive=True, excludes=None,
         sources[fp] = text
         if collect_typedefs_first:
             try:
-                typedefs |= collect_typedefs(tokenize(text))
+                tokens = tokenize(text)
+                tokenized[fp] = tokens
+                typedefs |= collect_typedefs(tokens)
+                macro_definitions.update(collect_macro_definitions(tokens))
             except Exception:
                 pass
     config = dict(config)
     config["typedefs"] = typedefs
+    config["numeric_macros"] = resolve_numeric_macros(macro_definitions)
+    if collect_typedefs_first:
+        enum_constants = {}
+        for fp, tokens in tokenized.items():
+            try:
+                active, _ = filter_tokens(
+                    tokens, typedefs, config["numeric_macros"],
+                    extra_defines=config.get("defines"))
+                enum_constants.update(collect_enum_constants(
+                    active, typedefs, config["numeric_macros"]))
+            except Exception:
+                pass
+        config["enum_constants"] = enum_constants
 
     all_findings = set()
     for fp, text in sources.items():
+        norm = fp.replace(os.sep, "/")
+        if include_generated and norm.startswith("build/"):
+            continue
         try:
             findings, nfunc, npart, err = analyze_file(fp, text, config)
         except Exception as e:

@@ -36,6 +36,8 @@ def build_config(args):
             else:
                 out[spec] = 2
         config["out_param"] = out
+    if args.define:
+        config["defines"] = list(args.define)
     return config
 
 
@@ -102,6 +104,9 @@ def main(argv=None):
                     metavar="GLOB",
                     help="only scan files matching this suffix/glob "
                          "(repeatable)")
+    ap.add_argument("--include-generated", action="store_true",
+                    help="also read generated CMake headers under "
+                         "build/*/include/cfw for macro constants")
     ap.add_argument("--json", action="store_true",
                     help="emit JSON instead of human-readable output")
     ap.add_argument("--exit-zero", action="store_true",
@@ -129,6 +134,10 @@ def main(argv=None):
                     metavar="NAME[:IDX]",
                     help="treat NAME as an allocator that writes the result "
                          "through a pointer argument (default index 2)")
+    ap.add_argument("--define", action="append", default=[],
+                    metavar="NAME[=VALUE]",
+                    help="pretend NAME is defined for preprocessor "
+                         "conditionals (repeatable; VALUE may be numeric)")
     args = ap.parse_args(argv)
 
     config = build_config(args)
@@ -138,7 +147,8 @@ def main(argv=None):
         excludes = set(DEFAULT_EXCLUDES) | set(args.exclude)
 
     result = scan(args.paths, config=config, recursive=args.recursive,
-                  excludes=excludes)
+                  excludes=excludes,
+                  include_generated=args.include_generated)
 
     if args.json:
         print(format_json(result))
