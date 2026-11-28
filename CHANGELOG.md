@@ -10,6 +10,8 @@ guarantees; starting with `1.0`, the public API and ABI are frozen under
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-28
+
 ### Changed
 
 - The public API and ABI are frozen starting with `1.0` (see
