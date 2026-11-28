@@ -6,6 +6,7 @@
 
 #include <cfw/net.h>
 
+#include "private/net_resolve.h"
 #include "test_loopback.h"
 
 #if CFW_PLATFORM_WINDOWS
@@ -221,9 +222,68 @@ static int test_net_argument_validation(void)
     return 0;
 }
 
+static int test_addr_resolve_all(void)
+{
+    cfw_addr_list_t list;
+    cfw_addr_t single;
+    uint16_t port;
+    size_t i;
+
+    /* Argument validation needs no resolver. */
+    CFW_TEST_ASSERT_EQ(cfw_addr_resolve_all(NULL, "localhost", 80,
+                                             CFW_ADDR_FAMILY_IPV4),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_addr_resolve_all(&list, "", 80,
+                                             CFW_ADDR_FAMILY_IPV4),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    CFW_TEST_ASSERT_EQ(cfw_addr_resolve_all(&list, "localhost", 80,
+                                             (cfw_addr_family_t)99),
+                       CFW_ERROR_INVALID_ARGUMENT);
+    cfw_addr_list_free(NULL);
+
+    /* "localhost" must resolve on any host with a working resolver;
+     * skip gracefully in minimal containers without one. */
+    if (cfw_addr_resolve_all(&list, "localhost", 80,
+                             CFW_ADDR_FAMILY_IPV4) != CFW_OK) {
+        return 0;
+    }
+    CFW_TEST_ASSERT_TRUE(list.count >= 1);
+    CFW_TEST_ASSERT_TRUE(list.items != NULL);
+    for (i = 0; i < list.count; i++) {
+        CFW_TEST_ASSERT_TRUE(cfw_addr_is_ipv4(&list.items[i]));
+        CFW_TEST_ASSERT_EQ(cfw_addr_port(&list.items[i], &port), CFW_OK);
+        CFW_TEST_ASSERT_EQ(port, 80);
+    }
+    /* The first enumerated address matches the public
+     * single-address resolver. */
+    if (cfw_addr_resolve(&single, "localhost", 80,
+                         CFW_ADDR_FAMILY_IPV4) == CFW_OK) {
+        CFW_TEST_ASSERT_EQ(list.items[0].length, single.length);
+        CFW_TEST_ASSERT_EQ(memcmp(list.items[0].storage.opaque,
+                                  single.storage.opaque,
+                                  single.length),
+                           0);
+    }
+    cfw_addr_list_free(&list);
+    CFW_TEST_ASSERT_TRUE(list.items == NULL);
+    CFW_TEST_ASSERT_EQ(list.count, 0);
+
+    /* The IPv6 family returns only IPv6 addresses when it resolves. */
+    if (cfw_addr_resolve_all(&list, "localhost", 80,
+                             CFW_ADDR_FAMILY_IPV6) == CFW_OK) {
+        CFW_TEST_ASSERT_TRUE(list.count >= 1);
+        for (i = 0; i < list.count; i++) {
+            CFW_TEST_ASSERT_TRUE(cfw_addr_is_ipv6(&list.items[i]));
+        }
+        cfw_addr_list_free(&list);
+    }
+    return 0;
+}
+
 const cfw_test_case cfw_test_net_cases[] = {
     {"addr_from_str_and_back", test_addr_from_str_and_back},
     {"addr_any", test_addr_any},
+    {"addr_resolve_all", test_addr_resolve_all},
     {"tcp_loopback_connect_accept", test_tcp_loopback_connect_accept},
     {"net_argument_validation", test_net_argument_validation},
     {NULL, NULL},

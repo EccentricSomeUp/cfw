@@ -11,6 +11,17 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
 
 ### Fixed
 
+- `cfw_server_step` now dispatches connection events in O(1) per event
+  via the pollset token instead of an O(connections) handle lookup per
+  event (audit `http-server-dos` S-004). Deadline-expired connections
+  are marked dead before dispatch — without being freed — so their
+  snapshotted events are skipped exactly as before and teardown still
+  happens in the post-dispatch sweep.
+- The HTTP client now tries every address returned by the resolver in
+  each address family instead of only the first, so connect falls back
+  across multiple A/AAAA records (audit `public-socket-api` A-003).
+  Resolution is internal (`cfw_addr_resolve_all`); the public
+  `cfw_addr_resolve` contract is unchanged.
 - `test_server_stream_end_on_close` now bounds its post-disconnect wait
   by wall-clock time (5s) instead of an iteration count: the endless
   stream keeps the connection writable so `cfw_server_step` can return

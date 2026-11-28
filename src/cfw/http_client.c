@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 */
 
 #include "private/platform_detect.h"
+#include "private/net_resolve.h"
 
 #include <cfw/http_client.h>
 
@@ -852,7 +853,6 @@ static cfw_status_t cfw_hc_ensure_conn(cfw_hc_state_t *st,
                                        int *reused)
 {
     cfw_status_t status;
-    cfw_addr_t addr;
     cfw_addr_family_t families[2];
     size_t family_i;
     int want_tls = tls_ctx != NULL;
@@ -877,29 +877,42 @@ static cfw_status_t cfw_hc_ensure_conn(cfw_hc_state_t *st,
 
     cfw_hc_conn_close(st);
 
-    /* Resolve and connect: try IPv4 then IPv6 so dual-stack and
-     * v6-only hosts both work. Each attempt shares the deadline. */
+    /* Resolve and connect: try every address in IPv4-then-IPv6
+     * order so multi-record answers and dual-stack hosts both get
+     * connect fallback (audit A-003). Each attempt shares the
+     * deadline. */
     families[0] = CFW_ADDR_FAMILY_IPV4;
     families[1] = CFW_ADDR_FAMILY_IPV6;
     status = CFW_ERROR_IO;
     for (family_i = 0; family_i < 2; family_i++) {
+        cfw_addr_list_t addrs;
+        size_t addr_i;
         cfw_status_t attempt;
-        attempt = cfw_addr_resolve(&addr, (const char *)eff->host.data,
-                                   eff->port, families[family_i]);
+        attempt = cfw_addr_resolve_all(&addrs,
+                                       (const char *)eff->host.data,
+                                       eff->port, families[family_i]);
         if (attempt != CFW_OK) {
             continue;
         }
-        attempt = cfw_hc_connect_fd(st, clock, &addr);
-        if (attempt == CFW_OK) {
-            status = CFW_OK;
+        for (addr_i = 0; addr_i < addrs.count; addr_i++) {
+            attempt = cfw_hc_connect_fd(st, clock,
+                                        &addrs.items[addr_i]);
+            if (attempt == CFW_OK) {
+                status = CFW_OK;
+                break;
+            }
+            status = attempt;
+            if (attempt == CFW_ERROR_TIMEOUT ||
+                attempt == CFW_ERROR_UNAVAILABLE) {
+                break;
+            }
+            /* connect_fd already unregistered and closed its fd. */
+        }
+        cfw_addr_list_free(&addrs);
+        if (status == CFW_OK || status == CFW_ERROR_TIMEOUT ||
+            status == CFW_ERROR_UNAVAILABLE) {
             break;
         }
-        status = attempt;
-        if (attempt == CFW_ERROR_TIMEOUT ||
-            attempt == CFW_ERROR_UNAVAILABLE) {
-            break;
-        }
-        /* connect_fd already unregistered and closed its fd. */
     }
     if (status != CFW_OK) {
         return status;

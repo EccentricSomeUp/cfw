@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 */
 
 #include "private/platform_detect.h"
+#include "private/net_resolve.h"
 #include "private/winsock.h"
 
 #include <cfw/net.h>
@@ -129,8 +130,9 @@ cfw_status_t cfw_addr_from_str(cfw_addr_t *addr, const char *text,
                           (int)sizeof(in6));
 }
 
-cfw_status_t cfw_addr_resolve(cfw_addr_t *addr, const char *host,
-                              uint16_t port, cfw_addr_family_t family)
+cfw_status_t cfw_addr_resolve_all(cfw_addr_list_t *list,
+                                  const char *host, uint16_t port,
+                                  cfw_addr_family_t family)
 {
     int af;
     struct addrinfo hints;
@@ -138,15 +140,19 @@ cfw_status_t cfw_addr_resolve(cfw_addr_t *addr, const char *host,
     struct addrinfo *it;
     char port_str[8];
     int rc;
+    size_t count = 0;
+    size_t filled = 0;
+    cfw_addr_t *items = NULL;
     cfw_status_t status;
 
     status = cfw_wsa_ensure();
     if (status != CFW_OK) {
         return status;
     }
-    if (addr == NULL || host == NULL || host[0] == '\0') {
+    if (list == NULL || host == NULL || host[0] == '\0') {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
+    memset(list, 0, sizeof(*list));
     if (family == CFW_ADDR_FAMILY_IPV4) {
         af = AF_INET;
     } else if (family == CFW_ADDR_FAMILY_IPV6) {
@@ -170,15 +176,67 @@ cfw_status_t cfw_addr_resolve(cfw_addr_t *addr, const char *host,
     for (it = res; it != NULL; it = it->ai_next) {
         if (it->ai_addrlen <= CFW_ADDR_STORAGE_CAPACITY &&
             it->ai_family == af) {
-            cfw_status_t st = cfw_addr_store(
-                addr, (const struct sockaddr *)it->ai_addr,
-                (int)it->ai_addrlen);
-            freeaddrinfo(res);
-            return st;
+            count++;
+        }
+    }
+    if (count == 0) {
+        freeaddrinfo(res);
+        return CFW_ERROR_IO;
+    }
+    if (count > SIZE_MAX / sizeof(cfw_addr_t)) {
+        freeaddrinfo(res);
+        return CFW_ERROR_NOMEM;
+    }
+    items = malloc(count * sizeof(*items));
+    if (items == NULL) {
+        freeaddrinfo(res);
+        return CFW_ERROR_NOMEM;
+    }
+    for (it = res; it != NULL; it = it->ai_next) {
+        if (it->ai_addrlen <= CFW_ADDR_STORAGE_CAPACITY &&
+            it->ai_family == af &&
+            cfw_addr_store(&items[filled],
+                           (const struct sockaddr *)it->ai_addr,
+                           (int)it->ai_addrlen) == CFW_OK) {
+            filled++;
         }
     }
     freeaddrinfo(res);
-    return CFW_ERROR_IO;
+    if (filled == 0) {
+        free(items);
+        return CFW_ERROR_IO;
+    }
+    list->items = items;
+    list->count = filled;
+    return CFW_OK;
+}
+
+void cfw_addr_list_free(cfw_addr_list_t *list)
+{
+    if (list == NULL) {
+        return;
+    }
+    free(list->items);
+    list->items = NULL;
+    list->count = 0;
+}
+
+cfw_status_t cfw_addr_resolve(cfw_addr_t *addr, const char *host,
+                              uint16_t port, cfw_addr_family_t family)
+{
+    cfw_addr_list_t list;
+    cfw_status_t status;
+
+    if (addr == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    status = cfw_addr_resolve_all(&list, host, port, family);
+    if (status != CFW_OK) {
+        return status;
+    }
+    *addr = list.items[0];
+    cfw_addr_list_free(&list);
+    return CFW_OK;
 }
 
 cfw_status_t cfw_addr_to_str(const cfw_addr_t *addr, char *buffer,
@@ -661,14 +719,16 @@ cfw_status_t cfw_addr_from_str(cfw_addr_t *addr, const char *text,
                           (socklen_t)sizeof(in6));
 }
 
-cfw_status_t cfw_addr_resolve(cfw_addr_t *addr, const char *host,
-                              uint16_t port, cfw_addr_family_t family)
+cfw_status_t cfw_addr_resolve_all(cfw_addr_list_t *list,
+                                  const char *host, uint16_t port,
+                                  cfw_addr_family_t family)
 {
     int af;
 
-    if (addr == NULL || host == NULL || host[0] == '\0') {
+    if (list == NULL || host == NULL || host[0] == '\0') {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
+    memset(list, 0, sizeof(*list));
     if (family == CFW_ADDR_FAMILY_IPV4) {
         af = AF_INET;
     } else if (family == CFW_ADDR_FAMILY_IPV6) {
@@ -684,6 +744,9 @@ cfw_status_t cfw_addr_resolve(cfw_addr_t *addr, const char *host,
         struct addrinfo *it;
         char port_str[8];
         int rc;
+        size_t count = 0;
+        size_t filled = 0;
+        cfw_addr_t *items = NULL;
 
         memset(&hints, 0, sizeof(hints));
         hints.ai_family = af;
@@ -698,23 +761,74 @@ cfw_status_t cfw_addr_resolve(cfw_addr_t *addr, const char *host,
         for (it = res; it != NULL; it = it->ai_next) {
             if (it->ai_addrlen <= CFW_ADDR_STORAGE_CAPACITY &&
                 it->ai_family == af) {
-                cfw_status_t st = cfw_addr_store(
-                    addr, (const struct sockaddr *)it->ai_addr,
-                    (socklen_t)it->ai_addrlen);
-                freeaddrinfo(res);
-                return st;
+                count++;
+            }
+        }
+        if (count == 0) {
+            freeaddrinfo(res);
+            return CFW_ERROR_IO;
+        }
+        if (count > SIZE_MAX / sizeof(cfw_addr_t)) {
+            freeaddrinfo(res);
+            return CFW_ERROR_NOMEM;
+        }
+        items = malloc(count * sizeof(*items));
+        if (items == NULL) {
+            freeaddrinfo(res);
+            return CFW_ERROR_NOMEM;
+        }
+        for (it = res; it != NULL; it = it->ai_next) {
+            if (it->ai_addrlen <= CFW_ADDR_STORAGE_CAPACITY &&
+                it->ai_family == af &&
+                cfw_addr_store(&items[filled],
+                               (const struct sockaddr *)it->ai_addr,
+                               (socklen_t)it->ai_addrlen) == CFW_OK) {
+                filled++;
             }
         }
         freeaddrinfo(res);
-        return CFW_ERROR_IO;
+        if (filled == 0) {
+            free(items);
+            return CFW_ERROR_IO;
+        }
+        list->items = items;
+        list->count = filled;
+        return CFW_OK;
     }
 #else
-    (void)addr;
     (void)host;
     (void)port;
     (void)af;
     return CFW_ERROR_UNAVAILABLE;
 #endif
+}
+
+void cfw_addr_list_free(cfw_addr_list_t *list)
+{
+    if (list == NULL) {
+        return;
+    }
+    free(list->items);
+    list->items = NULL;
+    list->count = 0;
+}
+
+cfw_status_t cfw_addr_resolve(cfw_addr_t *addr, const char *host,
+                              uint16_t port, cfw_addr_family_t family)
+{
+    cfw_addr_list_t list;
+    cfw_status_t status;
+
+    if (addr == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    status = cfw_addr_resolve_all(&list, host, port, family);
+    if (status != CFW_OK) {
+        return status;
+    }
+    *addr = list.items[0];
+    cfw_addr_list_free(&list);
+    return CFW_OK;
 }
 
 cfw_status_t cfw_addr_to_str(const cfw_addr_t *addr, char *buffer,

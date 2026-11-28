@@ -429,16 +429,35 @@ static void cfw_server_update_conn_interest(cfw_server_t *server,
     }
 }
 
-static cfw_server_conn_t *cfw_server_find_conn(cfw_server_t *server,
-                                               intptr_t handle)
+/* Marks deadline-expired connections dead without tearing them
+ * down. Runs between pollset_wait and event dispatch: the events
+ * array was snapshotted by wait, so a conn freed here could leave a
+ * stale token behind. Marking dead instead keeps the conn allocated
+ * (and its token valid) until the post-dispatch sweep frees it;
+ * service_conn skips dead conns, preserving the rule that expired
+ * connections are never serviced. */
+static void cfw_server_mark_expired(cfw_server_t *server)
 {
     cfw_server_conn_t *conn;
+    cfw_timepoint_t now;
+    int have_now = 0;
+    int expired = 0;
+
     for (conn = server->conns; conn != NULL; conn = conn->next) {
-        if (conn->handle == handle) {
-            return conn;
+        if (conn->dead || !conn->deadline_set) {
+            continue;
+        }
+        if (!have_now) {
+            have_now = cfw_time_now(&now) == CFW_OK;
+        }
+        /* expired when now > deadline (compare result > 0). */
+        if (have_now &&
+            cfw_timepoint_compare(&now, &conn->deadline,
+                                  &expired) == CFW_OK &&
+            expired > 0) {
+            conn->dead = 1;
         }
     }
-    return NULL;
 }
 
 /* Adds an automatic Date header unless the response already has one.
@@ -1573,7 +1592,11 @@ cfw_status_t cfw_server_step(cfw_server_t *server,
         return st;
     }
 
-    cfw_server_sweep(server);
+    /* The events array was snapshotted while waiting: mark expired
+     * conns dead (without freeing) so their tokens stay valid and
+     * service_conn skips them, exactly as the old find_conn miss
+     * did. Teardown happens in the sweep after dispatch. */
+    cfw_server_mark_expired(server);
 
     for (i = 0; i < count; i++) {
         intptr_t handle = events[i].handle;
@@ -1593,8 +1616,12 @@ cfw_status_t cfw_server_step(cfw_server_t *server,
             cfw_server_accept(server);
             continue;
         }
+        /* Conn registrations carry the conn as their pollset token,
+         * so dispatch is O(1) per event (audit S-004). The token is
+         * always valid here: conns are only freed by sweep, and the
+         * last sweep ran before the wait. */
         cfw_server_service_conn(server,
-                                cfw_server_find_conn(server, handle),
+                                (cfw_server_conn_t *)events[i].token,
                                 events[i].events);
     }
 
