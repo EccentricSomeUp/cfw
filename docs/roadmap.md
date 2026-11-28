@@ -221,7 +221,11 @@ Candidates, each gated on its own ADR and audit pass:
 
 ### Long-horizon directions
 
-Beyond the staged phases above, `docs/long-term-vision.md` records
+Test-suite depth beyond the current harness — differential fuzzing,
+chaos injection, deterministic simulation, mutation testing, and formal
+verification of the wire parsers — is tracked in
+`docs/testing-roadmap.md`. Beyond the staged phases above,
+`docs/long-term-vision.md` records
 exploratory directions — formal verification of the wire parser,
 capability-based request security, opt-in memory-safety build modes,
 WASM middleware hosting, embedded profiles, and agent-facing interfaces.
