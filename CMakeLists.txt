@@ -47,6 +47,13 @@ if(CFW_ENABLE_TSAN)
     endif()
 endif()
 
+if(CFW_ENABLE_FUZZING AND CMAKE_C_COMPILER_ID MATCHES "Clang")
+    # tests/CMakeLists.txt instruments libcfw with ASan/UBSan coverage
+    # for libFuzzer; every executable in this build must link the
+    # sanitizer runtimes to satisfy those references.
+    add_link_options(-fsanitize=address,undefined)
+endif()
+
 set(CFW_HAVE_TLS 0)
 if(CFW_ENABLE_TLS)
     # OpenSSL 3 builds and runs on Windows; tls.c is platform-neutral

@@ -51,6 +51,7 @@ if(CFW_HAVE_TLS)
 endif()
 
 add_executable(cfw_unit_tests
+    ../src/cfw/net.c
     ../src/cfw/pollset.c
     unit/test_arena.c
     unit/test_buffer.c

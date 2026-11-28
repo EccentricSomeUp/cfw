@@ -43,6 +43,17 @@ the freeze applies at `1.0.0` (see `docs/api-stability.md`).
   the connection open awaiting a client close frame, so corpus replay
   spent ~186s per target run waiting. Replay time dropped ~21x with no
   coverage loss.
+- The unit-test target now compiles `src/cfw/net.c` directly (the same
+  pattern as `pollset.c`) so the internal `cfw_addr_resolve_all`
+  resolver is reachable; previously the `shared` preset failed to link
+  `cfw_unit_tests` because internal symbols are not exported from
+  `libcfw.so`.
+- Clang fuzzing builds (`CFW_ENABLE_FUZZING=ON` with a Clang
+  toolchain) now link the ASan/UBSan runtimes into every executable:
+  `libcfw` is compiled with sanitizer coverage for libFuzzer, so
+  non-fuzz targets (examples, unit/integration/security tests) failed
+  to link with undefined sanitizer symbols when the whole preset was
+  built. CI only ever built the fuzz targets, so this went unnoticed.
 
 ## [0.13.1] - 2026-11-27
 
