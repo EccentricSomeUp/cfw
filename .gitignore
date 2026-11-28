@@ -21,6 +21,11 @@
 *.gcno
 *.gcov
 
+# Python
+.venv/
+__pycache__/
+*.pyc
+
 # Test and coverage output
 /coverage/
 /tests/fuzz/corpus/
