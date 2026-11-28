@@ -983,23 +983,11 @@ static void cfw_server_stream_pump(cfw_server_t *server,
         piece.size = n;
         if (conn->stream_chunked) {
             char frame[40];
-            size_t fn = 0;
-            int i;
-            static const char hexd[] = "0123456789abcdef";
-            uint64_t v = n;
-            char tmp[16];
-            size_t tn = 0;
-            do {
-                tmp[tn++] = hexd[v & 15];
-                v >>= 4;
-            } while (v != 0);
-            for (i = (int)tn - 1; i >= 0; i--) {
-                frame[fn++] = tmp[i];
-            }
-            frame[fn++] = '\r';
-            frame[fn++] = '\n';
+            size_t fn;
             /* Piece size was bounded by free space minus overhead, so
              * all three queues fit; any failure means the fd is gone. */
+            fn = (size_t)snprintf(frame, sizeof(frame), "%llx\r\n",
+                                 (unsigned long long)n);
             if (cfw_http1_conn_queue(&conn->http, frame, fn) != CFW_OK ||
                 cfw_http1_conn_queue(&conn->http, piece.data, piece.size) !=
                     CFW_OK ||
@@ -1903,9 +1891,11 @@ cfw_status_t cfw_upgraded_recv(cfw_upgraded_conn_t *conn, void *buffer,
     size_t done = 0;
     intptr_t n;
 
-    if (conn == NULL || received == NULL ||
-        (capacity != 0 && buffer == NULL) || !conn->upgraded ||
+    if (conn == NULL || received == NULL || !conn->upgraded ||
         conn->dead || !cfw_fd_valid(&conn->http.fd)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (capacity != 0 && buffer == NULL) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
     *received = 0;

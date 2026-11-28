@@ -468,7 +468,7 @@ static size_t cfw_static_u64_dec(uint64_t value, char *out)
     do {
         digits[count++] = (char)('0' + value % 10u);
         value /= 10u;
-    } while (value != 0);
+    } while (value != 0 && count < 20);
     while (count != 0) {
         out[i++] = digits[--count];
     }

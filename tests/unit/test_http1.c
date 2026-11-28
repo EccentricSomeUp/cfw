@@ -87,7 +87,7 @@ static int test_http1_content_length_body(void)
         CFW_TEST_ASSERT_EQ(cfw_http1_server_feed(&server, &span), CFW_OK);
         n = cfw_test_drain(&server, events, 8);
         CFW_TEST_ASSERT_TRUE(n >= 0);
-        for (j = 0; j < n; j++) {
+        for (j = 0; j < n && j < 8; j++) {
             if (events[j].kind == CFW_HTTP1_EV_HEAD) {
                 CFW_TEST_ASSERT_EQ(events[j].head.request_line.method,
                                    CFW_HTTP_METHOD_POST);

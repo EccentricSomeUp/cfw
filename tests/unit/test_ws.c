@@ -753,6 +753,9 @@ static int test_ws_close_echo(void)
     CFW_TEST_ASSERT_TRUE(cfw_test_ws_parse_frame(
                              (const uint8_t *)response, used, &opcode,
                              &payload, &payload_len));
+    if (payload == NULL) {
+        return 1;
+    }
     CFW_TEST_ASSERT_EQ(opcode, 0x8);
     CFW_TEST_ASSERT_EQ(payload_len, 2);
     CFW_TEST_ASSERT_EQ(payload[0], 0x03);
@@ -1265,6 +1268,9 @@ static int test_ws_ping_interleaved_fragment(void)
     CFW_TEST_ASSERT_TRUE(cfw_test_ws_parse_frame(
                              (const uint8_t *)response + pos, used - pos,
                              &opcode, &payload, &payload_len));
+    if (payload == NULL) {
+        return 1;
+    }
     CFW_TEST_ASSERT_EQ(opcode, 0xA);
     CFW_TEST_ASSERT_EQ(payload_len, 1);
     CFW_TEST_ASSERT_EQ(payload[0], 'x');
@@ -1628,7 +1634,7 @@ static int test_ws_fuzz_frames(void)
                 strlen(seed->payload));
         } else {
             len = 1 + (size_t)(cfw_test_ws_rng() % 200);
-            for (k = 0; k < len; k++) {
+            for (k = 0; k < len && k < sizeof(buf); k++) {
                 buf[k] = (uint8_t)cfw_test_ws_rng();
             }
         }

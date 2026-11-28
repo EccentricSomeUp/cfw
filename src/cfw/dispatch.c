@@ -254,9 +254,13 @@ cfw_status_t cfw_dispatch_request_ex(
     cfw_dispatch_frame_t frame;
     cfw_status_t status;
 
-    if (dispatch == NULL || head == NULL || res == NULL ||
-        (header_capacity != 0 && headers == NULL) ||
-        (param_capacity != 0 && params == NULL)) {
+    if (dispatch == NULL || head == NULL || res == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (header_capacity != 0 && headers == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (param_capacity != 0 && params == NULL) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
 
@@ -409,7 +413,7 @@ static cfw_status_t cfw_dispatch_write_u64(char *buffer, size_t capacity,
     do {
         digits[count++] = (char)('0' + value % 10);
         value /= 10;
-    } while (value != 0);
+    } while (value != 0 && count < 20);
     for (i = 0; i < count; i++) {
         char c = digits[count - 1 - i];
         if (cfw_dispatch_write(buffer, capacity, offset, &c, 1) != CFW_OK) {

@@ -851,12 +851,7 @@ cfw_status_t cfw_ws_send_close(cfw_ws_t *ws, uint16_t status,
     uint8_t payload[2 + CFW_WS_MAX_CTRL_PAYLOAD - 2];
     size_t plen = 0;
 
-    if (ws == NULL || (reason_size != 0 && reason == NULL) ||
-        reason_size > CFW_WS_MAX_CTRL_PAYLOAD - 2) {
-        return CFW_ERROR_INVALID_ARGUMENT;
-    }
-    if (reason != NULL && reason_size != 0 &&
-        !cfw_ws_utf8_valid((const uint8_t *)reason, reason_size)) {
+    if (ws == NULL || reason_size > CFW_WS_MAX_CTRL_PAYLOAD - 2) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
     if (status == 0) {
@@ -874,6 +869,10 @@ cfw_status_t cfw_ws_send_close(cfw_ws_t *ws, uint16_t status,
         plen = 2;
     }
     if (reason_size != 0) {
+        if (reason == NULL ||
+            !cfw_ws_utf8_valid((const uint8_t *)reason, reason_size)) {
+            return CFW_ERROR_INVALID_ARGUMENT;
+        }
         memcpy(payload + plen, reason, reason_size);
         plen += reason_size;
     }

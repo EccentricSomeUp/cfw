@@ -177,7 +177,8 @@ static long cfw_bench_exchange(cfw_fd_t *client, cfw_tls_conn_t *tls,
         buffer[used] = '\0';
 
         if (head_end == 0) {
-            for (i = 0; i + 3 < used; i++) {
+            for (i = 0; i + 3 < used && i < (int)sizeof(buffer) - 3;
+                 i++) {
                 if (buffer[i] == '\r' && buffer[i + 1] == '\n' &&
                     buffer[i + 2] == '\r' && buffer[i + 3] == '\n') {
                     char *cl = strstr(buffer, "Content-Length:");
@@ -438,7 +439,7 @@ int main(int argc, char **argv)
     /* Servers: worker 0 binds an ephemeral port first so the rest can
      * share it; reuse_port is only needed (and only meaningful) when
      * workers > 1. */
-    for (i = 0; i < workers; i++) {
+    for (i = 0; i < workers && i < CFW_BENCH_MAX_WORKERS; i++) {
         memset(&sopt, 0, sizeof(sopt));
         sopt.host = "127.0.0.1";
         sopt.port = port;
@@ -476,7 +477,7 @@ int main(int argc, char **argv)
     }
 
     memset(clients, 0, sizeof(clients));
-    for (i = 0; i < workers; i++) {
+    for (i = 0; i < workers && i < CFW_BENCH_MAX_WORKERS; i++) {
         clients[i].port = port;
         clients[i].requests = requests;
         clients[i].warmup = warmup;
@@ -513,7 +514,7 @@ int main(int argc, char **argv)
         goto fail_servers;
     }
 
-    for (i = 0; i < spawned_clients; i++) {
+    for (i = 0; i < spawned_clients && i < CFW_BENCH_MAX_WORKERS; i++) {
         total_reqs += clients[i].done_reqs;
         total_bytes += clients[i].done_bytes;
         if (clients[i].elapsed_ns > wall_ns) {

@@ -23,11 +23,13 @@ cfw_status_t cfw_uri_decode(const char *src, size_t len, char *dst,
     size_t i = 0;
     size_t o = 0;
 
-    if ((len != 0 && src == NULL) || dst == NULL || cap == 0 ||
-        out_len == NULL || (flags & ~(CFW_URI_DECODE_PLUS_AS_SPACE |
-                                      CFW_URI_DECODE_REJECT_NUL |
-                                      CFW_URI_DECODE_REJECT_BACKSLASH)) !=
-                               0) {
+    if (dst == NULL || cap == 0 || out_len == NULL ||
+        (flags & ~(CFW_URI_DECODE_PLUS_AS_SPACE |
+                   CFW_URI_DECODE_REJECT_NUL |
+                   CFW_URI_DECODE_REJECT_BACKSLASH)) != 0) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (len != 0 && src == NULL) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
 

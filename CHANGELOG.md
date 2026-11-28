@@ -22,6 +22,21 @@ guarantees; starting with `1.0`, the public API and ABI are frozen under
   (`malloc`/`calloc`/`realloc`/`free`, `cfw_arena_*`), human and JSON
   output, and unittest coverage under `tests/analyzer/`.
   Documentation: `tools/analyzer/README.md`.
+- The analyzer's bounded C subset now resolves known preprocessor
+  conditionals (including `#if 0`/`#else`, `#ifdef`/`#ifndef`, numeric
+  object-like macros, standard integer limits, host platform macros, and
+  generated CMake config headers via `--include-generated`), models
+  function-pointer declarators as pointer-like values, expands object-like
+  string macros in literals, and treats `break` inside `switch` correctly.
+  It also handles block-scope `_Static_assert`/`_Alignas`, enum constants,
+  C11 integer constant macros (`INT64_C`, `UINT32_C`, ...) and casts in
+  constant expressions, encoding-prefixed literals, `va_arg` type-name
+  operands with `va_start`/`va_end`/`va_copy`, block-scope typedefs and
+  function prototype declarations, parenthesized/pointer-to-array
+  declarators, block- and file-scope enum constants, and declaration
+  attributes such as `__attribute__`/`__declspec`; `_Generic`, statement
+  expressions, `asm`, and computed goto are reported as partial instead of
+  opaque parse errors.
 - `docs/long-term-vision.md` records exploratory long-horizon directions
   (formal verification, capability tokens, memory-safety build modes, WASM
   hosting, embedded profiles, agent-facing interfaces, and others) as
@@ -30,6 +45,18 @@ guarantees; starting with `1.0`, the public API and ABI are frozen under
   the vision document.
 - `docs/architecture.md` now documents the pluggable-backend policy for
   optional external implementations.
+- The analyzer now evaluates `sizeof`/`_Alignof` precisely for builtin
+  types, fixed-width typedefs (`uint8_t`, `size_t`, ...), and arrays with
+  known element sizes; models common test-assert macros as checks; and
+  bounds induction variables from loop conditions more precisely.
+
+### Fixed
+
+- `examples/ws_echo.c` no longer leaks the arena when argument validation
+  fails before the server starts.
+- NULL guards in `codec`, `dispatch`, `multipart`, `server`, `static`,
+  `uri`, `ws`, and `ws_client` were restructured so pointer nullness is
+  tracked precisely on every path; behavior is unchanged.
 
 ## [1.0.0] - 2026-11-28
 

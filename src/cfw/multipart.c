@@ -409,11 +409,16 @@ cfw_status_t cfw_multipart_parse(
     char *out;
 
     if (body == NULL || boundary == NULL || count_out == NULL ||
-        (body->size != 0 && body->data == NULL) ||
-        boundary->size == 0 ||
-        (part_capacity != 0 && parts == NULL) ||
-        (scratch_size != 0 && scratch == NULL) ||
-        scratch_size < body->size) {
+        boundary->size == 0 || scratch_size < body->size) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (part_capacity != 0 && parts == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (scratch_size != 0 && scratch == NULL) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (body->size != 0 && body->data == NULL) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
     *count_out = 0;

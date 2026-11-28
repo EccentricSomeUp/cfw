@@ -157,8 +157,10 @@ cfw_status_t cfw_base64_decode(const cfw_strview_t *in,
     size_t i;
     size_t o = 0;
 
-    if (in == NULL || (in->size != 0 && in->data == NULL) ||
-        (out == NULL && in->size != 0)) {
+    if (in == NULL || (in->size != 0 && in->data == NULL)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (in->size != 0 && out == NULL) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
     /* Canonical base64 length is a multiple of 4 (padding included). */
@@ -238,8 +240,10 @@ cfw_status_t cfw_base64url_decode(const cfw_strview_t *in,
     size_t i = 0;
     size_t o = 0;
 
-    if (in == NULL || (in->size != 0 && in->data == NULL) ||
-        (out == NULL && in->size != 0)) {
+    if (in == NULL || (in->size != 0 && in->data == NULL)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (in->size != 0 && out == NULL) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
     n = in->size;
@@ -369,8 +373,10 @@ cfw_status_t cfw_hex_decode(const cfw_strview_t *in,
     size_t i;
     size_t o = 0;
 
-    if (in == NULL || (in->size != 0 && in->data == NULL) ||
-        (out == NULL && in->size != 0)) {
+    if (in == NULL || (in->size != 0 && in->data == NULL)) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (in->size != 0 && out == NULL) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
     if (in->size % 2u != 0u) {

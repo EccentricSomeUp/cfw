@@ -97,7 +97,7 @@ static cfw_status_t ws_upgrade(cfw_upgraded_conn_t *conn, uint32_t events,
 
 int main(int argc, char **argv)
 {
-    cfw_arena_t *arena = cfw_arena_create(1u << 20);
+    cfw_arena_t *arena;
     cfw_router_t router;
     cfw_dispatch_t dispatch;
     cfw_dispatch_options_t dopt = {0};
@@ -122,6 +122,7 @@ int main(int argc, char **argv)
         return 2;
     }
 
+    arena = cfw_arena_create(1u << 20);
     if (arena == NULL) {
         return 1;
     }

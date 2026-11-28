@@ -338,9 +338,10 @@ static cfw_status_t cfw_wsc_send_frame(cfw_ws_client_t *ws, int fin,
     } else {
         int i;
         hdr[hn++] = (uint8_t)(0x80 | 127);
-        for (i = 7; i >= 0; i--) {
-            hdr[hn++] = (uint8_t)((uint64_t)size >> (i * 8));
+        for (i = 0; i < 8; i++) {
+            hdr[hn + i] = (uint8_t)((uint64_t)size >> ((7 - i) * 8));
         }
+        hn += 8;
     }
     memcpy(hdr + hn, mask, 4);
     hn += 4;
@@ -1271,8 +1272,10 @@ cfw_status_t cfw_ws_client_send(cfw_ws_client_t *ws,
 {
     cfw_status_t status;
 
-    if (ws == NULL || ws->closed || ws->close_sent ||
-        (data == NULL && size != 0)) {
+    if (ws == NULL || ws->closed || ws->close_sent) {
+        return CFW_ERROR_INVALID_ARGUMENT;
+    }
+    if (size != 0 && data == NULL) {
         return CFW_ERROR_INVALID_ARGUMENT;
     }
     /* Fresh per-call deadline for the bounded write. */

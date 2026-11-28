@@ -121,9 +121,10 @@ static int test_arena_many_allocations(void)
     }
     /* All allocations must be distinct. */
     for (i = 0; i < 512; i++) {
+        void *pi = ptrs[i];
         size_t j;
         for (j = i + 1; j < 512; j++) {
-            CFW_TEST_ASSERT(ptrs[i] != ptrs[j]);
+            CFW_TEST_ASSERT(pi != ptrs[j]);
         }
     }
 

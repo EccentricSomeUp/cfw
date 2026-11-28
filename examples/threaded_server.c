@@ -148,7 +148,7 @@ int main(int argc, char **argv)
     }
     memset(shared, 0, sizeof(shared));
 
-    for (i = 0; i < workers; i++) {
+    for (i = 0; i < workers && i < MAX_WORKERS; i++) {
         shared[i].dispatch = &dispatch;
         shared[i].host = host;
         shared[i].port = port;
@@ -172,12 +172,12 @@ int main(int argc, char **argv)
     if (failed || spawned == 0) {
         fprintf(stderr,
                 "worker startup failed (SO_REUSEPORT unsupported?)\n");
-        for (i = 0; i < spawned; i++) {
+        for (i = 0; i < spawned && i < MAX_WORKERS; i++) {
             if (shared[i].server_up) {
                 cfw_server_stop(&shared[i].server);
             }
         }
-        for (i = 0; i < spawned; i++) {
+        for (i = 0; i < spawned && i < MAX_WORKERS; i++) {
             int code = 0;
             cfw_thread_join(&threads[i], &code);
         }

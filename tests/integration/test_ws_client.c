@@ -643,7 +643,9 @@ static int cfw_wsc_fake_main(void *arg)
             key[k] = key_start[k];
             k++;
         }
-        key[k] = '\0';
+        if (k < sizeof(key)) {
+            key[k] = '\0';
+        }
     }
     if (cfw_ws_accept_key(key, strlen(key), accept_key,
                           sizeof(accept_key)) != CFW_OK) {
