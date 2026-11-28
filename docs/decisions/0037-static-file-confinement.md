@@ -25,7 +25,8 @@ Constraints:
 - Static serving must remain allocation-free per request and bounded by
   the existing stream-slot pool.
 - Windows remains unsupported for the server; filesystem code must still
-  compile there.
+  compile there. (Superseded by ADR 0074: Windows server support has
+  since landed; filesystem code still compiles there.)
 
 ## Decision
 
@@ -53,8 +54,11 @@ HEAD and GET agree on whether a path is servable.
 On Windows the same internal entry point performs equivalent lexical
 validation and opens the joined path through the CRT `_open`/`_fstat64`
 boundary. Windows has no `openat`/`O_NOFOLLOW` equivalent in this
-codebase, so symlink confinement there remains best-effort and out of
-scope while Windows server support is deferred.
+codebase, so symlink confinement there remains best-effort. (Update:
+Windows server support landed via ADR 0074 and the portable test suite
+via ADR 0076; `static_symlink_confinement` stays POSIX-gated because
+Windows has no `O_NOFOLLOW`/`openat` equivalent — the coverage gap is
+deliberate, not an oversight.)
 
 ## Alternatives considered
 

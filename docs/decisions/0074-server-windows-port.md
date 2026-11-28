@@ -61,7 +61,9 @@ so `tls_ctx` options fail with `CFW_ERROR_UNAVAILABLE` and the
   because they live in platform-neutral code.
 - Windows tests remain gated off (`if(NOT WIN32)` in
   `tests/CMakeLists.txt`) until they are ported; CI stays
-  compile-check only.
+  compile-check only. (Superseded by ADR 0076: the suite was ported
+  to portable `cfw_net_*`/`cfw_test_*` helpers and `ctest` now runs
+  the full suite on `windows-latest`.)
 - `SO_REUSEPORT` remains unavailable on Windows (no equivalent
   setsockopt), matching the documented `CFW_ERROR_UNAVAILABLE`
   contract.

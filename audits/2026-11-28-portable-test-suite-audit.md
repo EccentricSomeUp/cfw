@@ -81,9 +81,10 @@ ctest --preset debug-tls --output-on-failure             # 6/6 passed
   the corpus file list is generated at CMake configure time
   (`cfw_test_corpus_files.h`), so replay needs no directory API at
   all and runs on every platform.
-- `CreateSymbolicLink` confinement coverage on Windows remains a
-  possible follow-up; current coverage documents best-effort
-  confinement (ADR 0037).
+- `CreateSymbolicLink` confinement coverage on Windows: accepted for
+  1.0.0 — confinement there is documented best-effort (ADR 0037,
+  annotated post-ADR-0074/0076) and `static_symlink_confinement`
+  stays deliberately POSIX-gated.
 - Done: the `fs` directory check is ungated — the Windows branch of
   `cfw_file_open_confined` now stats the resolved path before
   `_open`, returning `CFW_ERROR_INVALID_ARGUMENT` for non-regular

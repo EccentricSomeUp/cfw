@@ -33,7 +33,7 @@
 |----|----------|---------|-------------|
 | W-101 | Low | Epilogue after the close delimiter is only tolerated to end-of-body | Accepted; HTTP multipart (RFC 7578) does not use epilogues; strictness prevents delimiter smuggling |
 | W-102 | Info | `Content-Transfer-Encoding` (base64/qp) is not decoded | Accepted; deprecated for HTTP multipart per RFC 7578; bodies returned verbatim, documented |
-| W-103 | Info | Upload-streamed bodies cannot use this parser | Accepted v1 limitation; incremental parsing deferred, documented in header and ADR |
+| W-103 | Info | Upload-streamed bodies cannot use this parser | Accepted for 1.0.0: incremental parsing stays deferred (buffered bodies cover the common case; upload-streamed callers parse incrementally themselves per `multipart.h` and ADR 0043) |
 | W-104 | Info | `scratch_size >= body->size` is a coarse bound | Accepted; decoded params never exceed source bytes and typical form bodies are small; documented |
 
 ## Verified behaviors (tests)

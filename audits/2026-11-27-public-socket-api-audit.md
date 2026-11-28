@@ -48,7 +48,7 @@
 |----|----------|----------|---------|-------------|
 | A-001 | low | src/cfw/net.c `cfw_addr_store` | A peer-supplied `socklen_t` from `accept`/`getpeername` is trusted after the ≤128 capacity check; kernel-returned lengths are bounded by `sockaddr_storage` size, so no overflow is possible. | accepted (no change needed) |
 | A-002 | info | include/cfw/net.h | `cfw_net_socket` still exposes raw `domain`/`type`/`protocol` constants; documented as platform constants and returning `CFW_ERROR_IO`/`UNAVAILABLE` for invalid combos rather than UB. | accepted |
-| A-003 | info | src/cfw/net.c `cfw_addr_resolve` | Returns only the first getaddrinfo result per family; multi-address fallback (e.g. IPv6→IPv4 happy eyeballs) is deferred to the HTTP client design. | deferred |
+| A-003 | info | src/cfw/net.c `cfw_addr_resolve` | Returns only the first getaddrinfo result per family; multi-address fallback (e.g. IPv6→IPv4 happy eyeballs) is deferred to the HTTP client design. | fixed in f4fd0d5: internal `cfw_addr_resolve_all` enumerates every usable getaddrinfo result per family and the HTTP client falls back across all of them (public `cfw_addr_resolve` contract unchanged) |
 
 ## Verification
 
@@ -63,5 +63,6 @@ ctest --preset sanitizers --output-on-failure → 5/5 passed
 
 - HTTP client (next ADR) will consume `cfw_addr_resolve` +
   `cfw_net_*`; revisit A-003 if connect fallback proves necessary.
+  (Resolved in f4fd0d5 via internal `cfw_addr_resolve_all`.)
 - Windows/Winsock backend remains pending (ADR 0011); the public
   header already returns `CFW_ERROR_UNAVAILABLE` there.
