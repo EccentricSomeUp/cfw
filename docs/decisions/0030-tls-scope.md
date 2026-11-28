@@ -38,7 +38,9 @@ The boundary is preserved for a future decision:
 
 - Phase 6's "decide whether TLS is in scope" criterion is met by this
   record; implementation is deferred indefinitely pending a dependency
-  approval.
+  approval. (Update: that approval was granted — ADR 0057 added the
+  optional OpenSSL-backed `cfw_tls` module. The core `cfw` library
+  remains cleartext-only; TLS lives in the opt-in module.)
 - The threat model (`docs/security/threat-model.md`) treats the server
   as cleartext-only and must not claim transport confidentiality.
 - HTTP request parsing already rejects ambiguous framing, which

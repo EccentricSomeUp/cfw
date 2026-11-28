@@ -54,7 +54,8 @@ distribution's responsibility; cfw performs no vendoring.
 ### Platform support
 
 OpenSSL 3.x supports all cfw POSIX targets (Linux, macOS, the BSDs,
-Android). Windows builds of cfw remain stubs and do not enable TLS.
+Android). (Superseded by ADR 0075: Windows builds of cfw are no
+longer stubs and `CFW_ENABLE_TLS` is supported there.)
 Where `CFW_ENABLE_TLS` is on but OpenSSL is absent, CMake fails with
 a clear message rather than silently disabling the feature.
 

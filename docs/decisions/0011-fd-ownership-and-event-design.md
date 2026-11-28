@@ -2,7 +2,7 @@
 
 # ADR 0011: Descriptor ownership and event-loop abstraction design
 
-- Status: Accepted (design); implementation proceeds incrementally
+- Status: Accepted
 - Date: 2026-11-25
 
 ## Context
