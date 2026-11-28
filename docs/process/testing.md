@@ -116,6 +116,14 @@ case), measures single-connection keep-alive throughput against a live
 `cfw_server_t`: `./build/release/tests/cfw_bench [requests] [warmup]`.
 Use it for relative comparisons between builds on the same machine.
 
+The Python static analyzer under `tools/analyzer/` has its own
+stdlib-only unittest suite (it analyzes fixture strings and never
+compiles or executes C code):
+
+```sh
+python3 -m unittest tests.analyzer.test_cfw_analyze -v
+```
+
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs every configure preset (debug, release,
@@ -125,6 +133,11 @@ OpenSSL 3). The macOS leg exercises the
 native `kqueue` backend that Linux's `epoll` selection never touches;
 the `poll()` fallback is covered on every POSIX host by
 `cfw_pollset_poll_tests`.
+
+Aspirational directions for deepening the suite — fuzzing maturity,
+chaos/fault-injection testing, property-based and metamorphic oracles,
+deterministic simulation, mutation testing, and targeted test selection —
+are recorded in `docs/testing-roadmap.md`.
 
 ## Coverage and sanitizer expectations
 

@@ -12,6 +12,16 @@ guarantees; starting with `1.0`, the public API and ABI are frozen under
 
 ### Added
 
+- `tools/analyzer/cfw_analyze`: a dependency-free Python static analyzer
+  (standard library only) that scans C sources for use-after-free,
+  double-free, memory leaks, null-pointer dereferences,
+  out-of-bounds accesses, and allocation-size overflow/truncation. It
+  reads source text only and never compiles, links, or executes project
+  code. Includes a bounded C11 tokenizer/parser, a CFG-based
+  flow-sensitive dataflow analysis with modeled allocator/release APIs
+  (`malloc`/`calloc`/`realloc`/`free`, `cfw_arena_*`), human and JSON
+  output, and unittest coverage under `tests/analyzer/`.
+  Documentation: `tools/analyzer/README.md`.
 - `docs/long-term-vision.md` records exploratory long-horizon directions
   (formal verification, capability tokens, memory-safety build modes, WASM
   hosting, embedded profiles, agent-facing interfaces, and others) as
