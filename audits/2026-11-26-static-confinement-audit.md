@@ -4,6 +4,7 @@
 
 - Date: 2026-11-26
 - Auditor: Devin (agent)
+- Commit: 928a800
 - Scope: internal `cfw_file_open_confined` primitive
   (`src/cfw/private/fs_confined.h`, `src/cfw/fs.c`), static middleware
   GET/HEAD changes (`src/cfw/static.c`, `include/cfw/static.h`), and

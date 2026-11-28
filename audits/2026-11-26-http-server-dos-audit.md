@@ -4,6 +4,7 @@
 
 - Date: 2026-11-26
 - Auditor: Devin (agent)
+- Commit: 7d3b387
 - Scope: `src/cfw/{http,http1,http1_conn,route,dispatch,server}.c`,
   `include/cfw/{http,http1,http1_conn,route,dispatch,server}.h`,
   `tests/{unit,integration}/*`

@@ -4,6 +4,7 @@
 
 - Date: 2026-11-26
 - Auditor: Devin (agent)
+- Commit: 1e2c891
 - Scope: changes since the 1.0-readiness audit — response streaming
   (ADR 0031), Date header, Host enforcement, HEAD fallback/405,
   `remote_addr` (ADR 0032), request upload hooks (ADR 0033), and the
@@ -28,11 +29,11 @@
 
 | ID | Severity | Summary | Disposition |
 |----|----------|---------|-------------|
-| H-101 | High | fd-reuse/pollset leak: conns whose fd was closed inside `http1_conn` lost their handle, so `pollset_remove` no-op'd and the stale epoll record blocked `pollset_add` for recycled fd numbers — new connections starved | Fixed: handle cached on `cfw_server_conn_t`, dead-fd conns reaped in `update_conn_interest` |
-| H-102 | Medium | Stack-use-after-scope: Date-header strview outlived its scoped buffer | Fixed: buffer hoisted to function scope |
-| H-103 | Medium | `cfw_time_wall_now` POSIX path missing NULL check (segfault) | Fixed |
-| H-104 | Medium | Chunked stream on `Connection: close` request lost its close header — `will_close` computed after `close_after_write` was cleared for the pump | Fixed via `stream_hold_close`; regression test added |
-| H-105 | Low | Dispatch body-consistency check rejected legitimately streamed uploads (empty `req.body` vs declared length) | Fixed: check skipped when `info->upload` is set |
+| H-101 | High | fd-reuse/pollset leak: conns whose fd was closed inside `http1_conn` lost their handle, so `pollset_remove` no-op'd and the stale epoll record blocked `pollset_add` for recycled fd numbers — new connections starved | Fixed in 39363b4: handle cached on `cfw_server_conn_t`, dead-fd conns reaped in `update_conn_interest` |
+| H-102 | Medium | Stack-use-after-scope: Date-header strview outlived its scoped buffer | Fixed in d852bd6: buffer hoisted to function scope |
+| H-103 | Medium | `cfw_time_wall_now` POSIX path missing NULL check (segfault) | Fixed in d852bd6 |
+| H-104 | Medium | Chunked stream on `Connection: close` request lost its close header — `will_close` computed after `close_after_write` was cleared for the pump | Fixed in 1fa9468 via `stream_hold_close`; regression test added |
+| H-105 | Low | Dispatch body-consistency check rejected legitimately streamed uploads (empty `req.body` vs declared length) | Fixed in d6bd02e: check skipped when `info->upload` is set |
 
 ## Reviewed and rejected concerns
 

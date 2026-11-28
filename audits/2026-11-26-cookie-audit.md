@@ -4,6 +4,7 @@
 
 - Date: 2026-11-26
 - Auditor: Devin (agent)
+- Commit: 3c7a389
 - Scope: `cfw_cookie_parse`/`cfw_cookie_serialize`
   (`include/cfw/cookie.h`, `src/cfw/cookie.c`), tests in
   `tests/unit/test_cookie.c`

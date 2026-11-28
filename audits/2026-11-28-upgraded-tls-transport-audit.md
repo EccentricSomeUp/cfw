@@ -4,7 +4,7 @@
 
 - Date: 2026-11-28
 - Auditor: Devin (agent)
-- Commit: <this change>
+- Commit: 9dafee9
 - Category: audit catalog items 1 (memory safety), 4 (protocol state
   machines), 8 (cryptography and transport)
 - Scope: `cfw_upgraded_recv`/`cfw_upgraded_send` in `src/cfw/server.c`,

@@ -4,6 +4,7 @@
 
 - Date: 2026-11-26
 - Auditor: Devin (agent)
+- Commit: b800695
 - Scope: `cfw_signed_encode`/`cfw_signed_decode`/`cfw_signed_encode_bound`
   (`include/cfw/signed.h`, `src/cfw/signed.c`), tests in
   `tests/unit/test_signed.c`

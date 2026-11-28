@@ -4,6 +4,7 @@
 
 - Date: 2026-11-26
 - Auditor: Devin (agent)
+- Commit: eaddf92..901e405
 - Scope: `cfw_file_t` (`cfw_file_open`/`cfw_file_read`/`cfw_file_close`),
   `cfw_file_stream_t` (`cfw_file_stream_init`/`cfw_file_stream_read`/
   `cfw_file_stream_end`/`cfw_file_stream_close`) in

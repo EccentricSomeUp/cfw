@@ -4,6 +4,7 @@
 
 - Date: 2026-11-26
 - Auditor: Devin (agent)
+- Commit: 098cd36
 - Scope: `include/cfw/static.h` + `src/cfw/static.c` — mount init,
   URL-prefix middleware, percent-decode + path confinement, directory
   → `index.html` resolution, MIME table, bounded stream-slot pool;

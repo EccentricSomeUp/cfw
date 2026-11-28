@@ -4,7 +4,7 @@
 
 - Date: 2026-11-28
 - Auditor: Devin (agent)
-- Commit: <this change>
+- Commit: 5545b05
 - Category: audit catalog items 1 (memory safety), 4 (parser/protocol
   state machines), 5 (API misuse, ownership, lifetime), 8
   (cryptography and transport)

@@ -4,7 +4,7 @@
 
 - Date: 2026-11-26
 - Auditor: Devin (agent)
-- Commit: working tree on `main` post-v0.2.0, ADR 0051
+- Commit: 949b9f5
 - Category: audit catalog §4 (API misuse) and §5 (concurrency and
   cancellation)
 - Scope: `include/cfw/thread.h`, `src/cfw/thread.c`,

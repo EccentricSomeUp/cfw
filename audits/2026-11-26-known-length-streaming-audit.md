@@ -4,6 +4,7 @@
 
 - Date: 2026-11-26
 - Auditor: Devin (agent)
+- Commit: 29b15da
 - Scope: `cfw_response_t.stream_size` contract (`include/cfw/dispatch.h`),
   head formatting (`src/cfw/dispatch.c`), stream install/framing/pump
   enforcement (`src/cfw/server.c`), static middleware declaration

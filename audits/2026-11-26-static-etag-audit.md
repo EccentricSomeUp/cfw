@@ -4,6 +4,7 @@
 
 - Date: 2026-11-26
 - Auditor: Devin (agent)
+- Commit: 823ef93
 - Scope: entity-tag formatting and conditional evaluation in
   `src/cfw/static.c` (`cfw_static_format_etag`, `cfw_static_i64_dec`,
   `cfw_static_trim`, `cfw_static_etag_opaque`,

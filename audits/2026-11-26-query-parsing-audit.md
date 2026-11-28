@@ -4,6 +4,7 @@
 
 - Date: 2026-11-26
 - Auditor: Devin (agent)
+- Commit: ebbb7a5
 - Scope: `cfw_query_parse` (`include/cfw/query.h`, `src/cfw/query.c`),
   `cfw_http_target_query` (`include/cfw/http.h`, `src/cfw/http.c`),
   tests in `tests/unit/test_query.c`

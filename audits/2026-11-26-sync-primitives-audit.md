@@ -4,7 +4,7 @@
 
 - Date: 2026-11-26
 - Auditor: Devin (agent)
-- Commit: working tree on `main` post-v0.2.0
+- Commit: 66577a3
 - Category: audit catalog §4 (API misuse) and §5 (concurrency and
   cancellation)
 - Scope: `include/cfw/sync.h`, `src/cfw/sync.c`,

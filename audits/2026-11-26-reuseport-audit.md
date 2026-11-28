@@ -4,6 +4,7 @@
 
 - Date: 2026-11-26
 - Auditor: Devin (agent)
+- Commit: c4a71e7
 - Scope: `reuse_port` option on `cfw_server_options_t`, the
   `SO_REUSEPORT` setsockopt in `cfw_server_init`, and the
   `CFW_HAVE_SO_REUSEPORT` configure probe

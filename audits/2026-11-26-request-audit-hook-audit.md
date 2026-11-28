@@ -4,6 +4,7 @@
 
 - Date: 2026-11-26
 - Auditor: Devin (agent)
+- Commit: 2f2ed45
 - Scope: `cfw_request_done_fn` hook, `cfw_request_record_t`, and the
   per-connection audit state in `cfw_server_conn_t` (server.c)
 - Method: catalog-driven review per `docs/security/audit-catalog.md`

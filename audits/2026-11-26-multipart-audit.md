@@ -4,6 +4,7 @@
 
 - Date: 2026-11-26
 - Auditor: Devin (agent)
+- Commit: a61940f
 - Scope: `cfw_multipart_boundary`/`cfw_multipart_parse`
   (`include/cfw/multipart.h`, `src/cfw/multipart.c`), part-header
   reuse of `cfw_http_headers_next`, tests in

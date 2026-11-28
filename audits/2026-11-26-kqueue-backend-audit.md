@@ -4,7 +4,7 @@
 
 - Date: 2026-11-26
 - Auditor: Devin (agent)
-- Commit: working tree on `main` post-v0.2.0, ADR 0052
+- Commit: 1e8d2d5
 - Category: audit catalog §7 (platform-specific behavior) and §3
   (parser/protocol state machines — event-state handling)
 - Scope: `src/cfw/private/pollset.c` kqueue backend section,

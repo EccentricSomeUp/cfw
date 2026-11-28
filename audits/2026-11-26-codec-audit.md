@@ -4,6 +4,7 @@
 
 - Date: 2026-11-26
 - Auditor: Devin (agent)
+- Commit: a4d8574
 - Scope: `cfw_base64_*`, `cfw_hex_*` (`include/cfw/codec.h`,
   `src/cfw/codec.c`), ws.c refactor to shared base64,
   tests in `tests/unit/test_codec.c`

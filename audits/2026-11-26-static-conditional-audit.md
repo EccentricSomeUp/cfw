@@ -4,6 +4,7 @@
 
 - Date: 2026-11-26
 - Auditor: Devin (agent)
+- Commit: 178fcb3
 - Scope: `cfw_file_fstat`/`cfw_file_seek` (`include/cfw/fs.h`,
   `src/cfw/fs.c`), conditional/Range evaluation and ranged streaming
   in `src/cfw/static.c`, new status codes in `include/cfw/http.h` /

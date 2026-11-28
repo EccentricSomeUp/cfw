@@ -4,6 +4,7 @@
 
 - Date: 2026-11-26
 - Auditor: Devin (agent)
+- Commit: b5585d2
 - Scope: `cfw_uri_decode` (`include/cfw/uri.h`, `src/cfw/uri.c`),
   refactors of `cfw_query_parse` and `cfw_static_decode`, new
   `cfw_route_param_decode`, tests in `tests/unit/test_uri.c` and

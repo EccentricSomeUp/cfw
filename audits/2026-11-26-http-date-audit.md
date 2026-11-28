@@ -4,6 +4,7 @@
 
 - Date: 2026-11-26
 - Auditor: Devin (agent)
+- Commit: f037e2b
 - Scope: `cfw_http_date_parse` / `cfw_http_date_parse_at`
   (`include/cfw/http.h`, `src/cfw/http.c`) and tests in
   `tests/unit/test_http.c`

@@ -4,6 +4,7 @@
 
 - Date: 2026-11-26
 - Auditor: Devin (agent)
+- Commit: c5b2857
 - Scope: catalog item 10 (documentation and ABI) from
   `docs/security/audit-catalog.md`, plus the changes landed after
   `2026-11-26-post-roadmap-hardening-audit.md`

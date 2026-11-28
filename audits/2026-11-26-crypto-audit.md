@@ -4,6 +4,7 @@
 
 - Date: 2026-11-26
 - Auditor: Devin (agent)
+- Commit: 74b59da
 - Scope: `cfw_sha256_*`, `cfw_hmac_sha256`, `cfw_secure_equal`
   (`include/cfw/crypto.h`, `src/cfw/crypto.c`), tests in
   `tests/unit/test_crypto.c`

@@ -4,6 +4,7 @@
 
 - Date: 2026-11-26
 - Auditor: Devin (agent)
+- Commit: 91bfe5f
 - Scope: `101 Switching Protocols` connection takeover —
   `cfw_server_options_t.upgrade`, `cfw_upgraded_*` API, pending-buffer
   handoff, event delivery, and the `service_read`/`service_conn`

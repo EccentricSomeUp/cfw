@@ -4,7 +4,7 @@
 
 - Date: 2026-11-27
 - Auditor: Devin (agent)
-- Commit: <this change>
+- Commit: f9dd1a9
 - Category: audit catalog item 8 — cryptography and transport
 - Scope: `include/cfw/tls.h`, `src/cfw/tls.c`, `CMakeLists.txt`,
   `cmake/cfw-config.cmake.in`, `tests/unit/test_tls.c`,

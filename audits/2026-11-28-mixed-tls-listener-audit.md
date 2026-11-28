@@ -4,7 +4,7 @@
 
 - Date: 2026-11-28
 - Auditor: Devin (agent)
-- Commit: <this change>
+- Commit: c82554d
 - Category: audit catalog items 1 (memory safety), 3 (parser/protocol
   state machines), 4 (API misuse), 8 (cryptography and transport)
 - Scope: `src/cfw/server.c` (`cfw_server_conn_attach_tls`,
@@ -42,7 +42,7 @@
 
 | ID | Severity | Location | Summary | Disposition |
 |----|----------|----------|---------|-------------|
-| A-001 | medium | src/cfw/server.c accept | `cfw_http1_conn_init` failure path leaked the accepted fd (pre-existing; init fails before taking ownership) | fixed — fd now closed on init failure |
+| A-001 | medium | src/cfw/server.c accept | `cfw_http1_conn_init` failure path leaked the accepted fd (pre-existing; init fails before taking ownership) | fixed in c82554d — fd now closed on init failure |
 | A-002 | low | src/cfw/server.c detect | A client that connects and sends nothing keeps the conn until `request_timeout` — same bound as any stalled cleartext conn | accepted — deadline armed at accept covers the detect state |
 | A-003 | info | docs/decisions/0061 | Operators must not treat a detect port as "always encrypted"; cleartext peers get cleartext service by design | accepted — documented in ADR and header |
 
