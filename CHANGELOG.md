@@ -10,6 +10,8 @@ guarantees; starting with `1.0`, the public API and ABI are frozen under
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-28
+
 ### Added
 
 - `tools/analyzer/cfw_analyze`: a dependency-free Python static analyzer
