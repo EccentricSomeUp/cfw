@@ -3,7 +3,9 @@
 # cfw
 
 `cfw` is a security-focused web server framework written from scratch in
-C11 with no third-party runtime dependencies.
+C11 with no third-party runtime dependencies. The public API and ABI are
+frozen as of `v1.0`; compatibility rules are defined in
+[API and ABI stability](docs/api-stability.md).
 
 Implemented so far: core primitives (time, buffers, arenas, logging,
 randomness), platform abstractions (sockets, pollset, filesystem), a

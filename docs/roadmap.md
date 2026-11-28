@@ -111,15 +111,16 @@ audits/2026-11-27-tls-error-queue-isolation-audit.md).
 ## Phase 7: Hardening and 1.0 readiness
 
 - Full audit catalog pass — met (audits/2026-11-26-1.0-readiness-audit.md)
-- ABI/API freeze review — met (docs/api-stability.md; freeze applies at
-  the 1.0.0 tag; earlier 0.x tags remain unfrozen)
+- ABI/API freeze review — met (docs/api-stability.md; API/ABI frozen at
+  the `1.0.0` tag; earlier `0.x` tags remain unfrozen)
 - Platform matrix verification — met (docs/platform-matrix.md updated to
   implemented state)
 - Fuzz corpus stabilization — met (adversarial seeds added:
   framing conflicts, bare LF, obs-fold, chunked extensions,
   upgrade smuggling)
 - Documentation and migration completeness — met (README quickstart and
-  minimal-server example; migration guide N/A pre-1.0)
+  minimal-server example; no migration guide was needed for the `1.0.0`
+  transition)
 
 ## Post-1.0 direction
 

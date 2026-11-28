@@ -35,7 +35,8 @@ The following always require security review:
 
 - Run targeted audits for every security-relevant change.
 - Run a broad audit before each minor release.
-- Run a comprehensive audit before each major release and before 1.0.
+- Run a comprehensive audit before each major release, including freeze
+  releases such as `1.0.0`.
 - Re-run affected audits after fixes and record whether findings were resolved,
   accepted with rationale, or deferred.
 

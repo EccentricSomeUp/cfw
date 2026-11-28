@@ -7,12 +7,12 @@ and the rules governing the public surface going forward.
 
 ## Current status
 
-The project has not reached its stable release; `cfw_version_*` reports the
-development version. The public API is **not yet frozen** — additive and
-breaking changes are both permitted while the version is `0.x`, including
-in tagged `0.x.y` releases. The freeze applies only when `1.0.0` is tagged:
-semantic versioning then governs, and breaking changes require a major
-version and a migration note in `CHANGELOG.md`.
+The public API and ABI are frozen as of the `1.0` release.
+`cfw_version_*` reports the released version, and `CFW_ABI_VERSION` is `1`
+for the first stable ABI. Semantic versioning governs from `1.0` onward:
+breaking changes require a major version and a migration note in
+`CHANGELOG.md`. Releases before `1.0` (`0.x`) were unfrozen and may have
+changed without those guarantees.
 
 ## ABI versioning
 
@@ -39,9 +39,9 @@ ABI frozen at `1.0.0` — the first stable ABI. Rules:
   `cfw_http1_server_t`, `cfw_logger_t`, etc.) expose fields directly.
   This is the established project convention; callers must not mutate
   fields the documentation marks as managed. New fields may be appended
-  only at the end of public structs, and only in a minor release once
-  frozen — appending changes `sizeof`, which is ABI-visible for
-  stack-allocated users. Prefer opaque types for new modules.
+  only at the end of public structs, and only in a minor release —
+  appending changes `sizeof`, which is ABI-visible for stack-allocated
+  users. Prefer opaque types for new modules.
 - Enum types (`cfw_status_t`, `cfw_http_method_t`,
   `cfw_http_status_t`, event kinds) are append-only; existing values
   never change.

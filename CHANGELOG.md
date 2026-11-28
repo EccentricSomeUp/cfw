@@ -4,10 +4,16 @@
 
 All notable changes to this project will be documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
-semantic versioning; `0.x` releases carry no API/ABI stability guarantees —
-the freeze applies at `1.0.0` (see `docs/api-stability.md`).
+semantic versioning. Releases before `1.0` (`0.x`) carried no API/ABI stability
+guarantees; starting with `1.0`, the public API and ABI are frozen under
+`docs/api-stability.md`.
 
 ## [Unreleased]
+
+### Changed
+
+- The public API and ABI are frozen starting with `1.0` (see
+  `docs/api-stability.md`); earlier `0.x` releases remain unfrozen.
 
 ### Fixed
 

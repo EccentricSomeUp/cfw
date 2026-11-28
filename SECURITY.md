@@ -34,8 +34,8 @@ dependencies, and release artifacts.
 ## Supported versions
 
 Only the latest released version and the current development branch receive
-security fixes. Because the project is pre-1.0, API and ABI stability are not
-guaranteed until the stability policy is defined in a later decision record.
+security fixes. Public API and ABI compatibility is governed by
+`docs/api-stability.md`; the guarantees begin with the `1.0.0` release.
 
 ## Disclosure
 

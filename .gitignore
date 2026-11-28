@@ -23,6 +23,7 @@
 
 # Test and coverage output
 /coverage/
+/tests/fuzz/corpus/
 *.info
 *.profraw
 *.profdata

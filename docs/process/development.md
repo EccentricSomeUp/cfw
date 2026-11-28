@@ -98,4 +98,5 @@ staged rollout.
 - Tag releases only through `scripts/cfw-release.sh` per
   `docs/process/versioning.md`, and only after the relevant audit
   checklist has been completed.
-- Pre-1.0 releases may break API/ABI, but breaking changes must be documented.
+- Releases before `1.0` (`0.x`) could break API/ABI with documented
+  migration notes; `1.0` and later follow `docs/api-stability.md`.

@@ -4,9 +4,10 @@
 
 ## Current state
 
-`cfw` is a working, pre-1.0 HTTP/1.1 server framework. The core
-primitives (status, version, checked arithmetic, span/buffer, arena, time,
-random, logging, filesystem, fd ownership), the platform abstraction layer
+`cfw` is a working HTTP/1.1 server framework; the public API and ABI are
+frozen as of `1.0`. The core primitives (status, version, checked
+arithmetic, span/buffer, arena, time, random, logging, filesystem, fd
+ownership), the platform abstraction layer
 (page size, CSPRNG, file metadata, close), the portable socket/pollset/
 net layer, the HTTP/1.1 parser and connection binding, the router, the
 dispatch/middleware chain with streaming bodies, and the single-threaded
@@ -159,7 +160,8 @@ surface.
 
 ## Compatibility policy
 
-Until a stability decision record says otherwise:
+As of `1.0`, `docs/api-stability.md` applies; earlier `0.x` releases were
+unfrozen:
 
 - Minor versions may add APIs and fix behavior.
 - Patch versions may fix bugs without changing documented behavior.

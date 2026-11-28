@@ -36,13 +36,14 @@ releaser's responsibility.
 
 ## Required before 1.0
 
-- [x] Public API and ABI stability policy is accepted
-      (`docs/api-stability.md`; freeze applies at the 1.0.0 tag)
+- [x] Public API and ABI stability policy is accepted and frozen at
+      `1.0.0` (`docs/api-stability.md`)
 - [x] All critical and high audit findings are fixed or explicitly
-      accepted (`audits/2026-11-27-1-0-candidate-audit.md` — none open)
+      accepted (`audits/2026-11-27-1.0-candidate-audit.md` and
+      `audits/2026-11-28-1.0-final-verification-audit.md` — none open)
 - [x] Migration and deprecation policy is documented
       (`docs/api-stability.md` + `docs/process/versioning.md`; no
-      migration needed pre-1.0)
+      migration needed for the `1.0.0` transition)
 - [x] Security reporting process has been tested — channel documented
       in `docs/security/process.md` and GitHub Private Vulnerability
       Reporting enabled on the repository. Maintainer-side flow verified

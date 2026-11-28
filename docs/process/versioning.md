@@ -14,7 +14,7 @@ The project uses [Semantic Versioning](https://semver.org/) `MAJOR.MINOR.PATCH`.
   `project(cfw VERSION ...)` in `CMakeLists.txt`. `cfw_get_version*()` and
   the generated `cfw_config.h` derive from it; `CHANGELOG.md` section
   headings and git tags must match it.
-- Git tags are annotated tags named `vMAJOR.MINOR.PATCH` (e.g. `v0.2.0`),
+- Git tags are annotated tags named `vMAJOR.MINOR.PATCH` (e.g. `v1.1.0`),
   created on `main` only. Lightweight and moving tags are not used.
 - `vMAJOR.MINOR.PATCH-rc.N` prerelease tags are permitted for CI validation
   but are excluded from `.github/workflows/release.yml` and never produce a
@@ -31,7 +31,7 @@ The project uses [Semantic Versioning](https://semver.org/) `MAJOR.MINOR.PATCH`.
 | Additive public API/ABI, new modules, new features     | MINOR    |
 | Breaking public API/ABI change                        | MAJOR    |
 
-Additional rules while the version is `0.x` (pre-freeze, see
+Rules that applied to `0.x` releases (pre-freeze, see
 `docs/api-stability.md`):
 
 - `0.x` MINOR releases **may** contain breaking changes; every breaking
@@ -40,8 +40,8 @@ Additional rules while the version is `0.x` (pre-freeze, see
 - `0.x` MAJOR bumps are not used; the `0 → 1` transition is the freeze
   itself and additionally requires the "Required before 1.0" items in
   `docs/process/release-checklist.md`.
-- After `1.0.0`, the table above applies strictly and deprecations follow
-  `docs/api-stability.md`.
+- From `1.0.0` onward, the table above applies strictly and deprecations
+  follow `docs/api-stability.md`.
 
 When in doubt between PATCH and MINOR, choose MINOR: an unnecessary MINOR
 is cheap, an undersold breaking change is not.
@@ -53,7 +53,7 @@ All releases — whether cut by a human or an agent — go through the script:
 ```sh
 # 1. Land all changes on main; populate CHANGELOG.md [Unreleased].
 # 2. Decide the bump per the table above.
-scripts/cfw-release.sh 0.2.0 --push
+scripts/cfw-release.sh 1.1.0 --push
 ```
 
 The script, in order:
@@ -115,7 +115,6 @@ must ensure:
 
 ## Hotfixes and post-1.0 maintenance
 
-Until `1.0.0`, all releases are cut from `main`. After the freeze, patch
-releases for supported lines may be cut from a `release/X.Y` branch; that
-workflow will be defined by an ADR when needed. Do not create such branches
-pre-1.0.
+The `1.0.0` freeze was cut from `main`. Patch releases for supported
+lines may be cut from a `release/X.Y` branch once that workflow is defined
+by an ADR. Do not create such branches without an accepted ADR.
